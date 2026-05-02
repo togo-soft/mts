@@ -88,10 +88,10 @@ func TestMemoryMetaStore_NextSID(t *testing.T) {
 	store := NewMemoryMetaStore()
 
 	meta := &types.MeasurementMeta{
-		Version:    1,
+		Version:     1,
 		FieldSchema: []types.FieldDef{},
-		TagKeys:    []string{},
-		NextSID:    1,
+		TagKeys:     []string{},
+		NextSID:     1,
 	}
 
 	err := store.SetMeta(context.Background(), meta)
