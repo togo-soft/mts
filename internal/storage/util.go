@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 )
 
-// safeMkdirAll 创建目录，设置权限 0700
-func safeMkdirAll(path string, perm uint32) error {
+// SafeMkdirAll 创建目录，设置权限 0700
+func SafeMkdirAll(path string, perm uint32) error {
 	// 确保父目录存在
 	parent := filepath.Dir(path)
 	if parent != "" && parent != "." {
@@ -18,22 +18,22 @@ func safeMkdirAll(path string, perm uint32) error {
 	return os.MkdirAll(path, os.FileMode(perm))
 }
 
-// safeCreate 创建文件，设置权限 0600
-func safeCreate(path string, perm uint32) (*os.File, error) {
+// SafeCreate 创建文件，设置权限 0600
+func SafeCreate(path string, perm uint32) (*os.File, error) {
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
-		if err := safeMkdirAll(dir, 0700); err != nil {
+		if err := SafeMkdirAll(dir, 0700); err != nil {
 			return nil, err
 		}
 	}
 	return os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(perm))
 }
 
-// safeOpenFile 打开文件，设置权限
-func safeOpenFile(name string, flag int, perm uint32) (*os.File, error) {
+// SafeOpenFile 打开文件，设置权限
+func SafeOpenFile(name string, flag int, perm uint32) (*os.File, error) {
 	dir := filepath.Dir(name)
 	if dir != "" && dir != "." {
-		if err := safeMkdirAll(dir, 0700); err != nil {
+		if err := SafeMkdirAll(dir, 0700); err != nil {
 			return nil, err
 		}
 	}
