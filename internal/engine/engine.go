@@ -82,6 +82,11 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 		rows = e.filterFields(rows, req.Fields)
 	}
 
+	// Tag 过滤
+	if len(req.Tags) > 0 {
+		rows = e.filterTags(rows, req.Tags)
+	}
+
 	// 分页
 	totalCount := int64(len(rows))
 	if req.Offset > 0 {
@@ -125,6 +130,24 @@ func (e *Engine) filterFields(rows []types.PointRow, fields []string) []types.Po
 			Timestamp: row.Timestamp,
 			Tags:      row.Tags,
 			Fields:    filtered,
+		}
+	}
+	return result
+}
+
+// filterTags 根据指定 Tag 键值对过滤行数据
+func (e *Engine) filterTags(rows []types.PointRow, tags map[string]string) []types.PointRow {
+	result := make([]types.PointRow, 0, len(rows))
+	for _, row := range rows {
+		match := true
+		for k, v := range tags {
+			if row.Tags[k] != v {
+				match = false
+				break
+			}
+		}
+		if match {
+			result = append(result, row)
 		}
 	}
 	return result
