@@ -287,6 +287,54 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 	}
 }
 
+func TestEngine_Query_Concurrent(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+	defer func() {
+		_ = engine.Close()
+	}()
+
+	// 写入多个 shard 的数据
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 100; i++ {
+		p := &types.Point{
+			Database:    "db1",
+			Measurement: "cpu",
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   baseTime + int64(i)*int64(time.Hour), // 每小时一个 shard
+			Fields:      map[string]any{"usage": float64(i)},
+		}
+		if err := engine.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 查询跨多个 shard
+	req := &types.QueryRangeRequest{
+		Database:    "db1",
+		Measurement: "cpu",
+		StartTime:   baseTime,
+		EndTime:     baseTime + 100*int64(time.Hour),
+		Limit:       50,
+	}
+
+	resp, err := engine.Query(req)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if len(resp.Rows) != 50 {
+		t.Errorf("expected 50 rows, got %d", len(resp.Rows))
+	}
+}
+
 func TestEngine_Query_Pagination(t *testing.T) {
 	cfg := &Config{
 		DataDir:       t.TempDir(),
