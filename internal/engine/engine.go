@@ -90,6 +90,7 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 			defer wg.Done()
 			rows, err := s.Read(req.StartTime, req.EndTime)
 			if err != nil {
+				rowsCh <- []types.PointRow{} // send empty on error to avoid deadlock
 				return
 			}
 			rowsCh <- rows
