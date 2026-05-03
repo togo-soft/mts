@@ -50,6 +50,56 @@ func TestShard_Duration(t *testing.T) {
 	}
 }
 
+func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	s := NewShard("db1", "cpu", 0, time.Hour.Nanoseconds(), tmpDir)
+
+	// 写入数据到 MemTable
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e9,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]any{"usage": float64(i)},
+		}
+		err := s.Write(p)
+		if err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// Flush 到 SSTable
+	err := s.Flush()
+	if err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// 再写入一些数据到 MemTable
+	for i := 10; i < 20; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e9,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]any{"usage": float64(i)},
+		}
+		err := s.Write(p)
+		if err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// Read 应该合并 MemTable 和 SSTable
+	rows, err := s.Read(0, 20*1e9)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(rows) != 20 {
+		t.Errorf("expected 20 rows, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
 func TestShard_Flush(t *testing.T) {
 	tmpDir := t.TempDir()
 

@@ -2,6 +2,9 @@
 package shard
 
 import (
+	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -59,12 +62,14 @@ func (s *Shard) Write(point *types.Point) error {
 	return s.memTable.Write(point)
 }
 
-// Read 读取时间范围内的点
+// Read 读取时间范围内的点（合并 MemTable 和 SSTable）
 func (s *Shard) Read(startTime, endTime int64) ([]types.PointRow, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var rows []types.PointRow
+
+	// 1. 从 MemTable 读取
 	iter := s.memTable.Iterator()
 	for iter.Next() {
 		p := iter.Point()
@@ -77,7 +82,39 @@ func (s *Shard) Read(startTime, endTime int64) ([]types.PointRow, error) {
 		}
 	}
 
+	// 2. 从 SSTable 读取
+	sstRows, err := s.readFromSSTable(startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, sstRows...)
+
+	// 3. 按时间排序
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Timestamp < rows[j].Timestamp
+	})
+
 	return rows, nil
+}
+
+// readFromSSTable 从 SSTable 读取时间范围内的数据
+func (s *Shard) readFromSSTable(startTime, endTime int64) ([]types.PointRow, error) {
+	dataDir := filepath.Join(s.dir, "data")
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		return nil, nil // 没有 SSTable
+	}
+
+	r, err := sstable.NewReader(dataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.ReadRange(startTime, endTime)
+	if closeErr := r.Close(); closeErr != nil {
+		return nil, closeErr
+	}
+
+	return rows, err
 }
 
 // Flush 将 MemTable 数据刷写到 SSTable
