@@ -1,5 +1,5 @@
-// tests/data_gen.go
-package tests
+// tests/e2e/pkg/data_gen/data_gen.go
+package data_gen
 
 import (
 	"math/rand"
