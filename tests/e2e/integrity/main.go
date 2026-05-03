@@ -11,6 +11,7 @@ import (
 	"micro-ts"
 	"micro-ts/internal/types"
 	"micro-ts/tests/e2e/pkg/data_gen"
+	"micro-ts/tests/e2e/pkg/metrics"
 )
 
 func main() {
@@ -35,9 +36,12 @@ func main() {
 	const count = 100000
 	expectedPoints := make([]*types.Point, count)
 
+	metrics.GC()
+	memBeforeWrite := metrics.ReadMemStats()
+	fmt.Printf("Before write: %s\n", metrics.FormatMemStats(memBeforeWrite))
 	fmt.Printf("Generating and writing %d points...\n", count)
-	writeStart := time.Now()
 
+	timer := metrics.NewTimer()
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
@@ -47,11 +51,22 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	writeElapsed := timer.Elapsed()
 
-	fmt.Printf("Write completed in %v\n", time.Since(writeStart))
+	metrics.GC()
+	memAfterWrite := metrics.ReadMemStats()
+	writeDelta := metrics.CalcDelta(memBeforeWrite, memAfterWrite)
+
+	fmt.Printf("Write completed in %v, TPS: %.2f\n", writeElapsed, metrics.TPS(count, writeElapsed))
+	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfterWrite))
+	fmt.Printf("Write memory delta: %s\n\n", writeDelta.Format())
 
 	fmt.Printf("Reading back data...\n")
-	readStart := time.Now()
+	metrics.GC()
+	memBeforeRead := metrics.ReadMemStats()
+	fmt.Printf("Before read: %s\n", metrics.FormatMemStats(memBeforeRead))
+
+	readTimer := metrics.NewTimer()
 	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
@@ -59,11 +74,20 @@ func main() {
 		EndTime:     baseTime + int64(count)*int64(time.Second),
 		Limit:       0,
 	})
+	readElapsed := readTimer.Elapsed()
+
 	if err != nil {
 		fmt.Printf("Query failed: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Read completed in %v\n", time.Since(readStart))
+
+	metrics.GC()
+	memAfterRead := metrics.ReadMemStats()
+	readDelta := metrics.CalcDelta(memBeforeRead, memAfterRead)
+
+	fmt.Printf("Read completed in %v, TPS: %.2f\n", readElapsed, metrics.TPS(len(resp.Rows), readElapsed))
+	fmt.Printf("After read: %s\n", metrics.FormatMemStats(memAfterRead))
+	fmt.Printf("Read memory delta: %s\n\n", readDelta.Format())
 
 	// 验证数量
 	if int(resp.TotalCount) != count {
