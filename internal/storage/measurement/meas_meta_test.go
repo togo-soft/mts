@@ -82,3 +82,64 @@ func TestTagsEqual(t *testing.T) {
 		t.Error("tags with different content should not be equal")
 	}
 }
+
+func TestMeasurementMetaStore_AllocateSID(t *testing.T) {
+	m := NewMeasurementMetaStore()
+
+	tags1 := map[string]string{"host": "server1"}
+	sid1 := m.AllocateSID(tags1)
+	if sid1 != 0 {
+		t.Errorf("first SID should be 0, got %d", sid1)
+	}
+
+	// 相同 tags 应该返回相同 SID
+	sid1Again := m.AllocateSID(tags1)
+	if sid1Again != sid1 {
+		t.Errorf("same tags should return same SID, got %d vs %d", sid1Again, sid1)
+	}
+
+	// 不同 tags 应该返回新 SID
+	tags2 := map[string]string{"host": "server2"}
+	sid2 := m.AllocateSID(tags2)
+	if sid2 != 1 {
+		t.Errorf("second SID should be 1, got %d", sid2)
+	}
+}
+
+func TestMeasurementMetaStore_GetTagsBySID(t *testing.T) {
+	m := NewMeasurementMetaStore()
+
+	tags := map[string]string{"host": "server1", "region": "us"}
+	sid := m.AllocateSID(tags)
+
+	retrieved, ok := m.GetTagsBySID(sid)
+	if !ok {
+		t.Error("GetTagsBySID should return true")
+	}
+	if !tagsEqual(retrieved, tags) {
+		t.Error("retrieved tags should match original")
+	}
+
+	// 不存在的 SID
+	_, ok = m.GetTagsBySID(999)
+	if ok {
+		t.Error("GetTagsBySID for non-existent SID should return false")
+	}
+}
+
+func TestMeasurementMetaStore_GetSidsByTag(t *testing.T) {
+	m := NewMeasurementMetaStore()
+
+	tags1 := map[string]string{"host": "server1", "region": "us"}
+	tags2 := map[string]string{"host": "server2", "region": "us"}
+	tags3 := map[string]string{"host": "server3", "region": "eu"}
+
+	m.AllocateSID(tags1)
+	m.AllocateSID(tags2)
+	m.AllocateSID(tags3)
+
+	sids := m.GetSidsByTag("region", "us")
+	if len(sids) != 2 {
+		t.Errorf("region=us should have 2 sids, got %d", len(sids))
+	}
+}
