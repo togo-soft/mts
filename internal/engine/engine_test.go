@@ -286,3 +286,79 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 		t.Errorf("expected host=server1, got host=%s", resp.Rows[0].Tags["host"])
 	}
 }
+
+func TestEngine_Query_Pagination(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+	defer func() {
+		_ = engine.Close()
+	}()
+
+	now := time.Now().UnixNano()
+
+	// 写入 100 条数据
+	points := make([]*types.Point, 100)
+	for i := 0; i < 100; i++ {
+		points[i] = &types.Point{
+			Database:    "db1",
+			Measurement: "cpu",
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   now + int64(i)*1e9,
+			Fields:      map[string]any{"usage": float64(i)},
+		}
+	}
+	err = engine.WriteBatch(points)
+	if err != nil {
+		t.Fatalf("WriteBatch failed: %v", err)
+	}
+
+	// 查询前 10 条
+	req := &types.QueryRangeRequest{
+		Database:    "db1",
+		Measurement: "cpu",
+		StartTime:   now,
+		EndTime:     now + 100*1e9,
+		Offset:      0,
+		Limit:       10,
+	}
+
+	resp, err := engine.Query(req)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if len(resp.Rows) != 10 {
+		t.Errorf("expected 10 rows, got %d", len(resp.Rows))
+	}
+
+	if resp.TotalCount != 100 {
+		t.Errorf("expected TotalCount=100, got %d", resp.TotalCount)
+	}
+
+	if !resp.HasMore {
+		t.Errorf("expected HasMore=true")
+	}
+
+	// 查询第 20-30 条 (offset=20, limit=10)
+	req.Offset = 20
+	resp, err = engine.Query(req)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if len(resp.Rows) != 10 {
+		t.Errorf("expected 10 rows, got %d", len(resp.Rows))
+	}
+
+	// 验证是第 20-29 条数据
+	if resp.Rows[0].Fields["usage"] != float64(20) {
+		t.Errorf("expected first row usage=20, got %v", resp.Rows[0].Fields["usage"])
+	}
+}
