@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"micro-ts/internal/engine"
+	"micro-ts/internal/query"
 	"micro-ts/internal/types"
 )
 
@@ -50,6 +51,11 @@ func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 // QueryRange 范围查询
 func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
 	return db.engine.Query(req)
+}
+
+// QueryIterator 创建流式查询迭代器
+func (db *DB) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {
+	return db.engine.QueryIterator(ctx, req)
 }
 
 // ListMeasurements 列出 Measurement

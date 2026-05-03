@@ -21,28 +21,18 @@
 │                         Query 执行流程                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  QueryIterator                                                 │
+│  第一层：Shard 时间边界过滤（ShardManager.GetShards）             │
 │       │                                                         │
-│       ├── time range: [startTime, endTime)                     │
-│       ├── tag filter: {host: "server1"}                       │
-│       └── fields: ["usage", "cpu"]                            │
+│       ├── 根据 startTime/endTime 返回相交的 Shards               │
+│       └── Shard 自带 startTime/endTime 边界                     │
 │                           │                                     │
 │                           ▼                                     │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  Shard Iterator (per shard)                          │    │
-│  │       │                                                 │    │
-│  │       ├── MemTable Iterator (内存数据)                  │    │
-│  │       │                                                │    │
-│  │       └── SSTable Iterator (磁盘数据)                   │    │
-│  │              - 块级时间索引，二分查找目标 block          │    │
-│  │              - 按时间顺序合并 MemTable + SSTable         │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                           │                                     │
-│                           ▼                                     │
-│                 Channel <- PointRow                             │
-│                           │                                     │
-│                           ▼                                     │
-│              Filter (tag/field projection)                      │
+│  第二层：QueryIterator（流式迭代）                               │
+│       │                                                         │
+│       ├── ShardIterator（归并 MemTable + SSTable）              │
+│       │       - 按 timestamp 有序输出                             │
+│       │                                                         │
+│       └── tag filter / field projection                         │
 │                           │                                     │
 │                           ▼                                     │
 │                    Limit / Offset                               │
@@ -52,6 +42,15 @@
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### 2.2 核心设计原则
+
+| 层级 | 过滤方式 | 说明 |
+|------|----------|------|
+| 第一层 | Shard 时间边界 | GetShards 返回与查询范围相交的 Shards |
+| 第二层 | ShardIterator 归并 | MemTable + SSTable 按 timestamp 有序归并 |
+| 第三层 | tag/field filter | 应用标签过滤和字段投影 |
+| 第四层 | Limit/Offset | 控制返回数量 |
 
 ### 2.2 核心组件
 
@@ -387,21 +386,16 @@ for _, s := range shards {
 
 ## 7. 实现计划
 
-### Phase 1: SSTable 块级时间索引
-- [ ] 重构 SSTable Writer，写入时生成 index block
-- [ ] 实现 SSTable Reader 的 seekBlock 方法
-- [ ] 读取时使用时间索引定位 block
-
-### Phase 2: ShardIterator
+### Phase 1: ShardIterator
 - [ ] 实现 ShardIterator，按 timestamp 归并 MemTable + SSTable
 - [ ] 实现 ShardIterator 的 Next/Points 方法
 
-### Phase 3: QueryIterator
+### Phase 2: QueryIterator
 - [ ] 实现 QueryIterator，内部管理多 Shard 迭代
 - [ ] 实现 tag filter 和 field projection
 - [ ] 实现 offset/limit 逻辑
 
-### Phase 4: API 集成
+### Phase 3: API 集成
 - [ ] DB.QueryIterator 方法
 - [ ] 重构 DB.QueryRange 使用 Iterator
 - [ ] E2E 测试验证
@@ -412,6 +406,5 @@ for _, s := range shards {
 
 - [ ] 查询 1M 数据，内存占用不随数据量增长（受 batchSize 限制）
 - [ ] 分页查询正确返回指定 offset/limit
-- [ ] SSTable 时间索引生效，只读取相关 block
 - [ ] 多 Shard 查询结果按时间有序归并
 - [ ] E2E 完整性测试通过

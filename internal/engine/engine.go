@@ -2,10 +2,13 @@
 package engine
 
 import (
+	"context"
+	"errors"
 	"sort"
 	"sync"
 	"time"
 
+	"micro-ts/internal/query"
 	"micro-ts/internal/storage/measurement"
 	"micro-ts/internal/storage/shard"
 	"micro-ts/internal/types"
@@ -187,4 +190,19 @@ func (e *Engine) filterTags(rows []types.PointRow, tags map[string]string) []typ
 		}
 	}
 	return result
+}
+
+// QueryIterator 创建流式查询迭代器
+func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {
+	// 将查询时间从毫秒转换为纳秒，以便与 Shard 时间范围比较
+	startTimeNs := req.StartTime * 1e6
+	endTimeNs := req.EndTime * 1e6
+
+	// 获取相交的 Shards
+	shards := e.shardManager.GetShards(req.Database, req.Measurement, startTimeNs, endTimeNs)
+	if len(shards) == 0 {
+		return nil, errors.New("no shards found")
+	}
+
+	return query.NewQueryIterator(ctx, shards, req), nil
 }
