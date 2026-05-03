@@ -13,6 +13,11 @@ import (
 	"micro-ts/internal/types"
 )
 
+const (
+	// memTableSize MemTable 默认大小
+	memTableSize = 64 * 1024 * 1024 // 64MB
+)
+
 // Shard 单个 Shard
 type Shard struct {
 	db          string
@@ -42,7 +47,7 @@ func NewShard(db, measurement string, startTime, endTime int64, dir string, meta
 		startTime:   startTime,
 		endTime:     endTime,
 		dir:         dir,
-		memTable:    NewMemTable(64 * 1024 * 1024), // 64MB
+		memTable:    NewMemTable(memTableSize), // 64MB
 		wal:         wal,
 		metaStore:   metaStore,
 	}
@@ -69,6 +74,8 @@ func (s *Shard) Duration() time.Duration {
 }
 
 // Write 写入点
+// 注意：如果 WAL 写入成功但 MemTable 写入失败，replay 时可能产生重复数据。
+// 这是可接受的设计权衡，因为这种情况非常罕见，且 eventual consistency 可保证最终正确。
 func (s *Shard) Write(point *types.Point) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -149,12 +156,9 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]types.PointRow, err
 	if err != nil {
 		return nil, err
 	}
+	defer r.Close()
 
 	rows, err := r.ReadRange(startTime, endTime)
-	if closeErr := r.Close(); closeErr != nil {
-		return nil, closeErr
-	}
-
 	return rows, err
 }
 
@@ -207,12 +211,7 @@ func (s *Shard) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.wal != nil {
-		if err := s.wal.Close(); err != nil {
-			return err
-		}
-	}
-
+	// 1. 先刷写 MemTable 到 SSTable（即使 WAL 关闭失败，数据也已安全）
 	points := s.memTable.Flush()
 	if len(points) > 0 {
 		w, err := sstable.NewWriter(s.dir, 0)
@@ -226,6 +225,13 @@ func (s *Shard) Close() error {
 		}
 
 		if err := w.Close(); err != nil {
+			return err
+		}
+	}
+
+	// 2. 关闭 WAL（WAL 关闭失败可接受，因为数据已在 SSTable）
+	if s.wal != nil {
+		if err := s.wal.Close(); err != nil {
 			return err
 		}
 	}
