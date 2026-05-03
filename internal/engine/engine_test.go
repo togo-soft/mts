@@ -224,3 +224,65 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 		t.Errorf("temperature field should not be present")
 	}
 }
+
+func TestEngine_Query_TagFilter(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+	defer func() {
+		_ = engine.Close()
+	}()
+
+	now := time.Now().UnixNano()
+
+	// 写入不同 host 的数据
+	points := []*types.Point{
+		{
+			Database:    "db1",
+			Measurement: "cpu",
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   now,
+			Fields:      map[string]any{"usage": 85.5},
+		},
+		{
+			Database:    "db1",
+			Measurement: "cpu",
+			Tags:        map[string]string{"host": "server2"},
+			Timestamp:   now + 1e9,
+			Fields:      map[string]any{"usage": 90.0},
+		},
+	}
+
+	err = engine.WriteBatch(points)
+	if err != nil {
+		t.Fatalf("WriteBatch failed: %v", err)
+	}
+
+	// 只查询 host=server1 的数据
+	req := &types.QueryRangeRequest{
+		Database:    "db1",
+		Measurement: "cpu",
+		StartTime:   now,
+		EndTime:     now + 2e9,
+		Tags:        map[string]string{"host": "server1"}, // Tag 过滤
+	}
+
+	resp, err := engine.Query(req)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if len(resp.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(resp.Rows))
+	}
+
+	if resp.Rows[0].Tags["host"] != "server1" {
+		t.Errorf("expected host=server1, got host=%s", resp.Rows[0].Tags["host"])
+	}
+}
