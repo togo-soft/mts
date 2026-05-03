@@ -172,6 +172,12 @@ func TestWAL_StartPeriodicSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWAL failed: %v", err)
 	}
+	// 确保 WAL 关闭，防止 goroutine 泄露
+	defer func() {
+		if closeErr := wal.Close(); closeErr != nil {
+			t.Errorf("Close failed: %v", closeErr)
+		}
+	}()
 
 	// 写入序列化的 point
 	p := &types.Point{
@@ -193,7 +199,7 @@ func TestWAL_StartPeriodicSync(t *testing.T) {
 	done := make(chan struct{})
 	wal.StartPeriodicSync(100*time.Millisecond, done)
 
-	// 等待 250ms，确保至少 sync 了 2 次
+	// 等待 250ms，确保至少 sync 了 2 次（100ms 间隔 * 2 + 缓冲时间）
 	time.Sleep(250 * time.Millisecond)
 	close(done)
 
