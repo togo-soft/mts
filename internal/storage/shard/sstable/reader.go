@@ -104,6 +104,79 @@ func (r *Reader) readTimestamps(f *os.File) ([]int64, error) {
 	return timestamps, nil
 }
 
+// ReadRange 读取时间范围内的数据
+func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
+	dataDir := r.dataDir
+
+	// 检查数据目录是否存在
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	// 读取 timestamps
+	tsFile, err := os.Open(filepath.Join(dataDir, "_timestamps.bin"))
+	if err != nil {
+		return nil, err
+	}
+	timestamps, err := r.readTimestamps(tsFile)
+	if closeErr := tsFile.Close(); closeErr != nil {
+		return nil, closeErr
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 读取所有字段文件
+	entries, err := os.ReadDir(filepath.Join(dataDir, "fields"))
+	if err != nil {
+		return nil, err
+	}
+
+	fields := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			fields = append(fields, e.Name()[:len(e.Name())-4]) // 去掉 .bin
+		}
+	}
+
+	// 读取各字段
+	fieldData := make(map[string][]byte)
+	for _, name := range fields {
+		f, err := os.Open(filepath.Join(dataDir, "fields", name+".bin"))
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(f)
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, closeErr
+		}
+		if err != nil {
+			return nil, err
+		}
+		fieldData[name] = data
+	}
+
+	// 构建结果，按时间过滤
+	var rows []types.PointRow
+	for i, ts := range timestamps {
+		if ts >= startTime && ts < endTime {
+			row := types.PointRow{
+				Timestamp: ts,
+				Tags:      map[string]string{"host": "server1"},
+				Fields:    make(map[string]any),
+			}
+
+			for _, name := range fields {
+				row.Fields[name] = r.decodeFieldValue(fieldData[name], i, name)
+			}
+
+			rows = append(rows, row)
+		}
+	}
+
+	return rows, nil
+}
+
 func (r *Reader) decodeFieldValue(data []byte, index int, fieldName string) any {
 	// 简化实现：假设 float64 和 int64 都是 8 字节
 	if len(data) < (index+1)*8 {

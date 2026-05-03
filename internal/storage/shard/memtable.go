@@ -79,7 +79,6 @@ func (m *MemTable) Flush() []*types.Point {
 
 // Iterator 迭代器
 func (m *MemTable) Iterator() *MemTableIterator {
-	m.mu.RLock()
 	return &MemTableIterator{
 		entries: m.entries,
 		pos:     -1,
