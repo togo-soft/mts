@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ func main() {
 	defer os.RemoveAll(tmpDir)
 
 	cfg := microts.Config{
-		DataDir:        tmpDir,
+		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 	}
 
@@ -36,7 +37,7 @@ func main() {
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
-		if err := db.Write(nil, p); err != nil {
+		if err := db.Write(context.Background(), p); err != nil {
 			fmt.Printf("Write failed at %d: %v\n", i, err)
 			os.Exit(1)
 		}
