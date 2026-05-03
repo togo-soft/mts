@@ -2,6 +2,7 @@
 package engine
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -68,36 +69,70 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 	// 获取相交的 Shard
 	shards := e.shardManager.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
 
-	var rows []types.PointRow
+	if len(shards) == 0 {
+		return &types.QueryRangeResponse{
+			Database:    req.Database,
+			Measurement: req.Measurement,
+			StartTime:   req.StartTime,
+			EndTime:     req.EndTime,
+			TotalCount:  0,
+			Rows:        []types.PointRow{},
+		}, nil
+	}
+
+	// 并发读取所有 Shard
+	rowsCh := make(chan []types.PointRow, len(shards))
+	var wg sync.WaitGroup
+
 	for _, s := range shards {
-		r, err := s.Read(req.StartTime, req.EndTime)
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, r...)
+		wg.Add(1)
+		go func(s *shard.Shard) {
+			defer wg.Done()
+			rows, err := s.Read(req.StartTime, req.EndTime)
+			if err != nil {
+				return
+			}
+			rowsCh <- rows
+		}(s)
+	}
+
+	go func() {
+		wg.Wait()
+		close(rowsCh)
+	}()
+
+	// 合并结果
+	var allRows []types.PointRow
+	for rows := range rowsCh {
+		allRows = append(allRows, rows...)
+	}
+
+	// 按时间排序
+	sort.Slice(allRows, func(i, j int) bool {
+		return allRows[i].Timestamp < allRows[j].Timestamp
+	})
+
+	// Tag 过滤
+	if len(req.Tags) > 0 {
+		allRows = e.filterTags(allRows, req.Tags)
 	}
 
 	// 字段过滤
 	if len(req.Fields) > 0 {
-		rows = e.filterFields(rows, req.Fields)
-	}
-
-	// Tag 过滤
-	if len(req.Tags) > 0 {
-		rows = e.filterTags(rows, req.Tags)
+		allRows = e.filterFields(allRows, req.Fields)
 	}
 
 	// 分页
-	totalCount := int64(len(rows))
+	totalCount := int64(len(allRows))
 	if req.Offset > 0 {
-		if req.Offset < int64(len(rows)) {
-			rows = rows[req.Offset:]
+		if req.Offset < int64(len(allRows)) {
+			allRows = allRows[req.Offset:]
 		} else {
-			rows = nil
+			allRows = nil
 		}
 	}
-	if req.Limit > 0 && int64(len(rows)) > req.Limit {
-		rows = rows[:req.Limit]
+	if req.Limit > 0 && int64(len(allRows)) > req.Limit {
+		allRows = allRows[:req.Limit]
 	}
 
 	return &types.QueryRangeResponse{
@@ -106,8 +141,8 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
 		TotalCount:  totalCount,
-		HasMore:     req.Limit > 0 && int64(len(rows)) >= req.Limit,
-		Rows:        rows,
+		HasMore:     req.Limit > 0 && int64(len(allRows)) >= req.Limit,
+		Rows:        allRows,
 	}, nil
 }
 
