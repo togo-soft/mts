@@ -3,38 +3,53 @@ package microts
 
 import (
 	"context"
+	"time"
 
+	"micro-ts/internal/engine"
 	"micro-ts/internal/types"
 )
 
 // Config 配置
 type Config struct {
-	DataDir string
+	DataDir       string
+	ShardDuration time.Duration
 }
 
 // DB 数据库
 type DB struct {
-	cfg *Config
+	engine *engine.Engine
 }
 
 // Open 打开数据库
 func Open(cfg Config) (*DB, error) {
-	return &DB{cfg: &cfg}, nil
+	// 默认ShardDuration为7天
+	shardDuration := cfg.ShardDuration
+	if shardDuration == 0 {
+		shardDuration = 7 * 24 * time.Hour
+	}
+	eng, err := engine.NewEngine(&engine.Config{
+		DataDir:       cfg.DataDir,
+		ShardDuration: shardDuration,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &DB{engine: eng}, nil
 }
 
 // Write 写入单个点
 func (db *DB) Write(ctx context.Context, point *types.Point) error {
-	return nil
+	return db.engine.Write(point)
 }
 
 // WriteBatch 批量写入
 func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
-	return nil
+	return db.engine.WriteBatch(points)
 }
 
 // QueryRange 范围查询
 func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
-	return &types.QueryRangeResponse{}, nil
+	return db.engine.Query(req)
 }
 
 // ListMeasurements 列出 Measurement
@@ -44,5 +59,5 @@ func (db *DB) ListMeasurements(ctx context.Context, database string) ([]string, 
 
 // Close 关闭数据库
 func (db *DB) Close() error {
-	return nil
+	return db.engine.Close()
 }
