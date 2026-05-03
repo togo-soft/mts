@@ -1,24 +1,37 @@
-// internal/storage/shard/sstable/writer_test.go
 package sstable
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"micro-ts/internal/types"
 )
 
-func TestWriter_WriteTimestampBlock(t *testing.T) {
+func TestWriter_WritePoints(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(filepath.Join(tmpDir, "timestamps.bin"))
+	w, err := NewWriter(tmpDir, 0)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
 
-	timestamps := []int64{1000, 2000, 3000}
-	err = w.WriteTimestampBlock(timestamps)
+	points := []*types.Point{
+		{
+			Timestamp: 1000,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]any{"usage": 85.5, "count": int64(100)},
+		},
+		{
+			Timestamp: 2000,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]any{"usage": 90.0, "count": int64(200)},
+		},
+	}
+
+	err = w.WritePoints(points)
 	if err != nil {
-		t.Fatalf("WriteTimestampBlock failed: %v", err)
+		t.Fatalf("WritePoints failed: %v", err)
 	}
 
 	err = w.Close()
@@ -26,12 +39,25 @@ func TestWriter_WriteTimestampBlock(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	// 验证文件存在
-	info, err := os.Stat(filepath.Join(tmpDir, "timestamps.bin"))
+	// 验证 timestamp 文件存在
+	tsPath := filepath.Join(tmpDir, "data", "_timestamps.bin")
+	info, err := os.Stat(tsPath)
 	if err != nil {
-		t.Fatalf("stat failed: %v", err)
+		t.Fatalf("stat timestamp file failed: %v", err)
 	}
 	if info.Size() == 0 {
-		t.Errorf("file should not be empty")
+		t.Errorf("timestamp file should not be empty")
+	}
+
+	// 验证 field 文件存在
+	for _, name := range []string{"usage", "count"} {
+		fieldPath := filepath.Join(tmpDir, "data", "fields", name+".bin")
+		info, err := os.Stat(fieldPath)
+		if err != nil {
+			t.Fatalf("stat field %s file failed: %v", name, err)
+		}
+		if info.Size() == 0 {
+			t.Errorf("field %s file should not be empty", name)
+		}
 	}
 }
