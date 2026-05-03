@@ -3,13 +3,18 @@ package measurement
 import "testing"
 
 func TestTagsHash(t *testing.T) {
+	emptyTags := map[string]string{}
+	singleTag := map[string]string{"host": "server1"}
+	multipleTags := map[string]string{"host": "server1", "region": "us"}
+	differentTags := map[string]string{"host": "server2", "region": "eu"}
+
 	tests := []struct {
 		name string
 		tags map[string]string
 	}{
-		{"empty", map[string]string{}},
-		{"single", map[string]string{"host": "server1"}},
-		{"multiple", map[string]string{"host": "server1", "region": "us"}},
+		{"empty", emptyTags},
+		{"single", singleTag},
+		{"multiple", multipleTags},
 	}
 
 	for _, tt := range tests {
@@ -19,6 +24,26 @@ func TestTagsHash(t *testing.T) {
 				t.Error("hash should not be 0 for non-empty tags")
 			}
 		})
+	}
+
+	// Verify different inputs produce different hashes
+	h1 := tagsHash(singleTag)
+	h2 := tagsHash(multipleTags)
+	h3 := tagsHash(differentTags)
+
+	if h1 == h2 {
+		t.Error("hash of single tag and multiple tags should differ")
+	}
+	if h1 == h3 {
+		t.Error("hash of single tag and different tags should differ")
+	}
+	if h2 == h3 {
+		t.Error("hash of multiple tags and different tags should differ")
+	}
+
+	// Empty tags must hash to 0
+	if h := tagsHash(emptyTags); h != 0 {
+		t.Errorf("empty tags should hash to 0, got %d", h)
 	}
 }
 

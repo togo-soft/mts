@@ -18,10 +18,15 @@ func tagsHash(tags map[string]string) uint64 {
 	var h uint64 = 14695981039346656037 // FNV offset basis
 	for _, k := range keys {
 		v := tags[k]
-		h ^= uint64(len(k))
-		h *= 1099511628211
-		h ^= uint64(len(v))
-		h *= 1099511628211
+		// Use FNV-1a hash combining key and value content
+		for i := 0; i < len(k); i++ {
+			h ^= uint64(k[i])
+			h *= 1099511628211
+		}
+		for i := 0; i < len(v); i++ {
+			h ^= uint64(v[i])
+			h *= 1099511628211
+		}
 	}
 	return h
 }
@@ -31,8 +36,15 @@ func tagsEqual(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
 	}
+	// Check a subset of b
 	for k, v := range a {
 		if b[k] != v {
+			return false
+		}
+	}
+	// Check b subset of a (redundant but explicit)
+	for k, v := range b {
+		if a[k] != v {
 			return false
 		}
 	}
