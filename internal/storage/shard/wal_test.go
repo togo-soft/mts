@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"micro-ts/internal/types"
 )
@@ -161,5 +162,53 @@ func TestWAL_Replay(t *testing.T) {
 	}
 	if usage != 85.5 {
 		t.Errorf("expected usage 85.5, got %f", usage)
+	}
+}
+
+func TestWAL_StartPeriodicSync(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	wal, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入序列化的 point
+	p := &types.Point{
+		Timestamp: 1000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields:    map[string]any{"usage": 85.5},
+	}
+
+	data, err := serializePoint(p)
+	if err != nil {
+		t.Fatalf("serializePoint failed: %v", err)
+	}
+
+	if _, err := wal.Write(data); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// 启动 periodic sync，间隔 100ms
+	done := make(chan struct{})
+	wal.StartPeriodicSync(100*time.Millisecond, done)
+
+	// 等待 250ms，确保至少 sync 了 2 次
+	time.Sleep(250 * time.Millisecond)
+	close(done)
+
+	// 验证数据已刷盘（通过重新打开 WAL）
+	wal2, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL for verify failed: %v", err)
+	}
+	defer wal2.Close()
+
+	points, err := ReplayWAL(tmpDir)
+	if err != nil {
+		t.Fatalf("ReplayWAL failed: %v", err)
+	}
+	if len(points) != 1 {
+		t.Errorf("expected 1 point, got %d", len(points))
 	}
 }

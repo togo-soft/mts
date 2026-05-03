@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"micro-ts/internal/storage"
 	"micro-ts/internal/types"
@@ -99,6 +100,25 @@ func (w *WAL) Sync() error {
 		return err
 	}
 	return w.file.Sync()
+}
+
+// StartPeriodicSync 启动定期 Sync goroutine
+func (w *WAL) StartPeriodicSync(interval time.Duration, done <-chan struct{}) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := w.Sync(); err != nil {
+					// log error but don't stop
+					fmt.Printf("WAL Sync error: %v\n", err)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
 }
 
 // Sequence 返回当前序列号
