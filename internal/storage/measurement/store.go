@@ -27,9 +27,9 @@ type MetaStore interface {
 	AddTagIndex(ctx context.Context, tagKey, tagValue string, sid uint64) error
 
 	// 持久化到磁盘
-	Persist(ctx context.Context) error
+	Persist(ctx context.Context, path string) error
 	// 从磁盘加载
-	Load(ctx context.Context) error
+	Load(ctx context.Context, path string) error
 	// 关闭
 	Close() error
 }
