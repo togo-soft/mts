@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"micro-ts/internal/storage/measurement"
 	"micro-ts/internal/storage/shard/sstable"
 	"micro-ts/internal/types"
 )
@@ -20,18 +21,30 @@ type Shard struct {
 	endTime     int64
 	dir         string
 	memTable    *MemTable
+	wal         *WAL                              // 新增
+	metaStore   *measurement.MeasurementMetaStore // 新增
 	mu          sync.RWMutex
 }
 
 // NewShard 创建 Shard
-func NewShard(db, measurement string, startTime, endTime int64, dir string) *Shard {
+func NewShard(db, measurement string, startTime, endTime int64, dir string, metaStore *measurement.MeasurementMetaStore) *Shard {
+	// 创建 WAL
+	walDir := filepath.Join(dir, "wal")
+	wal, err := NewWAL(walDir, 0)
+	if err != nil {
+		// 如果 WAL 创建失败，使用 nil wal
+		wal = nil
+	}
+
 	return &Shard{
 		db:          db,
 		measurement: measurement,
 		startTime:   startTime,
 		endTime:     endTime,
 		dir:         dir,
-		memTable:    NewMemTable(1024 * 1024), // 1MB default
+		memTable:    NewMemTable(64 * 1024 * 1024), // 64MB
+		wal:         wal,
+		metaStore:   metaStore,
 	}
 }
 
@@ -59,7 +72,35 @@ func (s *Shard) Duration() time.Duration {
 func (s *Shard) Write(point *types.Point) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.memTable.Write(point)
+
+	// 1. 写入 WAL
+	if s.wal != nil {
+		data, err := serializePoint(point)
+		if err != nil {
+			return err
+		}
+		if _, err := s.wal.Write(data); err != nil {
+			return err
+		}
+	}
+
+	// 2. 分配 SID
+	sid := s.metaStore.AllocateSID(point.Tags)
+	_ = sid // SID 目前未使用，后续会用到
+
+	// 3. 写入 MemTable
+	if err := s.memTable.Write(point); err != nil {
+		return err
+	}
+
+	// 4. 检查是否需要 flush
+	if s.memTable.ShouldFlush() {
+		if err := s.flushLocked(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Read 读取时间范围内的点（合并 MemTable 和 SSTable）
@@ -141,12 +182,37 @@ func (s *Shard) Flush() error {
 	return w.Close()
 }
 
+// flushLocked 内部刷写方法（已持有锁）
+func (s *Shard) flushLocked() error {
+	points := s.memTable.Flush()
+	if len(points) == 0 {
+		return nil
+	}
+
+	w, err := sstable.NewWriter(s.dir, 0)
+	if err != nil {
+		return err
+	}
+
+	if err := w.WritePoints(points); err != nil {
+		_ = w.Close()
+		return err
+	}
+
+	return w.Close()
+}
+
 // Close 关闭 Shard
 func (s *Shard) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 如果还有未刷写的数据，先刷写
+	if s.wal != nil {
+		if err := s.wal.Close(); err != nil {
+			return err
+		}
+	}
+
 	points := s.memTable.Flush()
 	if len(points) > 0 {
 		w, err := sstable.NewWriter(s.dir, 0)
