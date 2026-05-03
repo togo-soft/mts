@@ -11,7 +11,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 先创建 writer 并写入数据
-	w, err := NewWriter(filepath.Join(tmpDir, "timestamps.bin"))
+	w, err := NewWriter(tmpDir, 0)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 	}
 
 	// 使用 reader 读取
-	r, err := NewReader(filepath.Join(tmpDir, "timestamps.bin"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "_timestamps.bin"))
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 	}()
 
 	// 验证文件可以打开读取
-	info, err := os.Stat(filepath.Join(tmpDir, "timestamps.bin"))
+	info, err := os.Stat(filepath.Join(tmpDir, "data", "_timestamps.bin"))
 	if err != nil {
 		t.Fatalf("stat failed: %v", err)
 	}
