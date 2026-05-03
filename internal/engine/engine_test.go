@@ -161,3 +161,66 @@ func TestEngine_WriteBatch(t *testing.T) {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}
 }
+
+func TestEngine_Query_FieldProjection(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+	defer func() {
+		_ = engine.Close()
+	}()
+
+	now := time.Now().UnixNano()
+
+	// 写入带有多个字段的数据
+	points := []*types.Point{
+		{
+			Database:    "db1",
+			Measurement: "cpu",
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   now,
+			Fields:      map[string]any{"usage": 85.5, "count": int64(100), "temperature": 65.0},
+		},
+	}
+
+	err = engine.WriteBatch(points)
+	if err != nil {
+		t.Fatalf("WriteBatch failed: %v", err)
+	}
+
+	// 只查询 usage 和 count 字段
+	req := &types.QueryRangeRequest{
+		Database:    "db1",
+		Measurement: "cpu",
+		StartTime:   now,
+		EndTime:     now + 1e9,
+		Fields:      []string{"usage", "count"}, // 字段过滤
+	}
+
+	resp, err := engine.Query(req)
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if len(resp.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(resp.Rows))
+	}
+
+	// 验证只有指定字段
+	row := resp.Rows[0]
+	if _, ok := row.Fields["usage"]; !ok {
+		t.Errorf("expected usage field")
+	}
+	if _, ok := row.Fields["count"]; !ok {
+		t.Errorf("expected count field")
+	}
+	if _, ok := row.Fields["temperature"]; ok {
+		t.Errorf("temperature field should not be present")
+	}
+}
