@@ -16,6 +16,7 @@ type Point struct {
 
 // PointRow 是查询结果的一行
 type PointRow struct {
+	SID       uint64            // Series ID，新增
 	Timestamp int64
 	Tags      map[string]string
 	Fields    map[string]any
