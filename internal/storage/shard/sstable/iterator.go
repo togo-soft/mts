@@ -1,4 +1,3 @@
-// internal/storage/shard/sstable/iterator.go
 package sstable
 
 import (

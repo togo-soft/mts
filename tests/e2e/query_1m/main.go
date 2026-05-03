@@ -55,17 +55,20 @@ func main() {
 	fmt.Printf("Write 1M: %d points\n", count)
 	fmt.Printf("After write: %s, Δ: %s\n\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
 
-	// 查询
+	// 查询（使用分页策略：每次查询 2000 条）
 	metrics.GC()
 	memBeforeQuery := metrics.ReadMemStats()
 	fmt.Printf("Before query: %s\n", metrics.FormatMemStats(memBeforeQuery))
 
+	const queryLimit = 2000
 	timer := metrics.NewTimer()
 	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
 		StartTime:   baseTime,
 		EndTime:     baseTime + int64(count)*int64(time.Second),
+		Offset:      0,
+		Limit:       queryLimit,
 	})
 	elapsed := timer.Elapsed()
 
@@ -78,7 +81,7 @@ func main() {
 	memAfterQuery := metrics.ReadMemStats()
 	queryDelta := metrics.CalcDelta(memBeforeQuery, memAfterQuery)
 
-	fmt.Printf("Query 1M: %d rows in %v, TPS: %.2f\n", len(resp.Rows), elapsed, metrics.TPS(len(resp.Rows), elapsed))
+	fmt.Printf("Query 1M (paginated): %d rows in %v, TPS: %.2f (limit=%d)\n", len(resp.Rows), elapsed, metrics.TPS(len(resp.Rows), elapsed), queryLimit)
 	fmt.Printf("After query: %s\n", metrics.FormatMemStats(memAfterQuery))
 	fmt.Printf("Query memory delta: %s\n", queryDelta.Format())
 }

@@ -29,8 +29,8 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 		}
 	}
 
-	// 创建迭代器
-	iter := NewShardIterator(shard)
+	// 创建迭代器（0, 0 表示不过滤时间）
+	iter := NewShardIterator(shard, 0, 0)
 
 	// 验证顺序
 	var got []*types.PointRow
@@ -116,8 +116,8 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 	// 创建 Shard
 	shard := NewShard("db", "cpu", 0, 3600*1e9, sstDir, nil)
 
-	// 创建迭代器
-	iter := NewShardIterator(shard)
+	// 创建迭代器（0, 0 表示不过滤时间）
+	iter := NewShardIterator(shard, 0, 0)
 
 	// 验证顺序
 	var got []*types.PointRow
@@ -214,8 +214,8 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		}
 	}
 
-	// 创建迭代器
-	iter := NewShardIterator(shard)
+	// 创建迭代器（0, 0 表示不过滤时间）
+	iter := NewShardIterator(shard, 0, 0)
 
 	// 期望顺序: 1000, 2000, 3000, 4000
 	expected := []int64{1000, 2000, 3000, 4000}
@@ -314,8 +314,8 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		}
 	}
 
-	// 创建迭代器
-	iter := NewShardIterator(shard)
+	// 创建迭代器（0, 0 表示不过滤时间）
+	iter := NewShardIterator(shard, 0, 0)
 
 	// 当 timestamp 相等时，SSTable 优先（因为在 else 分支）
 	// 期望顺序: 1000(SSTable), 1000(MemTable), 2000, 3000
@@ -366,8 +366,8 @@ func TestShardIterator_Current(t *testing.T) {
 		}
 	}
 
-	// 创建迭代器
-	iter := NewShardIterator(shard)
+	// 创建迭代器（0, 0 表示不过滤时间）
+	iter := NewShardIterator(shard, 0, 0)
 
 	// 初始状态 Current 应该返回第一条
 	current := iter.Current()
@@ -396,8 +396,8 @@ func TestShardIterator_Empty(t *testing.T) {
 	// 创建 Shard（无数据）
 	shard := NewShard("db", "cpu", 0, 3600*1e9, dir, nil)
 
-	// 创建迭代器
-	iter := NewShardIterator(shard)
+	// 创建迭代器（0, 0 表示不过滤时间）
+	iter := NewShardIterator(shard, 0, 0)
 
 	// Next 应该返回 nil
 	row := iter.Next()
