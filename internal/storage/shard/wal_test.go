@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"micro-ts/internal/types"
 )
 
 func TestWAL_Write(t *testing.T) {
@@ -107,5 +109,57 @@ func TestWAL_FilePermissions(t *testing.T) {
 		if info.Mode().Perm() != 0600 {
 			t.Errorf("expected 0600, got %o", info.Mode().Perm())
 		}
+	}
+}
+
+func TestWAL_Replay(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 写入 WAL
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 序列化 point 并写入
+	p := &types.Point{
+		Timestamp: 1000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields:    map[string]any{"usage": 85.5},
+	}
+
+	data, err := serializePoint(p)
+	if err != nil {
+		t.Fatalf("serializePoint failed: %v", err)
+	}
+
+	if _, err := w.Write(data); err != nil {
+		_ = w.Close()
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 重放 WAL
+	points, err := ReplayWAL(tmpDir)
+	if err != nil {
+		t.Fatalf("ReplayWAL failed: %v", err)
+	}
+
+	if len(points) != 1 {
+		t.Errorf("expected 1 point, got %d", len(points))
+	}
+
+	if points[0].Timestamp != 1000 {
+		t.Errorf("expected timestamp 1000, got %d", points[0].Timestamp)
+	}
+
+	usage, ok := points[0].Fields["usage"].(float64)
+	if !ok {
+		t.Errorf("expected usage field to be float64")
+	}
+	if usage != 85.5 {
+		t.Errorf("expected usage 85.5, got %f", usage)
 	}
 }
