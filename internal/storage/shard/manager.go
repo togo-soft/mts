@@ -56,6 +56,27 @@ func (m *ShardManager) GetShard(db, measurement string, timestamp int64) (*Shard
 	return s, nil
 }
 
+// GetShards 获取与时间范围相交的所有 Shard
+func (m *ShardManager) GetShards(db, measurement string, startTime, endTime int64) []*Shard {
+	var result []*Shard
+
+	// 计算时间范围内的所有 shard start 时间
+	shardDuration := int64(m.shardDuration)
+	shardStart := (startTime / shardDuration) * shardDuration
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for ts := shardStart; ts < endTime; ts += shardDuration {
+		key := m.makeKey(db, measurement, ts)
+		if s, ok := m.shards[key]; ok {
+			result = append(result, s)
+		}
+	}
+
+	return result
+}
+
 func (m *ShardManager) calcShardStart(timestamp int64) int64 {
 	return (timestamp / int64(m.shardDuration)) * int64(m.shardDuration)
 }

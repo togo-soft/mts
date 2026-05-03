@@ -57,3 +57,24 @@ func (s *Shard) Write(point *types.Point) error {
     defer s.mu.Unlock()
     return s.memTable.Write(point)
 }
+
+// Read 读取时间范围内的点
+func (s *Shard) Read(startTime, endTime int64) ([]types.PointRow, error) {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+
+    var rows []types.PointRow
+    iter := s.memTable.Iterator()
+    for iter.Next() {
+        p := iter.Point()
+        if p.Timestamp >= startTime && p.Timestamp < endTime {
+            rows = append(rows, types.PointRow{
+                Timestamp: p.Timestamp,
+                Tags:      p.Tags,
+                Fields:    p.Fields,
+            })
+        }
+    }
+
+    return rows, nil
+}
