@@ -40,7 +40,7 @@ func (d *DatabaseMetaStore) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, m := range d.measurements {
-		m.Close()
+		_ = m.Close()
 	}
 	d.measurements = nil
 	return nil
