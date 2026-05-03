@@ -62,3 +62,27 @@ func (e *Engine) WriteBatch(points []*types.Point) error {
 	}
 	return nil
 }
+
+// Query 范围查询
+func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
+	// 获取相交的 Shard
+	shards := e.shardManager.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
+
+	var rows []types.PointRow
+	for _, s := range shards {
+		r, err := s.Read(req.StartTime, req.EndTime)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, r...)
+	}
+
+	return &types.QueryRangeResponse{
+		Database:    req.Database,
+		Measurement: req.Measurement,
+		StartTime:   req.StartTime,
+		EndTime:     req.EndTime,
+		TotalCount:  int64(len(rows)),
+		Rows:        rows,
+	}, nil
+}
