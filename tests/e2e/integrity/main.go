@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ func main() {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
 		expectedPoints[i] = p
-		if err := db.Write(nil, p); err != nil {
+		if err := db.Write(context.Background(), p); err != nil {
 			fmt.Printf("Write failed at %d: %v\n", i, err)
 			os.Exit(1)
 		}
@@ -51,7 +52,7 @@ func main() {
 
 	fmt.Printf("Reading back data...\n")
 	readStart := time.Now()
-	resp, err := db.QueryRange(nil, &types.QueryRangeRequest{
+	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
 		StartTime:   baseTime,
