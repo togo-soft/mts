@@ -77,12 +77,55 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 		rows = append(rows, r...)
 	}
 
+	// 字段过滤
+	if len(req.Fields) > 0 {
+		rows = e.filterFields(rows, req.Fields)
+	}
+
+	// 分页
+	totalCount := int64(len(rows))
+	if req.Offset > 0 {
+		if req.Offset < int64(len(rows)) {
+			rows = rows[req.Offset:]
+		} else {
+			rows = nil
+		}
+	}
+	if req.Limit > 0 && int64(len(rows)) > req.Limit {
+		rows = rows[:req.Limit]
+	}
+
 	return &types.QueryRangeResponse{
 		Database:    req.Database,
 		Measurement: req.Measurement,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
-		TotalCount:  int64(len(rows)),
+		TotalCount:  totalCount,
+		HasMore:     req.Limit > 0 && int64(len(rows)) >= req.Limit,
 		Rows:        rows,
 	}, nil
+}
+
+// filterFields 根据指定字段列表过滤行数据
+func (e *Engine) filterFields(rows []types.PointRow, fields []string) []types.PointRow {
+	fieldSet := make(map[string]bool)
+	for _, f := range fields {
+		fieldSet[f] = true
+	}
+
+	result := make([]types.PointRow, len(rows))
+	for i, row := range rows {
+		filtered := make(map[string]any)
+		for name, val := range row.Fields {
+			if fieldSet[name] {
+				filtered[name] = val
+			}
+		}
+		result[i] = types.PointRow{
+			Timestamp: row.Timestamp,
+			Tags:      row.Tags,
+			Fields:    filtered,
+		}
+	}
+	return result
 }
