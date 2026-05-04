@@ -20,7 +20,7 @@ func TestIterator_Empty(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestIterator_SingleRecord(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestIterator_MultipleRecords(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestIterator_NextBeyondRange(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}

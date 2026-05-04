@@ -99,8 +99,10 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 	// 流式收集结果，跳过 offset 行，然后收集 limit 行
 	var rows []types.PointRow
 	targetCount := int(req.Limit) + int(req.Offset)
-	if targetCount <= 0 {
-		targetCount = 1000 // 默认收集数量
+	hasExplicitLimit := req.Limit > 0
+	// 如果没有指定 limit，不设置目标数量上限（使用最大 int）
+	if !hasExplicitLimit {
+		targetCount = int(^uint(0) >> 1) // MaxInt
 	}
 
 	skipped := 0

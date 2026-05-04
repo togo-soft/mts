@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ type Shard struct {
 	wal         *WAL
 	metaStore   *measurement.MeasurementMetaStore
 	mu          sync.RWMutex
+	sstSeq      uint64 // SSTable序列号，用于生成唯一的文件名
 }
 
 // NewShard 创建 Shard
@@ -146,14 +148,43 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]types.PointRow, err
 		return nil, nil // 没有 SSTable
 	}
 
-	r, err := sstable.NewReader(dataDir)
+	var allRows []types.PointRow
+
+	// 读取所有 SSTable 子目录 (sst_0, sst_1, ...)
+	entries, err := os.ReadDir(dataDir)
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
 
-	rows, err := r.ReadRange(startTime, endTime)
-	return rows, err
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// 检查是否是 SSTable 目录
+		if !strings.HasPrefix(entry.Name(), "sst_") {
+			continue
+		}
+
+		sstDir := filepath.Join(dataDir, entry.Name())
+		r, err := sstable.NewReader(sstDir)
+		if err != nil {
+			continue // 跳过无法读取的 SSTable
+		}
+
+		rows, err := r.ReadRange(startTime, endTime)
+		r.Close()
+		if err != nil {
+			continue
+		}
+		allRows = append(allRows, rows...)
+	}
+
+	// 按时间戳排序
+	sort.Slice(allRows, func(i, j int) bool {
+		return allRows[i].Timestamp < allRows[j].Timestamp
+	})
+
+	return allRows, nil
 }
 
 // Flush 将 MemTable 数据刷写到 SSTable
@@ -167,10 +198,11 @@ func (s *Shard) Flush() error {
 	}
 
 	// 创建 SSTable Writer
-	w, err := sstable.NewWriter(s.dir, 0)
+	w, err := sstable.NewWriter(s.dir, s.sstSeq)
 	if err != nil {
 		return err
 	}
+	s.sstSeq++
 
 	if err := w.WritePoints(points); err != nil {
 		_ = w.Close()
@@ -187,10 +219,11 @@ func (s *Shard) flushLocked() error {
 		return nil
 	}
 
-	w, err := sstable.NewWriter(s.dir, 0)
+	w, err := sstable.NewWriter(s.dir, s.sstSeq)
 	if err != nil {
 		return err
 	}
+	s.sstSeq++ // 递增序列号，确保下次 flush 使用不同的文件名
 
 	if err := w.WritePoints(points); err != nil {
 		_ = w.Close()
@@ -217,7 +250,7 @@ func (s *Shard) Close() error {
 	// 1. 先刷写 MemTable 到 SSTable（即使 WAL 关闭失败，数据也已安全）
 	points := s.memTable.Flush()
 	if len(points) > 0 {
-		w, err := sstable.NewWriter(s.dir, 0)
+		w, err := sstable.NewWriter(s.dir, s.sstSeq)
 		if err != nil {
 			return err
 		}

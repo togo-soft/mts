@@ -39,7 +39,7 @@ func TestReader_ReadAll(t *testing.T) {
 	}
 
 	// 再读取
-	r, err := NewReader(tmpDir)
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 	}()
 
 	// 验证数据文件存在
-	info, err := os.Stat(filepath.Join(tmpDir, "data", "_timestamps.bin"))
+	info, err := os.Stat(filepath.Join(tmpDir, "data", "sst_0", "_timestamps.bin"))
 	if err != nil {
 		t.Fatalf("stat failed: %v", err)
 	}

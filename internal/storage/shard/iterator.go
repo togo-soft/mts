@@ -1,9 +1,6 @@
 package shard
 
 import (
-	"path/filepath"
-
-	"micro-ts/internal/storage/shard/sstable"
 	"micro-ts/internal/types"
 )
 
@@ -14,7 +11,8 @@ type ShardIterator struct {
 	endTime   int64 // 查询结束时间（不包含）
 
 	memIter *MemTableIterator // MemTable 迭代器
-	sstIter *sstable.Iterator // SSTable 迭代器
+	rows    []types.PointRow   // SSTable 预读取的数据
+	rowIdx  int                // 当前在 rows 中的位置
 
 	// 当前 peek
 	memRow *types.PointRow
@@ -36,17 +34,12 @@ func NewShardIterator(shard *Shard, startTime, endTime int64) *ShardIterator {
 		si.memRow = si.pointToRow(p)
 	}
 
-	// 创建 SSTable 迭代器（只在该 shard 有 SSTable 数据时才创建）
-	// SSTable 数据在 shard.dir/data/ 目录下
-	sstReader, err := sstable.NewReader(filepath.Join(shard.dir, "data"))
-	if err == nil {
-		sstIter, iterErr := sstReader.NewIterator()
-		if iterErr == nil && sstIter != nil {
-			si.sstIter = sstIter
-			if si.sstIter.Next() {
-				si.sstRow = sstIter.Point()
-			}
-		}
+	// 从 SSTable 预读取数据
+	rows, _ := shard.readFromSSTable(startTime, endTime)
+	if len(rows) > 0 {
+		si.rows = rows
+		si.rowIdx = 0
+		si.sstRow = &si.rows[0]
 	}
 
 	return si
@@ -123,11 +116,13 @@ func (si *ShardIterator) nextMemRow() *types.PointRow {
 
 // nextSstRow 获取下一个 SSTable row
 func (si *ShardIterator) nextSstRow() *types.PointRow {
-	for si.sstIter != nil && si.sstIter.Next() {
-		row := si.sstIter.Point()
+	si.rowIdx++
+	if si.rowIdx < len(si.rows) {
+		row := &si.rows[si.rowIdx]
 		if row.Timestamp >= si.startTime && (si.endTime <= 0 || row.Timestamp < si.endTime) {
 			return row
 		}
+		return si.nextSstRow()
 	}
 	return nil
 }
