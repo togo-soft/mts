@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"micro-ts"
+	"micro-ts/internal/storage/shard"
 	"micro-ts/internal/types"
 	"micro-ts/tests/e2e/pkg/data_gen"
 	"micro-ts/tests/e2e/pkg/metrics"
@@ -22,6 +23,11 @@ func main() {
 	cfg := microts.Config{
 		DataDir:        tmpDir,
 		ShardDuration: time.Hour,
+		MemTableCfg: shard.MemTableConfig{
+			MaxSize:      64 * 1024 * 1024,
+			MaxCount:     3000,
+			IdleDuration: 10 * time.Second,
+		},
 	}
 
 	db, err := microts.Open(cfg)
@@ -54,6 +60,10 @@ func main() {
 
 	fmt.Printf("Write 1M: %d points\n", count)
 	fmt.Printf("After write: %s, Δ: %s\n\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
+
+	// 等待 15 秒确保 idle flush 触发
+	fmt.Printf("Waiting 15s for idle flush to trigger...\n")
+	time.Sleep(15 * time.Second)
 
 	// 查询（使用分页策略：每次查询 2000 条）
 	metrics.GC()

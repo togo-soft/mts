@@ -14,7 +14,7 @@ func TestShard_TimeRange(t *testing.T) {
 	start := time.Now().UnixNano()
 	end := start + int64(time.Hour)
 
-	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore())
+	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
 
 	if s.StartTime() != start {
 		t.Errorf("expected start %d, got %d", start, s.StartTime())
@@ -28,7 +28,7 @@ func TestShard_ContainsTime(t *testing.T) {
 	start := time.Now().UnixNano()
 	end := start + int64(time.Hour)
 
-	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore())
+	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
 
 	if !s.ContainsTime(start) {
 		t.Errorf("shard should contain time %d", start)
@@ -45,7 +45,7 @@ func TestShard_Duration(t *testing.T) {
 	start := time.Now().UnixNano()
 	end := start + int64(time.Hour)
 
-	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore())
+	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
 
 	if s.Duration() != time.Hour {
 		t.Errorf("expected duration 1h, got %v", s.Duration())
@@ -55,7 +55,7 @@ func TestShard_Duration(t *testing.T) {
 func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s := NewShard("db1", "cpu", 0, time.Hour.Nanoseconds(), tmpDir, measurement.NewMeasurementMetaStore())
+	s := NewShard("db1", "cpu", 0, time.Hour.Nanoseconds(), tmpDir, measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
 
 	// 写入数据到 MemTable
 	for i := 0; i < 10; i++ {
@@ -109,7 +109,7 @@ func TestShard_WriteWithWAL(t *testing.T) {
 	// 创建 mock MetaStore
 	metaStore := measurement.NewMeasurementMetaStore()
 
-	s := NewShard("db1", "cpu", 0, time.Hour.Nanoseconds(), tmpDir, metaStore)
+	s := NewShard("db1", "cpu", 0, time.Hour.Nanoseconds(), tmpDir, metaStore, DefaultMemTableConfig())
 
 	// 写入数据
 	p := &types.Point{

@@ -13,11 +13,6 @@ import (
 	"micro-ts/internal/types"
 )
 
-const (
-	// memTableSize MemTable 默认大小
-	memTableSize = 64 * 1024 * 1024 // 64MB
-)
-
 // Shard 单个 Shard
 type Shard struct {
 	db          string
@@ -26,13 +21,13 @@ type Shard struct {
 	endTime     int64
 	dir         string
 	memTable    *MemTable
-	wal         *WAL                              // 新增
-	metaStore   *measurement.MeasurementMetaStore // 新增
+	wal         *WAL
+	metaStore   *measurement.MeasurementMetaStore
 	mu          sync.RWMutex
 }
 
 // NewShard 创建 Shard
-func NewShard(db, measurement string, startTime, endTime int64, dir string, metaStore *measurement.MeasurementMetaStore) *Shard {
+func NewShard(db, measurement string, startTime, endTime int64, dir string, metaStore *measurement.MeasurementMetaStore, memTableCfg MemTableConfig) *Shard {
 	// 创建 WAL
 	walDir := filepath.Join(dir, "wal")
 	wal, err := NewWAL(walDir, 0)
@@ -47,7 +42,7 @@ func NewShard(db, measurement string, startTime, endTime int64, dir string, meta
 		startTime:   startTime,
 		endTime:     endTime,
 		dir:         dir,
-		memTable:    NewMemTable(memTableSize), // 64MB
+		memTable:    NewMemTable(memTableCfg),
 		wal:         wal,
 		metaStore:   metaStore,
 	}
@@ -80,7 +75,6 @@ func (s *Shard) Write(point *types.Point) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 1. 写入 WAL
 	if s.wal != nil {
 		data, err := serializePoint(point)
 		if err != nil {
@@ -203,7 +197,16 @@ func (s *Shard) flushLocked() error {
 		return err
 	}
 
-	return w.Close()
+	if err := w.Close(); err != nil {
+		return err
+	}
+
+	// 显式清空 points 引用，帮助 GC 回收内存
+	for i := range points {
+		points[i] = nil
+	}
+
+	return nil
 }
 
 // Close 关闭 Shard

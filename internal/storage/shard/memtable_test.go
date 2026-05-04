@@ -8,7 +8,7 @@ import (
 )
 
 func TestMemTable_Write(t *testing.T) {
-	m := NewMemTable(64 * 1024 * 1024)
+	m := NewMemTable(DefaultMemTableConfig())
 
 	p := &types.Point{
 		Measurement: "cpu",
@@ -27,7 +27,7 @@ func TestMemTable_Write(t *testing.T) {
 }
 
 func TestMemTable_SortKey(t *testing.T) {
-	m := NewMemTable(64 * 1024 * 1024)
+	m := NewMemTable(DefaultMemTableConfig())
 
 	now := time.Now().UnixNano()
 	p1 := &types.Point{Measurement: "cpu", Timestamp: now + 100}
@@ -57,7 +57,8 @@ func TestMemTable_SortKey(t *testing.T) {
 }
 
 func TestMemTable_ShouldFlush(t *testing.T) {
-	m := NewMemTable(100) // 100 bytes limit
+	cfg := MemTableConfig{MaxSize: 100, MaxCount: 0, IdleDuration: 0}
+	m := NewMemTable(cfg)
 
 	p := &types.Point{
 		Measurement: "cpu",

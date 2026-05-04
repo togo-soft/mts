@@ -11,7 +11,7 @@ type ShardIterator struct {
 	startTime int64 // 查询起始时间（包含）
 	endTime   int64 // 查询结束时间（不包含）
 
-	memIter *MemTableIterator   // MemTable 迭代器
+	memIter *MemTableIterator // MemTable 迭代器
 	sstIter *sstable.Iterator // SSTable 迭代器
 
 	// 当前 peek
@@ -64,37 +64,35 @@ func (si *ShardIterator) pointToRow(p *types.Point) *types.PointRow {
 
 // Next 返回下一个有序点（按 timestamp 升序），过滤时间范围
 func (si *ShardIterator) Next() *types.PointRow {
-	for {
-		// 如果 MemTable 和 SSTable 都有数据，取 timestamp 较小的
-		if si.memRow != nil && si.sstRow != nil {
-			if si.memRow.Timestamp < si.sstRow.Timestamp {
-				row := si.memRow
-				si.memRow = si.nextMemRow()
-				return si.filterRow(row)
-			}
-			// memRow.Timestamp >= sstRow.Timestamp（包括相等）
-			row := si.sstRow
-			si.sstRow = si.nextSstRow()
-			return si.filterRow(row)
-		}
-
-		// 只剩 MemTable
-		if si.memRow != nil {
+	// 如果 MemTable 和 SSTable 都有数据，取 timestamp 较小的
+	if si.memRow != nil && si.sstRow != nil {
+		if si.memRow.Timestamp < si.sstRow.Timestamp {
 			row := si.memRow
 			si.memRow = si.nextMemRow()
 			return si.filterRow(row)
 		}
-
-		// 只剩 SSTable
-		if si.sstRow != nil {
-			row := si.sstRow
-			si.sstRow = si.nextSstRow()
-			return si.filterRow(row)
-		}
-
-		// 都耗尽了
-		return nil
+		// memRow.Timestamp >= sstRow.Timestamp（包括相等）
+		row := si.sstRow
+		si.sstRow = si.nextSstRow()
+		return si.filterRow(row)
 	}
+
+	// 只剩 MemTable
+	if si.memRow != nil {
+		row := si.memRow
+		si.memRow = si.nextMemRow()
+		return si.filterRow(row)
+	}
+
+	// 只剩 SSTable
+	if si.sstRow != nil {
+		row := si.sstRow
+		si.sstRow = si.nextSstRow()
+		return si.filterRow(row)
+	}
+
+	// 都耗尽了
+	return nil
 }
 
 // filterRow 检查 row 是否在时间范围内

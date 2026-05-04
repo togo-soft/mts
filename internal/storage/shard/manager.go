@@ -14,16 +14,18 @@ import (
 type ShardManager struct {
 	dir           string
 	shardDuration time.Duration
+	memTableCfg   MemTableConfig
 	shards        map[string]*Shard
 	metaStores    map[string]*measurement.MeasurementMetaStore // measurement -> metaStore
 	mu            sync.RWMutex
 }
 
 // NewShardManager 创建 ShardManager
-func NewShardManager(dir string, shardDuration time.Duration) *ShardManager {
+func NewShardManager(dir string, shardDuration time.Duration, memTableCfg MemTableConfig) *ShardManager {
 	return &ShardManager{
 		dir:           dir,
 		shardDuration: shardDuration,
+		memTableCfg:   memTableCfg,
 		shards:        make(map[string]*Shard),
 		metaStores:    make(map[string]*measurement.MeasurementMetaStore),
 	}
@@ -63,7 +65,7 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 
 	// 创建新 Shard
 	shardDir := filepath.Join(m.dir, db, measurementName, formatTimeRange(startTime, endTime))
-	s = NewShard(db, measurementName, startTime, endTime, shardDir, metaStore)
+	s = NewShard(db, measurementName, startTime, endTime, shardDir, metaStore, m.memTableCfg)
 	m.shards[key] = s
 	return s, nil
 }
