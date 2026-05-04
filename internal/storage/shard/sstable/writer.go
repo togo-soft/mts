@@ -4,9 +4,11 @@ package sstable
 import (
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	"micro-ts/internal/storage"
 	"micro-ts/internal/types"
@@ -66,7 +68,8 @@ func NewBlockIndex() *BlockIndex {
 
 // NewWriter 创建 Writer
 func NewWriter(shardDir string, seq uint64) (*Writer, error) {
-	dataDir := filepath.Join(shardDir, "data")
+	// 使用 seq 创建独立的子目录，避免不同 SSTable 之间的冲突
+	dataDir := filepath.Join(shardDir, "data", fmt.Sprintf("sst_%d", seq))
 	if err := storage.SafeMkdirAll(dataDir, 0700); err != nil {
 		return nil, err
 	}
@@ -255,8 +258,10 @@ func (w *Writer) flushBlock() error {
 	}
 
 	// 记录 block 索引
-	lastTs := w.firstTs + int64(w.rowCount-1)*1000 // 简化假设
-	w.blockIndex.Add(w.firstTs, lastTs, offset, w.rowCount)
+	// 当前 block 的行数 = bufPos / 8 (每个 timestamp 8 字节)
+	blockRowCount := uint32(w.bufPos / 8)
+	lastTs := w.firstTs + int64(blockRowCount-1)*int64(time.Second)
+	w.blockIndex.Add(w.firstTs, lastTs, offset, blockRowCount)
 
 	// 重置
 	w.bufPos = 0

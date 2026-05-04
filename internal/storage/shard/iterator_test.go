@@ -57,15 +57,15 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据
+	// 准备 SSTable 数据 - 使用新的 sst_0 子目录结构
 	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "fields"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
 		t.Fatalf("failed to create sst dir: %v", err)
 	}
 
 	// 写入 timestamps
 	timestamps := []int64{1000, 2000, 3000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "_timestamps.bin"))
+	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
 	if err != nil {
 		t.Fatalf("failed to create timestamps file: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 	}
 
 	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "fields", "field1.bin"))
+	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
 	if err != nil {
 		t.Fatalf("failed to create field file: %v", err)
 	}
@@ -144,15 +144,15 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据
+	// 准备 SSTable 数据 - 使用新的 sst_0 子目录结构
 	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "fields"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
 		t.Fatalf("failed to create sst dir: %v", err)
 	}
 
 	// 写入 timestamps (SSTable: 2000, 4000)
 	sstTimestamps := []int64{2000, 4000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "_timestamps.bin"))
+	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
 	if err != nil {
 		t.Fatalf("failed to create timestamps file: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 	}
 
 	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "fields", "field1.bin"))
+	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
 	if err != nil {
 		t.Fatalf("failed to create field file: %v", err)
 	}
@@ -244,15 +244,15 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据
+	// 准备 SSTable 数据 - 使用新的 sst_0 子目录结构
 	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "fields"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
 		t.Fatalf("failed to create sst dir: %v", err)
 	}
 
 	// 写入 timestamps (SSTable: 1000, 3000)
 	sstTimestamps := []int64{1000, 3000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "_timestamps.bin"))
+	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
 	if err != nil {
 		t.Fatalf("failed to create timestamps file: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 	}
 
 	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "fields", "field1.bin"))
+	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
 	if err != nil {
 		t.Fatalf("failed to create field file: %v", err)
 	}

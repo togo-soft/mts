@@ -36,7 +36,6 @@ type Iterator struct {
 
 // NewIterator 创建流式迭代器
 func (r *Reader) NewIterator() (*Iterator, error) {
-	// dataDir is already the "data" directory
 	it := &Iterator{
 		reader:        r,
 		dataDir:       r.dataDir,

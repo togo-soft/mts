@@ -40,7 +40,7 @@ func TestWriter_WritePoints(t *testing.T) {
 	}
 
 	// 验证 timestamp 文件存在
-	tsPath := filepath.Join(tmpDir, "data", "_timestamps.bin")
+	tsPath := filepath.Join(tmpDir, "data", "sst_0", "_timestamps.bin")
 	info, err := os.Stat(tsPath)
 	if err != nil {
 		t.Fatalf("stat timestamp file failed: %v", err)
@@ -51,7 +51,7 @@ func TestWriter_WritePoints(t *testing.T) {
 
 	// 验证 field 文件存在
 	for _, name := range []string{"usage", "count"} {
-		fieldPath := filepath.Join(tmpDir, "data", "fields", name+".bin")
+		fieldPath := filepath.Join(tmpDir, "data", "sst_0", "fields", name+".bin")
 		info, err := os.Stat(fieldPath)
 		if err != nil {
 			t.Fatalf("stat field %s file failed: %v", name, err)

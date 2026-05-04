@@ -67,6 +67,10 @@ func main() {
 	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfterWrite))
 	fmt.Printf("Write memory delta: %s\n\n", writeDelta.Format())
 
+	// 等待空闲 flush 触发，确保所有数据已落盘
+	fmt.Printf("Waiting 15s for idle flush to trigger...\n")
+	time.Sleep(15 * time.Second)
+
 	fmt.Printf("Reading back data...\n")
 	metrics.GC()
 	memBeforeRead := metrics.ReadMemStats()
@@ -78,14 +82,14 @@ func main() {
 		Measurement: "cpu",
 		StartTime:   baseTime,
 		EndTime:     baseTime + int64(count)*int64(time.Second),
+		Offset:      0,
 		Limit:       0,
 	})
-	readElapsed := readTimer.Elapsed()
-
 	if err != nil {
 		fmt.Printf("Query failed: %v\n", err)
 		os.Exit(1)
 	}
+	readElapsed := readTimer.Elapsed()
 
 	metrics.GC()
 	memAfterRead := metrics.ReadMemStats()

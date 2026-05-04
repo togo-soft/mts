@@ -69,7 +69,7 @@ func (r *Reader) GetBlockIndex() *BlockIndex {
 
 // ReadAll 读取所有数据
 func (r *Reader) ReadAll(fields []string) ([]types.PointRow, error) {
-	dataDir := filepath.Join(r.dataDir, "data")
+	dataDir := r.dataDir
 
 	// 读取 timestamps
 	tsFile, err := os.Open(filepath.Join(dataDir, "_timestamps.bin"))
@@ -247,7 +247,7 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
 	// 构建结果，按时间过滤
 	var rows []types.PointRow
 	for i, ts := range timestamps {
-		if ts >= startTime && ts < endTime {
+		if ts >= startTime && (endTime <= 0 || ts < endTime) {
 			row := types.PointRow{
 				Timestamp: ts,
 				Tags:      map[string]string{"host": "server1"},
