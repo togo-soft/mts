@@ -1,6 +1,8 @@
 package shard
 
 import (
+	"path/filepath"
+
 	"micro-ts/internal/storage/shard/sstable"
 	"micro-ts/internal/types"
 )
@@ -35,13 +37,14 @@ func NewShardIterator(shard *Shard, startTime, endTime int64) *ShardIterator {
 	}
 
 	// 创建 SSTable 迭代器（只在该 shard 有 SSTable 数据时才创建）
-	sstReader, err := sstable.NewReader(shard.dir)
+	// SSTable 数据在 shard.dir/data/ 目录下
+	sstReader, err := sstable.NewReader(filepath.Join(shard.dir, "data"))
 	if err == nil {
 		sstIter, iterErr := sstReader.NewIterator()
 		if iterErr == nil && sstIter != nil {
 			si.sstIter = sstIter
 			if si.sstIter.Next() {
-				si.sstRow = si.sstIter.Point()
+				si.sstRow = sstIter.Point()
 			}
 		}
 	}

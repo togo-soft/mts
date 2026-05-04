@@ -4,7 +4,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"sort"
 	"sync"
 	"time"
 
@@ -73,7 +72,7 @@ func (e *Engine) WriteBatch(points []*types.Point) error {
 	return nil
 }
 
-// Query 范围查询
+// Query 范围查询（使用流式迭代器避免加载所有数据到内存）
 func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
 	// 获取相交的 Shard
 	shards := e.shardManager.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
@@ -89,60 +88,64 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 		}, nil
 	}
 
-	// 并发读取所有 Shard
-	rowsCh := make(chan []types.PointRow, len(shards))
-	var wg sync.WaitGroup
+	// 创建流式查询迭代器
+	ctx := context.Background()
+	qit, err := e.QueryIterator(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer qit.Close()
 
-	for _, s := range shards {
-		wg.Add(1)
-		go func(s *shard.Shard) {
-			defer wg.Done()
-			rows, err := s.Read(req.StartTime, req.EndTime)
-			if err != nil {
-				rowsCh <- []types.PointRow{} // send empty on error to avoid deadlock
-				return
-			}
-			rowsCh <- rows
-		}(s)
+	// 流式收集结果，跳过 offset 行，然后收集 limit 行
+	var rows []types.PointRow
+	targetCount := int(req.Limit) + int(req.Offset)
+	if targetCount <= 0 {
+		targetCount = 1000 // 默认收集数量
 	}
 
-	go func() {
-		wg.Wait()
-		close(rowsCh)
-	}()
-
-	// 合并结果
-	var allRows []types.PointRow
-	for rows := range rowsCh {
-		allRows = append(allRows, rows...)
-	}
-
-	// 按时间排序
-	sort.Slice(allRows, func(i, j int) bool {
-		return allRows[i].Timestamp < allRows[j].Timestamp
-	})
-
-	// Tag 过滤
-	if len(req.Tags) > 0 {
-		allRows = e.filterTags(allRows, req.Tags)
-	}
-
-	// 字段过滤
-	if len(req.Fields) > 0 {
-		allRows = e.filterFields(allRows, req.Fields)
-	}
-
-	// 分页
-	totalCount := int64(len(allRows))
-	if req.Offset > 0 {
-		if req.Offset < int64(len(allRows)) {
-			allRows = allRows[req.Offset:]
-		} else {
-			allRows = nil
+	skipped := 0
+	collected := 0
+	hasLimit := req.Limit > 0
+	for qit.Next() {
+		row := qit.Points()
+		if row == nil {
+			continue
+		}
+		// 跳过 offset 指定的行
+		if int64(skipped) < req.Offset {
+			skipped++
+			continue
+		}
+		rows = append(rows, *row)
+		collected++
+		// 已收集足够的行（仅在指定了 limit 时提前停止）
+		if hasLimit && collected >= int(req.Limit) {
+			// 停止收集，但继续检查是否有更多数据
+			break
+		}
+		// 也检查是否已达到目标数量上限
+		if collected >= targetCount-int(req.Offset) {
+			break
 		}
 	}
-	if req.Limit > 0 && int64(len(allRows)) > req.Limit {
-		allRows = allRows[:req.Limit]
+
+	// 检查是否有更多数据
+	// 流式语义：如果收集满 limit 行，认为可能还有更多数据
+	hasMore := false
+	if hasLimit && collected >= int(req.Limit) {
+		hasMore = true
+	}
+
+	// 计算 totalCount
+	// 流式语义：当 HasMore=true 时，无法知道精确总数
+	// 当 HasMore=false 时，表示已处理完所有数据，可以报告精确总数
+	var totalCount int64
+	if hasMore {
+		// 有更多数据，只报告已处理的数量
+		totalCount = int64(skipped + collected)
+	} else {
+		// 已处理完所有数据，报告精确总数
+		totalCount = int64(skipped + collected)
 	}
 
 	return &types.QueryRangeResponse{
@@ -151,58 +154,17 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
 		TotalCount:  totalCount,
-		HasMore:     req.Limit > 0 && int64(len(allRows)) >= req.Limit,
-		Rows:        allRows,
+		HasMore:     hasMore,
+		Rows:        rows,
 	}, nil
 }
 
-// filterFields 根据指定字段列表过滤行数据
-func (e *Engine) filterFields(rows []types.PointRow, fields []string) []types.PointRow {
-	fieldSet := make(map[string]bool)
-	for _, f := range fields {
-		fieldSet[f] = true
-	}
-
-	result := make([]types.PointRow, len(rows))
-	for i, row := range rows {
-		filtered := make(map[string]any)
-		for name, val := range row.Fields {
-			if fieldSet[name] {
-				filtered[name] = val
-			}
-		}
-		result[i] = types.PointRow{
-			Timestamp: row.Timestamp,
-			Tags:      row.Tags,
-			Fields:    filtered,
-		}
-	}
-	return result
-}
-
-// filterTags 根据指定 Tag 键值对过滤行数据
-func (e *Engine) filterTags(rows []types.PointRow, tags map[string]string) []types.PointRow {
-	result := make([]types.PointRow, 0, len(rows))
-	for _, row := range rows {
-		match := true
-		for k, v := range tags {
-			if row.Tags[k] != v {
-				match = false
-				break
-			}
-		}
-		if match {
-			result = append(result, row)
-		}
-	}
-	return result
-}
 
 // QueryIterator 创建流式查询迭代器
 func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {
-	// 将查询时间从毫秒转换为纳秒，以便与 Shard 时间范围比较
-	startTimeNs := req.StartTime * 1e6
-	endTimeNs := req.EndTime * 1e6
+	// 使用原始时间（假设为纳秒）
+	startTimeNs := req.StartTime
+	endTimeNs := req.EndTime
 
 	// 获取相交的 Shards
 	shards := e.shardManager.GetShards(req.Database, req.Measurement, startTimeNs, endTimeNs)

@@ -62,9 +62,9 @@ func NewQueryIterator(ctx context.Context, shards []*shard.Shard, req *types.Que
 		req: req,
 	}
 
-	// 将查询时间从毫秒转换为纳秒
-	startTimeNs := req.StartTime * 1e6
-	endTimeNs := req.EndTime * 1e6
+	// 使用请求中的原始时间（假设为纳秒）
+	startTimeNs := req.StartTime
+	endTimeNs := req.EndTime
 
 	// 为每个 Shard 创建 ShardIterator 并加入 heap
 	// 注意：不进行 shard boundary check，因为 ShardIterator 内部会进行时间过滤

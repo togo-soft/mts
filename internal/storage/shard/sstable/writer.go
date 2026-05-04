@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"micro-ts/internal/storage"
-	"micro-ts/internal/storage/shard/compression"
 	"micro-ts/internal/types"
 )
 
@@ -46,10 +45,16 @@ type Writer struct {
 	fields     map[string]*os.File
 	schema     Schema
 	blockIndex *BlockIndex
+
+	// 块缓冲
 	buf        []byte
 	bufPos     int
 	firstTs    int64
 	rowCount   uint32
+
+	// 每列的缓冲（用于收集一个 block 的数据）
+	fieldBufs  map[string][]byte
+	fieldSizes map[string]int  // 每行该字段的固定大小
 }
 
 // NewBlockIndex 创建空的 BlockIndex
@@ -87,6 +92,8 @@ func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 		buf:        make([]byte, BlockSize),
 		bufPos:     0,
 		rowCount:   0,
+		fieldBufs:  make(map[string][]byte),
+		fieldSizes: make(map[string]int),
 	}, nil
 }
 
@@ -97,7 +104,6 @@ func (w *Writer) WritePoints(points []*types.Point) error {
 	for _, p := range points {
 		for name, val := range p.Fields {
 			fieldNames[name] = true
-			// 检测字段类型（只检测一次）
 			if _, exists := w.schema.Fields[name]; !exists {
 				w.schema.Fields[name] = detectFieldType(val)
 			}
@@ -113,6 +119,10 @@ func (w *Writer) WritePoints(points []*types.Point) error {
 			return err
 		}
 		w.fields[name] = f
+
+		// 初始化 field buffer 和计算固定大小
+		w.fieldBufs[name] = make([]byte, 0, BlockSize)
+		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
 	}
 
 	// 写入 points 到 block buffer
@@ -125,163 +135,135 @@ func (w *Writer) WritePoints(points []*types.Point) error {
 	return nil
 }
 
-func (w *Writer) writeFieldValue(f *os.File, val any) error {
-	switch v := val.(type) {
-	case float64:
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], math.Float64bits(v))
-		_, err := f.Write(buf[:])
-		return err
-	case int64:
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], uint64(v))
-		_, err := f.Write(buf[:])
-		return err
-	case string:
-		var buf [4]byte
-		binary.BigEndian.PutUint32(buf[:], uint32(len(v)))
-		if _, err := f.Write(buf[:]); err != nil {
-			return err
-		}
-		_, err := f.WriteString(v)
-		return err
-	case bool:
-		if v {
-			_, err := f.Write([]byte{1})
-			return err
-		}
-		_, err := f.Write([]byte{0})
-		return err
+// fieldTypeSize 返回字段类型的固定大小
+func (w *Writer) fieldTypeSize(t FieldType) int {
+	switch t {
+	case FieldTypeFloat64, FieldTypeInt64:
+		return 8
+	case FieldTypeBool:
+		return 1
+	case FieldTypeString:
+		return -1 // 变长
+	default:
+		return 8
 	}
-	return nil
 }
 
 // writePoint 将单个 point 写入 block buffer
 func (w *Writer) writePoint(p *types.Point) error {
+	// 检查是否需要 flush block
 	if w.bufPos >= BlockSize {
 		if err := w.flushBlock(); err != nil {
 			return err
 		}
 	}
+
+	// 记录第一个时间戳
 	if w.rowCount == 0 {
 		w.firstTs = p.Timestamp
 	}
-	// Write timestamp to buffer (for block indexing)
+
+	// 编码并写入 timestamp
 	var tsBuf [8]byte
 	binary.BigEndian.PutUint64(tsBuf[:], uint64(p.Timestamp))
 	copy(w.buf[w.bufPos:w.bufPos+8], tsBuf[:])
 	w.bufPos += 8
-	// Write fields directly to field files (maintain original structure)
-	for name, f := range w.fields {
-		if val, ok := p.Fields[name]; ok {
-			if err := w.writeFieldValue(f, val); err != nil {
-				return err
-			}
+
+	// 写入各字段到各自的 buffer
+	for name := range w.fields {
+		val, ok := p.Fields[name]
+		if !ok {
+			// 字段不存在，写入零值
+			val = w.zeroValue(w.schema.Fields[name])
 		}
+		w.appendFieldValue(name, val)
 	}
+
 	w.rowCount++
 	return nil
 }
 
-// writeFieldValueToBuf 将字段值写入缓冲区
-func (w *Writer) writeFieldValueToBuf(val any) error {
+// zeroValue 返回类型的零值
+func (w *Writer) zeroValue(t FieldType) any {
+	switch t {
+	case FieldTypeFloat64:
+		return float64(0)
+	case FieldTypeInt64:
+		return int64(0)
+	case FieldTypeBool:
+		return false
+	case FieldTypeString:
+		return ""
+	default:
+		return float64(0)
+	}
+}
+
+// appendFieldValue 将字段值追加到 field buffer
+func (w *Writer) appendFieldValue(name string, val any) {
+	buf := w.fieldBufs[name]
+
 	switch v := val.(type) {
 	case float64:
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], math.Float64bits(v))
-		copy(w.buf[w.bufPos:w.bufPos+8], buf[:])
-		w.bufPos += 8
-		return nil
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], math.Float64bits(v))
+		buf = append(buf, b[:]...)
 	case int64:
-		var buf [8]byte
-		binary.BigEndian.PutUint64(buf[:], uint64(v))
-		copy(w.buf[w.bufPos:w.bufPos+8], buf[:])
-		w.bufPos += 8
-		return nil
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(v))
+		buf = append(buf, b[:]...)
 	case string:
 		var lenBuf [4]byte
 		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(v)))
-		copy(w.buf[w.bufPos:w.bufPos+4], lenBuf[:])
-		w.bufPos += 4
-		copy(w.buf[w.bufPos:w.bufPos+len(v)], v)
-		w.bufPos += len(v)
-		return nil
+		buf = append(buf, lenBuf[:]...)
+		buf = append(buf, v...)
 	case bool:
 		if v {
-			w.buf[w.bufPos] = 1
+			buf = append(buf, 1)
 		} else {
-			w.buf[w.bufPos] = 0
+			buf = append(buf, 0)
 		}
-		w.bufPos++
-		return nil
 	}
-	return nil
+	w.fieldBufs[name] = buf
 }
 
 // flushBlock 将当前 block 缓冲写入文件
 func (w *Writer) flushBlock() error {
-	if w.bufPos == 0 {
+	if w.bufPos == 0 && w.rowCount == 0 {
 		return nil
 	}
+
+	// 获取当前文件偏移量
 	info, err := w.timestamp.Stat()
 	if err != nil {
 		return err
 	}
 	offset := uint32(info.Size())
+
+	// 写入 timestamps block
 	if _, err := w.timestamp.Write(w.buf[:w.bufPos]); err != nil {
 		return err
 	}
-	lastTs := w.firstTs + int64(w.rowCount-1)*1000
+
+	// 写入各字段 block
+	for name, buf := range w.fieldBufs {
+		if _, err := w.fields[name].Write(buf); err != nil {
+			return err
+		}
+		// 清空 buffer
+		w.fieldBufs[name] = w.fieldBufs[name][:0]
+	}
+
+	// 记录 block 索引
+	lastTs := w.firstTs + int64(w.rowCount-1)*1000 // 简化假设
 	w.blockIndex.Add(w.firstTs, lastTs, offset, w.rowCount)
+
+	// 重置
 	w.bufPos = 0
 	w.rowCount = 0
 	w.firstTs = 0
+
 	return nil
-}
-
-// WriteTimestampBlock 写入时间戳块
-func (w *Writer) WriteTimestampBlock(timestamps []int64) error {
-	// 计算 delta 编码
-	deltas := compression.DeltaEncode(timestamps)
-
-	// 分配缓冲区
-	buf := make([]byte, BlockSize)
-	pos := 0
-
-	// 写入 header
-	copy(buf[pos:pos+8], Magic[:])
-	pos += 8
-	binary.BigEndian.PutUint32(buf[pos:pos+4], Version)
-	pos += 4
-	// block_count 后续填写
-	blockCountOffset := pos
-	pos += 4
-
-	// 计算压缩数据
-	encoded := w.encodeDeltas(deltas)
-
-	// 写入数据
-	binary.LittleEndian.PutUint32(buf[pos:pos+4], uint32(len(encoded)))
-	pos += 4
-	copy(buf[pos:], encoded)
-	pos += len(encoded)
-
-	// 回填 block_count (当前为 1)
-	binary.BigEndian.PutUint32(buf[blockCountOffset:blockCountOffset+4], 1)
-
-	_, err := w.timestamp.Write(buf[:pos])
-	return err
-}
-
-func (w *Writer) encodeDeltas(deltas []int64) []byte {
-	// 简单实现：直接用 varint 编码
-	buf := make([]byte, len(deltas)*16)
-	pos := 0
-	for _, d := range deltas {
-		n := compression.PutVarint(buf[pos:], uint64(d))
-		pos += n
-	}
-	return buf[:pos]
 }
 
 // Close 关闭
@@ -342,5 +324,5 @@ func detectFieldType(val any) FieldType {
 	case bool:
 		return FieldTypeBool
 	}
-	return FieldTypeFloat64 // 默认
+	return FieldTypeFloat64
 }

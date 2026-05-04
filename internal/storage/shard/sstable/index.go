@@ -58,10 +58,11 @@ func (idx *BlockIndex) Write(file string) error {
 
 	// 写入 entries
 	for _, e := range idx.entries {
-		var buf [20]byte
+		var buf [24]byte
 		binary.BigEndian.PutUint64(buf[0:8], uint64(e.FirstTimestamp))
 		binary.BigEndian.PutUint64(buf[8:16], uint64(e.LastTimestamp))
-		binary.LittleEndian.PutUint32(buf[16:20], e.Offset)
+		binary.BigEndian.PutUint32(buf[16:20], e.Offset)
+		binary.BigEndian.PutUint32(buf[20:24], e.RowCount)
 		if _, err := f.Write(buf[:]); err != nil {
 			return err
 		}
@@ -109,7 +110,7 @@ func (idx *BlockIndex) Read(file string) error {
 	}
 
 	blockCount := binary.BigEndian.Uint32(buf[12:16])
-	entrySize := 20
+	entrySize := 24
 	if 16+int(blockCount)*entrySize > len(buf) {
 		return ErrInvalidIndex
 	}
@@ -121,7 +122,8 @@ func (idx *BlockIndex) Read(file string) error {
 		idx.entries[i] = BlockIndexEntry{
 			FirstTimestamp: int64(binary.BigEndian.Uint64(buf[off : off+8])),
 			LastTimestamp:  int64(binary.BigEndian.Uint64(buf[off+8 : off+16])),
-			Offset:         binary.LittleEndian.Uint32(buf[off+16 : off+20]),
+			Offset:         binary.BigEndian.Uint32(buf[off+16 : off+20]),
+			RowCount:       binary.BigEndian.Uint32(buf[off+20 : off+24]),
 		}
 	}
 

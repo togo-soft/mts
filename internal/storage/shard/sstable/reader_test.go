@@ -73,9 +73,13 @@ func TestReader_ReadTimestamps(t *testing.T) {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
 
-	timestamps := []int64{1000, 2000, 3000}
-	if err := w.WriteTimestampBlock(timestamps); err != nil {
-		t.Fatalf("WriteTimestampBlock failed: %v", err)
+	points := []*types.Point{
+		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]any{"usage": 85.5}},
+		{Timestamp: 2000, Tags: map[string]string{"host": "server1"}, Fields: map[string]any{"usage": 90.0}},
+		{Timestamp: 3000, Tags: map[string]string{"host": "server1"}, Fields: map[string]any{"usage": 95.5}},
+	}
+	if err := w.WritePoints(points); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
