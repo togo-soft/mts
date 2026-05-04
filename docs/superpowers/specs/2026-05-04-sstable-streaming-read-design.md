@@ -76,161 +76,205 @@ func (r *Reader) NewIterator() (*Iterator, error) {
 |------|--------|----------|----------|----------|------|
 | InfluxDB TSM | 4KB | 内嵌 | key+time | 二分 | per-block |
 | VictoriaMetrics | 64KB | 分离 | time | 二分 | per-block snappy |
-| 当前实现 | 无块 | 无 | 无 | **线性扫描** | 无 |
+| 当前实现 | 无块 | 无 | **线性扫描** | **线性扫描** | 仅 timestamp |
 
 ---
 
-## 3. 设计方案
+## 3. 设计决策
 
-### 3.1 SSTable 文件结构（改进后）
+### 3.1 Block 大小
+
+**决策**：64KB（与 VictoriaMetrics 一致）
+
+**理由**：
+- 时序数据写入模式稳定，大块压缩效率更好
+- 当前 MemTable flush 触发就是 64MB，block 大小对齐自然
+- 相比 4KB 小块，索引更小，压缩率更高
+
+### 3.2 索引加载策略
+
+**决策**：全量加载索引到内存
+
+**理由**：
+- 索引文件很小（每个 block 20 bytes，100万条数据约 1000 个 block，约 20KB）
+- 二分查找直接在内存进行，无额外 IO
+- 实现简单，不需要处理 mmap 的复杂边界情况
+- 与 InfluxDB 成熟方案一致
+
+### 3.3 索引文件结构
+
+**决策**：统一索引 `_index.bin`
+
+**结构**：
+
+```
+_index.bin:
+┌──────────────────────────────────────────────────────────┐
+│ Header (16 bytes)                                        │
+│   - Magic: [8]byte = "TSIDX001"                        │
+│   - Version: uint32 = 1                                 │
+│   - BlockCount: uint32                                  │
+├──────────────────────────────────────────────────────────┤
+│ Entries (BlockCount × 20 bytes):                        │
+│   - FirstTimestamp: int64 (8 bytes)                     │
+│   - LastTimestamp:  int64 (8 bytes)                     │
+│   - Offset:         uint32 (4 bytes) - 文件内偏移       │
+└──────────────────────────────────────────────────────────┘
+```
+
+**理由**：
+- timestamps 和字段数据的 block 边界一致（同时写入）
+- 一个索引覆盖所有列，简化实现
+
+### 3.4 Block 内数据布局
+
+**决策**：行式布局
+
+```
+Block 数据结构：
+┌─────────────────────────────────────────────────────────────┐
+│ BlockHeader (16 bytes)                                     │
+│   - Magic: [4]byte = "BLKH"                               │
+│   - Version: uint32 = 1                                    │
+│   - RowCount: uint32                                       │
+│   - FirstTimestamp: int64                                  │
+├─────────────────────────────────────────────────────────────┤
+│ Timestamps[]: delta-of-delta 编码                         │
+├─────────────────────────────────────────────────────────────┤
+│ Field1[]: 类型特定编码（float64/int64/string/bool）        │
+├─────────────────────────────────────────────────────────────┤
+│ Field2[]: ...                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**理由**：
+- 行式布局解码后直接是 row by row，ShardIterator 消费方便
+- 列式布局需要分别追踪每个列的当前位置，复杂
+- 变长字段（string）通过偏移表解决
+
+### 3.5 压缩策略
+
+**决策**：保持现状（仅 timestamp delta 编码）
+
+**当前状态**：
+| 字段类型 | 编码方式 |
+|----------|----------|
+| timestamp | Delta 编码 |
+| float64 | 无压缩（8字节 raw big-endian） |
+| int64 | 无压缩（8字节 raw big-endian） |
+| string | 无压缩（4字节长度 + 原始 bytes） |
+| bool | 无压缩（1字节） |
+
+**理由**：
+- 保持实现简单，先实现流式读取
+- 后续可单独添加 float64 Gorilla 编码优化
+
+### 3.6 MemTable Flush
+
+**决策**：MemTable 直接 Flush 到 SSTable，不经过 block 缓冲
+
+**理由**：
+- 实现简单，不需要额外的 block 缓冲逻辑
+- MemTable flush 是后台行为，不在关键路径上
+- 小 block 不会造成功能问题，只是压缩效率略低
+- 后续可以在 Writer 层面做 block 合并优化
+
+### 3.7 向后兼容性
+
+**决策**：Reader 降级 + 后台重建索引
+
+**处理流程**：
+```
+Reader 初始化时：
+1. 检查 _index.bin 是否存在
+2. 存在 → 加载索引，二分查找
+3. 不存在 → 降级：读取全部 timestamps 到内存，线性扫描
+```
+
+### 3.8 迭代器边界
+
+**决策**：方案A（改进后）- 分层过滤
+
+**职责划分**：
+
+| 组件 | 职责 |
+|------|------|
+| SSTable Iterator | 块级读取 + block 过滤 |
+| ShardIterator | 行级时间过滤 + MemTable/SSTable 归并 |
+
+**SSTable Iterator 提供的接口**：
+- `SeekToBlock(targetTime)` - 二分查找定位起始 block
+- `BlockFirstTimestamp()` - 获取当前 block 的起始时间
+- `Next()` - 移动到下一个点
+- `Point()` - 获取当前点数据
+
+**过滤流程**：
+
+```
+ShardIterator.nextSstRow():
+1. 首次调用时：
+   - SSTable Iterator 加载 block index
+   - 二分查找第一个 block（LastTimestamp >= startTime）
+   - 加载该 block 的数据
+
+2. 每次 Next():
+   - 如果当前 block 耗尽：
+     - 加载下一个 block
+     - 检查 block.FirstTimestamp >= endTime？若是则停止
+   - 解码当前 row
+```
+
+---
+
+## 4. SSTable 文件结构（改进后）
 
 ```
 sstable/
 ├── _schema.json         # 字段类型定义
-├── _timestamps.bin      # 时间戳数据（按时间排序）
-├── _ts_index.bin        # 时间戳块索引（新增）
+├── _index.bin          # 块索引（新增）
+├── _timestamps.bin     # 时间戳数据
 └── fields/
-    ├── field1.bin       # 字段1数据
-    ├── field1.idx.bin   # 字段1块索引（新增）
-    ├── field2.bin
-    └── field2.idx.bin
+    ├── field1.bin      # 字段1数据
+    ├── field2.bin      # 字段2数据
+    └── ...
 ```
 
-### 3.2 块索引格式
+---
 
-```
-BlockIndex Entry (20 bytes):
-┌──────────────────────────────────────────────────────────┐
-│ first_timestamp: int64 (8 bytes) - 块内第一个时间戳      │
-│ last_timestamp:  int64 (8 bytes) - 块内最后一个时间戳    │
-│ offset:          uint32 (4 bytes) - 块在数据文件中的偏移  │
-└──────────────────────────────────────────────────────────┘
+## 5. 实现计划
 
-_ts_index.bin 结构:
-┌──────────────────────────────────────────────────────────┐
-│ magic: [8]byte = "TSIDX001"                            │
-│ version: uint32 = 1                                     │
-│ block_count: uint32                                     │
-│ entries: [block_count]BlockIndexEntry                   │
-└──────────────────────────────────────────────────────────┘
-```
+### 5.1 阶段一：Writer 修改
 
-### 3.3 Writer 修改
+- [ ] 添加 BlockIndexEntry 结构
+- [ ] 添加 block 缓冲逻辑
+- [ ] 写入索引文件
 
-**写入流程**：
-1. 收集数据到 buffer（64KB per block）
-2. 达到 block size 时，写入 block 数据
-3. 记录 block 的 first/last timestamp 和 offset
-4. 所有数据写完后，写入 block index
+### 5.2 阶段二：Reader 修改
 
-```go
-// WriteBlock 写入一个数据块
-func (w *Writer) WriteBlock(timestamps []int64, fieldValues map[string][]byte) error {
-    offset := w.calcCurrentOffset()
+- [ ] 添加索引读取
+- [ ] 添加向后兼容降级逻辑
 
-    // 写入 timestamps block
-    if err := w.writeTimestampBlock(timestamps); err != nil {
-        return err
-    }
+### 5.3 阶段三：SSTable Iterator
 
-    // 写入各字段 block
-    for name, values := range fieldValues {
-        if err := w.writeFieldBlock(name, values); err != nil {
-            return err
-        }
-    }
+- [ ] 重写为流式迭代器
+- [ ] 实现 SeekToBlock 二分查找
+- [ ] 实现按需加载单个 block
+- [ ] 实现 Next/Point 接口
 
-    // 记录 block index entry
-    w.blockIndex = append(w.blockIndex, BlockIndexEntry{
-        FirstTimestamp: timestamps[0],
-        LastTimestamp:  timestamps[len(timestamps)-1],
-        Offset:         offset,
-    })
-    return nil
-}
-```
+### 5.4 阶段四：ShardIterator
 
-### 3.4 Reader 修改
+- [ ] 修改使用新的 SSTable Iterator
+- [ ] 确保时间过滤正确
 
-**读取流程**：
-1. 加载 block index 到内存（很小，约几 KB）
-2. 二分查找第一个 `last_timestamp >= startTime` 的 block
-3. 从该 block 开始顺序读取
-4. 遇到 `first_timestamp >= endTime` 时停止
+### 5.5 阶段五：测试
 
-```go
-// Iterator SSTable 流式迭代器
-type Iterator struct {
-    reader       *Reader
-    blockIndex   []BlockIndexEntry
-    blockData    []byte        // 当前 block 的原始数据
-    curBlock     int           // 当前 block 索引
-    pos          int           // block 内位置
-    startTime    int64
-    endTime      int64
+- [ ] 单元测试
+- [ ] e2e integrity 测试
+- [ ] 内存占用验证
 
-    // 解码后的当前行
-    curTimestamp int64
-    curFields    map[string]any
-}
+---
 
-// SeekToTime 使用二分查找定位到起始时间
-func (it *Iterator) SeekToTime(target int64) error {
-    // 二分查找第一个 last_timestamp >= target 的 block
-    blockIdx := sort.Search(len(it.blockIndex), func(i int) bool {
-        return it.blockIndex[i].LastTimestamp >= target
-    })
-
-    if blockIdx >= len(it.blockIndex) {
-        return nil // 没有更多数据
-    }
-
-    it.curBlock = blockIdx
-    return it.loadBlock(blockIdx)
-}
-
-// loadBlock 只加载单个 block 到内存
-func (it *Iterator) loadBlock(idx int) error {
-    entry := it.blockIndex[idx]
-
-    // 读取该 block 的数据
-    data := make([]byte, it.blockSize)
-    n, err := it.reader.readAt(entry.Offset, data)
-    if err != nil {
-        return err
-    }
-
-    it.blockData = data[:n]
-    it.pos = 0
-    return nil
-}
-
-// Next 移动到下一个点
-func (it *Iterator) Next() bool {
-    for {
-        // 当前 block 已耗尽，加载下一个
-        if it.pos >= it.blockEntry.RowCount {
-            it.curBlock++
-            if it.curBlock >= len(it.blockIndex) {
-                return false
-            }
-            if err := it.loadBlock(it.curBlock); err != nil {
-                return false
-            }
-        }
-
-        // 检查是否超出查询范围
-        if it.curTimestamp >= it.endTime {
-            return false
-        }
-
-        it.pos++
-        return true
-    }
-}
-```
-
-### 3.5 内存占用对比
+## 6. 内存占用对比
 
 | 场景 | 改进前 | 改进后 |
 |------|--------|--------|
@@ -239,42 +283,11 @@ func (it *Iterator) Next() bool {
 
 ---
 
-## 4. 实现计划
-
-### 4.1 阶段一：块索引结构
-
-- [ ] 定义 BlockIndexEntry 结构
-- [ ] 实现 Writer 块收集和索引构建
-- [ ] 实现 Reader 加载索引
-
-### 4.2 阶段二：流式读取
-
-- [ ] 实现 SeekToTime 二分查找
-- [ ] 实现按需加载单个 block
-- [ ] 修改 ShardIterator 使用流式迭代器
-
-### 4.3 阶段三：压缩（可选）
-
-- [ ] 添加 per-block snappy 压缩
-- [ ] 读取引擎添加解压
-
----
-
-## 5. 关键文件
-
-| 文件 | 变更 |
-|------|------|
-| `internal/storage/shard/sstable/writer.go` | 添加块收集和索引写入 |
-| `internal/storage/shard/sstable/reader.go` | 添加索引读取 |
-| `internal/storage/shard/sstable/iterator.go` | 重写为流式迭代器 |
-| `internal/storage/shard/iterator.go` | 使用新的流式迭代器 |
-
----
-
-## 6. 验收标准
+## 7. 验收标准
 
 - [ ] Block index 正确写入和读取
 - [ ] 二分查找正确跳转到目标时间
 - [ ] 只加载查询范围内的 block
 - [ ] 内存占用显著降低
 - [ ] e2e integrity 测试通过
+- [ ] 向后兼容旧文件
