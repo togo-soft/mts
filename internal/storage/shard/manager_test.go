@@ -7,7 +7,7 @@ import (
 )
 
 func TestShardManager_GetShard(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour)
+	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig())
 
 	start := time.Now().UnixNano()
 
@@ -22,7 +22,7 @@ func TestShardManager_GetShard(t *testing.T) {
 }
 
 func TestShardManager_GetShard_TimeWindow(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour)
+	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig())
 
 	// 1小时时间窗口
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano()

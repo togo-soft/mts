@@ -7,6 +7,7 @@ import (
 
 	"micro-ts/internal/engine"
 	"micro-ts/internal/query"
+	"micro-ts/internal/storage/shard"
 	"micro-ts/internal/types"
 )
 
@@ -14,6 +15,12 @@ import (
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
+	MemTableCfg   shard.MemTableConfig
+}
+
+// DefaultMemTableConfig 返回默认的 MemTable 配置
+func DefaultMemTableConfig() shard.MemTableConfig {
+	return shard.DefaultMemTableConfig()
 }
 
 // DB 数据库
@@ -28,9 +35,17 @@ func Open(cfg Config) (*DB, error) {
 	if shardDuration == 0 {
 		shardDuration = 7 * 24 * time.Hour
 	}
+
+	// 默认 MemTable 配置
+	memTableCfg := cfg.MemTableCfg
+	if memTableCfg.MaxSize == 0 {
+		memTableCfg = DefaultMemTableConfig()
+	}
+
 	eng, err := engine.NewEngine(&engine.Config{
 		DataDir:       cfg.DataDir,
 		ShardDuration: shardDuration,
+		MemTableCfg:   memTableCfg,
 	})
 	if err != nil {
 		return nil, err

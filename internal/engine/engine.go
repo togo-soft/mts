@@ -18,6 +18,7 @@ import (
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
+	MemTableCfg   shard.MemTableConfig
 }
 
 // Engine 存储引擎
@@ -30,9 +31,14 @@ type Engine struct {
 
 // NewEngine 创建引擎
 func NewEngine(cfg *Config) (*Engine, error) {
+	// 默认 MemTable 配置
+	memTableCfg := cfg.MemTableCfg
+	if memTableCfg.MaxSize == 0 {
+		memTableCfg = shard.DefaultMemTableConfig()
+	}
 	return &Engine{
 		cfg:          cfg,
-		shardManager: shard.NewShardManager(cfg.DataDir, cfg.ShardDuration),
+		shardManager: shard.NewShardManager(cfg.DataDir, cfg.ShardDuration, memTableCfg),
 		metaStores:   make(map[string]*measurement.MemoryMetaStore),
 	}, nil
 }

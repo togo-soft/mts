@@ -1,4 +1,4 @@
-// tests/e2e/write_10k/main.go
+// tests/e2e/write_20k_debug/main.go
 package main
 
 import (
@@ -11,11 +11,10 @@ import (
 	"micro-ts"
 	"micro-ts/internal/storage/shard"
 	"micro-ts/tests/e2e/pkg/data_gen"
-	"micro-ts/tests/e2e/pkg/metrics"
 )
 
 func main() {
-	tmpDir := filepath.Join(os.TempDir(), "microts_write_10k")
+	tmpDir := filepath.Join(os.TempDir(), "microts_debug")
 	os.RemoveAll(tmpDir)
 	defer os.RemoveAll(tmpDir)
 
@@ -36,16 +35,11 @@ func main() {
 	}
 	defer db.Close()
 
-	// GC 并记录初始内存
-	metrics.GC()
-	memBefore := metrics.ReadMemStats()
-	fmt.Printf("Before write: %s\n", metrics.FormatMemStats(memBefore))
-
 	gen := data_gen.NewDataGenerator(42)
 	baseTime := time.Now().UnixNano()
-	const count = 10000
+	const count = 20000
 
-	timer := metrics.NewTimer()
+	fmt.Printf("Writing %d points...\n", count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
@@ -54,14 +48,5 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	elapsed := timer.Elapsed()
-
-	// GC 后记录最终内存
-	metrics.GC()
-	memAfter := metrics.ReadMemStats()
-	delta := metrics.CalcDelta(memBefore, memAfter)
-
-	fmt.Printf("Write 10K: %d points in %v, TPS: %.2f\n", count, elapsed, metrics.TPS(count, elapsed))
-	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfter))
-	fmt.Printf("Memory delta: %s\n", delta.Format())
+	fmt.Printf("Write completed.\n")
 }

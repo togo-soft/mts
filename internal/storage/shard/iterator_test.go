@@ -14,7 +14,7 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 	dir := t.TempDir()
 
 	// 创建 Shard
-	shard := NewShard("db", "cpu", 0, 3600*1e9, dir, nil)
+	shard := NewShard("db", "cpu", 0, 3600*1e9, dir, nil, DefaultMemTableConfig())
 
 	// 写入 MemTable 数据
 	points := []*types.Point{
@@ -114,7 +114,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 	}
 
 	// 创建 Shard
-	shard := NewShard("db", "cpu", 0, 3600*1e9, sstDir, nil)
+	shard := NewShard("db", "cpu", 0, 3600*1e9, sstDir, nil, DefaultMemTableConfig())
 
 	// 创建迭代器（0, 0 表示不过滤时间）
 	iter := NewShardIterator(shard, 0, 0)
@@ -201,7 +201,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 	}
 
 	// 创建 Shard
-	shard := NewShard("db", "cpu", 0, 3600*1e9, sstDir, nil)
+	shard := NewShard("db", "cpu", 0, 3600*1e9, sstDir, nil, DefaultMemTableConfig())
 
 	// 写入 MemTable 数据 (MemTable: 1000, 3000)
 	memPoints := []*types.Point{
@@ -301,7 +301,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 	}
 
 	// 创建 Shard
-	shard := NewShard("db", "cpu", 0, 3600*1e9, sstDir, nil)
+	shard := NewShard("db", "cpu", 0, 3600*1e9, sstDir, nil, DefaultMemTableConfig())
 
 	// 写入 MemTable 数据 (MemTable: 1000, 2000) - 1000 与 SSTable 相同
 	memPoints := []*types.Point{
@@ -353,7 +353,7 @@ func TestShardIterator_Current(t *testing.T) {
 	dir := t.TempDir()
 
 	// 创建 Shard
-	shard := NewShard("db", "cpu", 0, 3600*1e9, dir, nil)
+	shard := NewShard("db", "cpu", 0, 3600*1e9, dir, nil, DefaultMemTableConfig())
 
 	// 写入 MemTable 数据
 	points := []*types.Point{
@@ -394,7 +394,7 @@ func TestShardIterator_Empty(t *testing.T) {
 	dir := t.TempDir()
 
 	// 创建 Shard（无数据）
-	shard := NewShard("db", "cpu", 0, 3600*1e9, dir, nil)
+	shard := NewShard("db", "cpu", 0, 3600*1e9, dir, nil, DefaultMemTableConfig())
 
 	// 创建迭代器（0, 0 表示不过滤时间）
 	iter := NewShardIterator(shard, 0, 0)
