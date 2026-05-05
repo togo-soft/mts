@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestEngine_Open(t *testing.T) {

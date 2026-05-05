@@ -8,7 +8,7 @@ import (
 
 	"micro-ts/internal/storage/measurement"
 	"micro-ts/internal/storage/shard"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestQueryIterator_EmptyShardList(t *testing.T) {

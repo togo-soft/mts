@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestWAL_Write(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"micro-ts/internal/api/pb"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // MicroTSService gRPC 服务实现

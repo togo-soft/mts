@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // Iterator SSTable 流式迭代器

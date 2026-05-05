@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // Reader SSTable 读取器

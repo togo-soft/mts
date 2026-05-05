@@ -1,7 +1,7 @@
 package shard
 
 import (
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // ShardIterator 单个 Shard 的迭代器

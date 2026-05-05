@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // DataGenerator 数据生成器

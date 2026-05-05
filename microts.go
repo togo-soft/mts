@@ -1,4 +1,4 @@
-// microts.go
+// Package microts 高性能时序数据库
 package microts
 
 import (
@@ -8,19 +8,32 @@ import (
 	"micro-ts/internal/engine"
 	"micro-ts/internal/query"
 	"micro-ts/internal/storage/shard"
-	"micro-ts/internal/types"
+	"micro-ts/types"
+)
+
+// 重导出公共类型，方便用户使用
+type (
+	Point                 = types.Point
+	PointRow              = types.PointRow
+	QueryRangeRequest     = types.QueryRangeRequest
+	QueryRangeResponse    = types.QueryRangeResponse
+	MemTableConfig        = types.MemTableConfig
 )
 
 // Config 配置
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
-	MemTableCfg   shard.MemTableConfig
+	MemTableCfg   MemTableConfig
 }
 
 // DefaultMemTableConfig 返回默认的 MemTable 配置
-func DefaultMemTableConfig() shard.MemTableConfig {
-	return shard.DefaultMemTableConfig()
+func DefaultMemTableConfig() MemTableConfig {
+	return MemTableConfig{
+		MaxSize:      64 * 1024 * 1024,
+		MaxCount:     3000,
+		IdleDuration: time.Minute,
+	}
 }
 
 // DB 数据库
@@ -45,7 +58,11 @@ func Open(cfg Config) (*DB, error) {
 	eng, err := engine.NewEngine(&engine.Config{
 		DataDir:       cfg.DataDir,
 		ShardDuration: shardDuration,
-		MemTableCfg:   memTableCfg,
+		MemTableCfg: shard.MemTableConfig{
+			MaxSize:      memTableCfg.MaxSize,
+			MaxCount:     memTableCfg.MaxCount,
+			IdleDuration: memTableCfg.IdleDuration,
+		},
 	})
 	if err != nil {
 		return nil, err

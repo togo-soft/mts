@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestIterator_Empty(t *testing.T) {
