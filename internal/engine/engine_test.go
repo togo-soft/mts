@@ -62,7 +62,7 @@ func TestEngine_Write(t *testing.T) {
 		Fields:      map[string]any{"usage": 85.5},
 	}
 
-	err = engine.Write(point)
+	err = engine.Write(t.Context(), point)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestEngine_Query(t *testing.T) {
 		},
 	}
 
-	err = engine.WriteBatch(points)
+	err = engine.WriteBatch(t.Context(), points)
 	if err != nil {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestEngine_WriteBatch(t *testing.T) {
 		},
 	}
 
-	err = engine.WriteBatch(points)
+	err = engine.WriteBatch(t.Context(), points)
 	if err != nil {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 		},
 	}
 
-	err = engine.WriteBatch(points)
+	err = engine.WriteBatch(t.Context(), points)
 	if err != nil {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 		},
 	}
 
-	err = engine.WriteBatch(points)
+	err = engine.WriteBatch(t.Context(), points)
 	if err != nil {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestEngine_Query_Concurrent(t *testing.T) {
 			Timestamp:   baseTime + int64(i)*int64(time.Hour), // 每小时一个 shard
 			Fields:      map[string]any{"usage": float64(i)},
 		}
-		if err := engine.Write(p); err != nil {
+		if err := engine.Write(t.Context(), p); err != nil {
 			t.Fatalf("Write failed: %v", err)
 		}
 	}
@@ -362,7 +362,7 @@ func TestEngine_Query_Pagination(t *testing.T) {
 			Fields:      map[string]any{"usage": float64(i)},
 		}
 	}
-	err = engine.WriteBatch(points)
+	err = engine.WriteBatch(t.Context(), points)
 	if err != nil {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}

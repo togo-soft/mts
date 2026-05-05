@@ -210,7 +210,7 @@ func Open(cfg Config) (*DB, error) {
 // Write 写入单个数据点到数据库。
 //
 // 参数：
-//   - ctx: 上下文，可用于取消操作（当前实现暂不支持 context 取消）
+//   - ctx: 上下文，可用于取消操作（会透传到引擎层）
 //   - point: 要写入的数据点，包含时间戳、标签和字段
 //
 // 返回：
@@ -239,7 +239,7 @@ func Open(cfg Config) (*DB, error) {
 //	    log.Printf("写入失败: %v", err)
 //	}
 func (db *DB) Write(ctx context.Context, point *types.Point) error {
-	return db.engine.Write(point)
+	return db.engine.Write(ctx, point)
 }
 
 // WriteBatch 批量写入多个数据点。
@@ -266,7 +266,7 @@ func (db *DB) Write(ctx context.Context, point *types.Point) error {
 //	    log.Printf("批量写入失败: %v", err)
 //	}
 func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
-	return db.engine.WriteBatch(points)
+	return db.engine.WriteBatch(ctx, points)
 }
 
 // QueryRange 执行范围查询，返回指定时间范围内的数据点。

@@ -123,13 +123,15 @@ func (e *Engine) Close() error {
 //
 // 写入流程：
 //
-//  1. 根据时间戳确定或创建目标 Shard
-//  2. 将数据写入对应的 Shard
-//  3. Shard 内部先写 WAL，再写 MemTable
-//  4. 检查 MemTable 是否需要刷盘
+//  1. 检查上下文状态（是否已取消）
+//  2. 根据时间戳确定或创建目标 Shard
+//  3. 将数据写入对应的 Shard
+//  4. Shard 内部先写 WAL，再写 MemTable
+//  5. 检查 MemTable 是否需要刷盘
 //
 // 参数：
-//   - point: 要写入的数据点
+//   - ctx:    上下文，用于取消操作
+//   - point:  要写入的数据点
 //
 // 返回：
 //   - error: 写入失败时返回错误，错误信息包含失败阶段
@@ -138,7 +140,19 @@ func (e *Engine) Close() error {
 //
 //	并发写入会分别路由到不同的 Shard（如果时间窗口不同），
 //	同一 Shard 的并发写入由 Shard 内部的锁保护。
-func (e *Engine) Write(point *types.Point) error {
+//
+// Context 取消：
+//
+//	如果 context 在写入过程中被取消，操作会尽快返回 ctx.Err()。
+//	但需要注意：WAL 写入成功后即使 context 被取消，数据也已持久化。
+func (e *Engine) Write(ctx context.Context, point *types.Point) error {
+	// 检查上下文是否已取消
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	// 获取或创建 Shard
 	s, err := e.shardManager.GetShard(point.Database, point.Measurement, point.Timestamp)
 	if err != nil {
@@ -158,6 +172,7 @@ func (e *Engine) Write(point *types.Point) error {
 // 批量写入的吞吐量通常比单独写入高。
 //
 // 参数：
+//   - ctx:    上下文，用于取消操作
 //   - points: 要写入的数据点切片
 //
 // 返回：
@@ -167,9 +182,21 @@ func (e *Engine) Write(point *types.Point) error {
 //
 //	如果部分点写入失败，返回错误。
 //	已经成功写入的点不会被回滚。
-func (e *Engine) WriteBatch(points []*types.Point) error {
+//
+// Context 取消：
+//
+//	每次写入前检查 context 状态。
+//	如果 context 被取消，返回 ctx.Err()，已写入的点保留。
+func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 	for _, p := range points {
-		if err := e.Write(p); err != nil {
+		// 检查上下文是否已取消
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if err := e.Write(ctx, p); err != nil {
 			return fmt.Errorf("write point (timestamp=%d): %w", p.Timestamp, err)
 		}
 	}
