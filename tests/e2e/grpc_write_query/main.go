@@ -196,6 +196,10 @@ func main() {
 	fmt.Printf("  Written: %d points\n", count)
 	fmt.Printf("  Write TPS: %.2f\n", metrics.TPS(count, writeElapsed))
 	fmt.Printf("  Query Rows: %d\n", len(queryResp.Rows))
+
+	// 统计存储
+	dataDir := filepath.Join(tmpDir, "db1", "cpu")
+	fmt.Printf("\n%s\n", metrics.FormatStorageReport(dataDir, count, 80))
 }
 
 // startServer 启动 gRPC 服务端

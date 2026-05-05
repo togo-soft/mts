@@ -10,6 +10,7 @@ import (
 
 	microts "codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 )
 
 func main() {
@@ -48,4 +49,11 @@ func main() {
 		}
 	}
 	fmt.Printf("Write completed.\n")
+
+	// 等待数据落盘后统计存储
+	fmt.Printf("Waiting for data flush...\n")
+	time.Sleep(2 * time.Second)
+
+	dataDir := filepath.Join(tmpDir, "db1", "cpu")
+	fmt.Printf("\n%s\n", metrics.FormatStorageReport(dataDir, count, 80))
 }

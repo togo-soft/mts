@@ -63,4 +63,11 @@ func main() {
 	fmt.Printf("Write 1K: %d points in %v, TPS: %.2f\n", count, elapsed, metrics.TPS(count, elapsed))
 	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfter))
 	fmt.Printf("Memory delta: %s\n", delta.Format())
+
+	// 等待数据落盘后统计存储
+	fmt.Printf("\nWaiting for data flush...\n")
+	time.Sleep(2 * time.Second)
+
+	dataDir := filepath.Join(tmpDir, "db1", "cpu")
+	fmt.Printf("\n%s\n", metrics.FormatStorageReport(dataDir, count, 80))
 }

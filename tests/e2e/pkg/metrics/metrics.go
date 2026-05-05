@@ -3,6 +3,8 @@ package metrics
 
 import (
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -116,4 +118,106 @@ func TPS(count int, elapsed time.Duration) float64 {
 func FormatTPS(op string, count int, elapsed time.Duration) string {
 	tps := TPS(count, elapsed)
 	return fmt.Sprintf("%s: %d ops in %v, TPS: %.2f", op, count, elapsed, tps)
+}
+
+// ===================================
+// 存储统计
+// ===================================
+
+// StorageStats 存储统计
+type StorageStats struct {
+	Dir       string
+	TotalSize int64
+	FileCount int
+}
+
+// CalcDirSize 计算目录总大小
+func CalcDirSize(dir string) (*StorageStats, error) {
+	stats := &StorageStats{Dir: dir}
+
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // 跳过错误继续
+		}
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err == nil {
+				stats.TotalSize += info.Size()
+				stats.FileCount++
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+// Format 格式化存储统计
+func (s *StorageStats) Format() string {
+	return fmt.Sprintf("Dir: %s, Size: %s, Files: %d", s.Dir, FormatBytes(uint64(s.TotalSize)), s.FileCount)
+}
+
+// BytesPerPoint 计算每点平均字节数
+func (s *StorageStats) BytesPerPoint(pointCount int) float64 {
+	if pointCount == 0 {
+		return 0
+	}
+	return float64(s.TotalSize) / float64(pointCount)
+}
+
+// CompressionRatio 计算压缩率 (原始数据大小 / 存储大小)
+// rawBytesPerPoint: 每个点的原始字节数估计值
+func (s *StorageStats) CompressionRatio(pointCount int, rawBytesPerPoint int) float64 {
+	if s.TotalSize == 0 {
+		return 1.0
+	}
+	rawSize := int64(pointCount * rawBytesPerPoint)
+	return float64(rawSize) / float64(s.TotalSize)
+}
+
+// FormatStorageReport 格式化存储报告
+func FormatStorageReport(dir string, pointCount int, rawBytesPerPoint int) string {
+	stats, err := CalcDirSize(dir)
+	if err != nil {
+		return fmt.Sprintf("Storage: failed to calculate: %v", err)
+	}
+
+	bytesPerPoint := stats.BytesPerPoint(pointCount)
+	compressionRatio := stats.CompressionRatio(pointCount, rawBytesPerPoint)
+
+	return fmt.Sprintf(
+		"Storage Report:\n"+
+			"  Directory: %s\n"+
+			"  Total Disk Usage: %s (%d files)\n"+
+			"  Points: %d\n"+
+			"  Bytes/Point: %.2f\n"+
+			"  Raw Data Est: %s\n"+
+			"  Compression Ratio: %.2fx\n"+
+			"  === Total Disk Occupied: %s ===",
+		dir,
+		FormatBytes(uint64(stats.TotalSize)),
+		stats.FileCount,
+		pointCount,
+		bytesPerPoint,
+		FormatBytes(uint64(pointCount*rawBytesPerPoint)),
+		compressionRatio,
+		FormatBytes(uint64(stats.TotalSize)),
+	)
+}
+
+// FormatBytes 格式化字节数
+func FormatBytes(bytes uint64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := uint64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
