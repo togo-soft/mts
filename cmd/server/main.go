@@ -15,7 +15,7 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	lis, err := net.Listen("tcp", ":50051")
+	lis, err := net.Listen("tcp", ":2026")
 	if err != nil {
 		logger.Error("failed to listen", slog.Any("error", err))
 		os.Exit(1)
@@ -24,7 +24,7 @@ func main() {
 	s := grpc.NewServer()
 	pb.RegisterMicroTSServer(s, api.New(nil))
 
-	logger.Info("codeberg.org/micro-ts/mts server listening", slog.String("addr", ":50051"))
+	logger.Info("mts grpc server listening", slog.String("addr", ":2026"))
 	if err := s.Serve(lis); err != nil {
 		logger.Error("failed to serve", slog.Any("error", err))
 		os.Exit(1)
