@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/micro-ts/mts/internal/api/pb"
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -35,7 +34,7 @@ func TestNew(t *testing.T) {
 	}
 
 	// 验证嵌入的 UnimplementedMicroTSServer 已正确嵌入
-	var _ pb.MicroTSServer = srv
+	var _ types.MicroTSServer = srv
 }
 
 func TestMicroTSService_Health_CheckResponse(t *testing.T) {
@@ -46,7 +45,7 @@ func TestMicroTSService_Health_CheckResponse(t *testing.T) {
 	srv := New(eng)
 	ctx := t.Context()
 
-	resp, err := srv.Health(ctx, &pb.HealthRequest{})
+	resp, err := srv.Health(ctx, &types.HealthRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +71,7 @@ func TestMicroTSService_Write(t *testing.T) {
 	srv := New(eng)
 	ctx := t.Context()
 
-	req := &pb.WriteRequest{
+	req := &types.WriteRequest{
 		Database:    "testdb",
 		Measurement: "testmeas",
 		Tags:        map[string]string{"tag1": "value1"},
@@ -103,8 +102,8 @@ func TestMicroTSService_WriteBatch(t *testing.T) {
 	srv := New(eng)
 	ctx := t.Context()
 
-	req := &pb.WriteBatchRequest{
-		Points: []*pb.WriteRequest{
+	req := &types.WriteBatchRequest{
+		Points: []*types.WriteRequest{
 			{
 				Database:    "testdb",
 				Measurement: "testmeas",
@@ -147,13 +146,13 @@ func TestMicroTSService_Write_WithFields(t *testing.T) {
 	srv := New(eng)
 	ctx := t.Context()
 
-	req := &pb.WriteRequest{
+	req := &types.WriteRequest{
 		Database:    "testdb",
 		Measurement: "testmeas",
 		Tags:        map[string]string{"tag1": "value1"},
 		Timestamp:   time.Now().UnixNano(),
-		Fields: map[string]*pb.FieldValue{
-			"value": {Value: &pb.FieldValue_FloatValue{FloatValue: 42.0}},
+		Fields: map[string]*types.FieldValue{
+			"value": {Value: &types.FieldValue_FloatValue{FloatValue: 42.0}},
 		},
 	}
 
@@ -179,7 +178,7 @@ func TestMicroTSService_QueryRange(t *testing.T) {
 	srv := New(eng)
 	ctx := t.Context()
 
-	req := &pb.QueryRangeRequest{
+	req := &types.QueryRangeRequest{
 		Database:    "testdb",
 		Measurement: "testmeas",
 		StartTime:   1234567890,
@@ -221,7 +220,7 @@ func TestMicroTSService_ListMeasurements(t *testing.T) {
 	srv := New(eng)
 	ctx := t.Context()
 
-	req := &pb.ListMeasurementsRequest{
+	req := &types.ListMeasurementsRequest{
 		Database: "testdb",
 	}
 
@@ -248,7 +247,7 @@ func TestMicroTSService_CreateAndDropMeasurement(t *testing.T) {
 	ctx := t.Context()
 
 	// 创建 Measurement
-	createReq := &pb.CreateMeasurementRequest{
+	createReq := &types.CreateMeasurementRequest{
 		Database:    "testdb",
 		Measurement: "testmeas",
 	}
@@ -261,7 +260,7 @@ func TestMicroTSService_CreateAndDropMeasurement(t *testing.T) {
 	}
 
 	// 列出 Measurements
-	listResp, err := srv.ListMeasurements(ctx, &pb.ListMeasurementsRequest{Database: "testdb"})
+	listResp, err := srv.ListMeasurements(ctx, &types.ListMeasurementsRequest{Database: "testdb"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -277,7 +276,7 @@ func TestMicroTSService_CreateAndDropMeasurement(t *testing.T) {
 	}
 
 	// 删除 Measurement
-	dropResp, err := srv.DropMeasurement(ctx, &pb.DropMeasurementRequest{
+	dropResp, err := srv.DropMeasurement(ctx, &types.DropMeasurementRequest{
 		Database:    "testdb",
 		Measurement: "testmeas",
 	})
@@ -298,7 +297,7 @@ func TestMicroTSService_DatabaseOperations(t *testing.T) {
 	ctx := t.Context()
 
 	// 创建数据库
-	createResp, err := srv.CreateDatabase(ctx, &pb.CreateDatabaseRequest{Database: "testdb"})
+	createResp, err := srv.CreateDatabase(ctx, &types.CreateDatabaseRequest{Database: "testdb"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -307,7 +306,7 @@ func TestMicroTSService_DatabaseOperations(t *testing.T) {
 	}
 
 	// 列出数据库
-	listResp, err := srv.ListDatabases(ctx, &pb.ListDatabasesRequest{})
+	listResp, err := srv.ListDatabases(ctx, &types.ListDatabasesRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -323,7 +322,7 @@ func TestMicroTSService_DatabaseOperations(t *testing.T) {
 	}
 
 	// 删除数据库
-	dropResp, err := srv.DropDatabase(ctx, &pb.DropDatabaseRequest{Database: "testdb"})
+	dropResp, err := srv.DropDatabase(ctx, &types.DropDatabaseRequest{Database: "testdb"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,7 +331,7 @@ func TestMicroTSService_DatabaseOperations(t *testing.T) {
 	}
 
 	// 再次列出确认删除
-	listResp, _ = srv.ListDatabases(ctx, &pb.ListDatabasesRequest{})
+	listResp, _ = srv.ListDatabases(ctx, &types.ListDatabasesRequest{})
 	for _, db := range listResp.Databases {
 		if db == "testdb" {
 			t.Error("expected database to be deleted")
@@ -344,37 +343,37 @@ func TestFieldValueConversion(t *testing.T) {
 	tests := []struct {
 		name     string
 		value    any
-		checkVal func(*pb.FieldValue) bool
+		checkVal func(*types.FieldValue) bool
 	}{
 		{
 			name:  "int64",
 			value: int64(42),
-			checkVal: func(fv *pb.FieldValue) bool {
-				v, ok := fv.Value.(*pb.FieldValue_IntValue)
+			checkVal: func(fv *types.FieldValue) bool {
+				v, ok := fv.Value.(*types.FieldValue_IntValue)
 				return ok && v.IntValue == 42
 			},
 		},
 		{
 			name:  "float64",
 			value: float64(3.14),
-			checkVal: func(fv *pb.FieldValue) bool {
-				v, ok := fv.Value.(*pb.FieldValue_FloatValue)
+			checkVal: func(fv *types.FieldValue) bool {
+				v, ok := fv.Value.(*types.FieldValue_FloatValue)
 				return ok && v.FloatValue == 3.14
 			},
 		},
 		{
 			name:  "string",
 			value: "test",
-			checkVal: func(fv *pb.FieldValue) bool {
-				v, ok := fv.Value.(*pb.FieldValue_StringValue)
+			checkVal: func(fv *types.FieldValue) bool {
+				v, ok := fv.Value.(*types.FieldValue_StringValue)
 				return ok && v.StringValue == "test"
 			},
 		},
 		{
 			name:  "bool",
 			value: true,
-			checkVal: func(fv *pb.FieldValue) bool {
-				v, ok := fv.Value.(*pb.FieldValue_BoolValue)
+			checkVal: func(fv *types.FieldValue) bool {
+				v, ok := fv.Value.(*types.FieldValue_BoolValue)
 				return ok && v.BoolValue == true
 			},
 		},
@@ -406,16 +405,16 @@ func TestFieldValueConversion(t *testing.T) {
 }
 
 func TestWriteRequestToPoint(t *testing.T) {
-	req := &pb.WriteRequest{
+	req := &types.WriteRequest{
 		Database:    "testdb",
 		Measurement: "testmeas",
 		Tags:        map[string]string{"host": "server1"},
 		Timestamp:   1234567890,
-		Fields: map[string]*pb.FieldValue{
-			"value":    {Value: &pb.FieldValue_FloatValue{FloatValue: 42.0}},
-			"count":    {Value: &pb.FieldValue_IntValue{IntValue: 100}},
-			"status":   {Value: &pb.FieldValue_StringValue{StringValue: "ok"}},
-			"active":   {Value: &pb.FieldValue_BoolValue{BoolValue: true}},
+		Fields: map[string]*types.FieldValue{
+			"value":  {Value: &types.FieldValue_FloatValue{FloatValue: 42.0}},
+			"count":  {Value: &types.FieldValue_IntValue{IntValue: 100}},
+			"status": {Value: &types.FieldValue_StringValue{StringValue: "ok"}},
+			"active": {Value: &types.FieldValue_BoolValue{BoolValue: true}},
 		},
 	}
 

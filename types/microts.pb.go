@@ -4,7 +4,7 @@
 // 	protoc        v3.19.6
 // source: proto/microts.proto
 
-package pb
+package types
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -1411,7 +1411,7 @@ const file_proto_microts_proto_rawDesc = "" +
 	"\rListDatabases\x12 .microts.v1.ListDatabasesRequest\x1a!.microts.v1.ListDatabasesResponse\x12W\n" +
 	"\x0eCreateDatabase\x12!.microts.v1.CreateDatabaseRequest\x1a\".microts.v1.CreateDatabaseResponse\x12Q\n" +
 	"\fDropDatabase\x12\x1f.microts.v1.DropDatabaseRequest\x1a .microts.v1.DropDatabaseResponse\x12?\n" +
-	"\x06Health\x12\x19.microts.v1.HealthRequest\x1a\x1a.microts.v1.HealthResponseB+Z)codeberg.org/micro-ts/mts/internal/api/pbb\x06proto3"
+	"\x06Health\x12\x19.microts.v1.HealthRequest\x1a\x1a.microts.v1.HealthResponseB!Z\x1fcodeberg.org/micro-ts/mts/typesb\x06proto3"
 
 var (
 	file_proto_microts_proto_rawDescOnce sync.Once

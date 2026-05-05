@@ -2,107 +2,107 @@ syntax = "proto3";
 
 package microts.v1;
 
-option go_package = "codeberg.org/micro-ts/mts/internal/api/pb";
+option go_package = "codeberg.org/micro-ts/mts/types;types";
 
 // 字段值
 message FieldValue {
-    oneof value {
-        int64 int_value = 1;
-        double float_value = 2;
-        string string_value = 3;
-        bool bool_value = 4;
-    }
+  oneof value {
+    int64  int_value    = 1;
+    double float_value  = 2;
+    string string_value = 3;
+    bool   bool_value   = 4;
+  }
 }
 
 // 写入请求
 message WriteRequest {
-    string database = 1;
-    string measurement = 2;
-    map<string, string> tags = 3;
-    int64 timestamp = 4;
-    map<string, FieldValue> fields = 5;
+  string                  database    = 1;
+  string                  measurement = 2;
+  map<string, string>     tags        = 3;
+  int64                   timestamp   = 4;
+  map<string, FieldValue> fields      = 5;
 }
 
 // 批量写入请求
 message WriteBatchRequest {
-    repeated WriteRequest points = 1;
+  repeated WriteRequest points = 1;
 }
 
 // 写入响应
 message WriteResponse {
-    bool success = 1;
-    string error = 2;
+  bool   success = 1;
+  string error   = 2;
 }
 
 // 批量写入响应
 message WriteBatchResponse {
-    bool success = 1;
-    string error = 2;
-    int32 count = 3;
+  bool   success = 1;
+  string error   = 2;
+  int32  count   = 3;
 }
 
 // 范围查询请求
 message QueryRangeRequest {
-    string database = 1;
-    string measurement = 2;
-    int64 start_time = 3;
-    int64 end_time = 4;
-    repeated string fields = 5;
-    map<string, string> tags = 6;
-    int64 offset = 7;
-    int64 limit = 8;
+  string              database    = 1;
+  string              measurement = 2;
+  int64               start_time  = 3;
+  int64               end_time    = 4;
+  repeated string     fields      = 5;
+  map<string, string> tags        = 6;
+  int64               offset      = 7;
+  int64               limit       = 8;
 }
 
 // 一行数据
 message Row {
-    int64 timestamp = 1;
-    map<string, string> tags = 2;
-    map<string, FieldValue> fields = 3;
+  int64                   timestamp = 1;
+  map<string, string>     tags      = 2;
+  map<string, FieldValue> fields    = 3;
 }
 
 // 范围查询响应
 message QueryRangeResponse {
-    string database = 1;
-    string measurement = 2;
-    int64 start_time = 3;
-    int64 end_time = 4;
-    int64 total_count = 5;
-    bool has_more = 6;
-    repeated Row rows = 7;
+  string       database    = 1;
+  string       measurement = 2;
+  int64        start_time  = 3;
+  int64        end_time    = 4;
+  int64        total_count = 5;
+  bool         has_more    = 6;
+  repeated Row rows        = 7;
 }
 
 // 列出 Measurement 请求
 message ListMeasurementsRequest {
-    string database = 1;
+  string database = 1;
 }
 
 // 列出 Measurement 响应
 message ListMeasurementsResponse {
-    repeated string measurements = 1;
+  repeated string measurements = 1;
 }
 
 // 创建 Measurement 请求
 message CreateMeasurementRequest {
-    string database = 1;
-    string measurement = 2;
+  string database    = 1;
+  string measurement = 2;
 }
 
 // 创建 Measurement 响应
 message CreateMeasurementResponse {
-    bool success = 1;
-    string error = 2;
+  bool   success = 1;
+  string error   = 2;
 }
 
 // 删除 Measurement 请求
 message DropMeasurementRequest {
-    string database = 1;
-    string measurement = 2;
+  string database    = 1;
+  string measurement = 2;
 }
 
 // 删除 Measurement 响应
 message DropMeasurementResponse {
-    bool success = 1;
-    string error = 2;
+  bool   success = 1;
+  string error   = 2;
 }
 
 // 列出数据库请求
@@ -111,29 +111,29 @@ message ListDatabasesRequest {
 
 // 列出数据库响应
 message ListDatabasesResponse {
-    repeated string databases = 1;
+  repeated string databases = 1;
 }
 
 // 创建数据库请求
 message CreateDatabaseRequest {
-    string database = 1;
+  string database = 1;
 }
 
 // 创建数据库响应
 message CreateDatabaseResponse {
-    bool success = 1;
-    string error = 2;
+  bool   success = 1;
+  string error   = 2;
 }
 
 // 删除数据库请求
 message DropDatabaseRequest {
-    string database = 1;
+  string database = 1;
 }
 
 // 删除数据库响应
 message DropDatabaseResponse {
-    bool success = 1;
-    string error = 2;
+  bool   success = 1;
+  string error   = 2;
 }
 
 // 健康检查请求
@@ -142,29 +142,29 @@ message HealthRequest {
 
 // 健康检查响应
 message HealthResponse {
-    bool healthy = 1;
-    string version = 2;
+  bool   healthy = 1;
+  string version = 2;
 }
 
 // gRPC 服务
 service MicroTS {
     // 数据写入
-    rpc Write(WriteRequest) returns (WriteResponse);
-    rpc WriteBatch(WriteBatchRequest) returns (WriteBatchResponse);
+  rpc Write(WriteRequest) returns (WriteResponse);
+  rpc WriteBatch(WriteBatchRequest) returns (WriteBatchResponse);
 
     // 数据查询
-    rpc QueryRange(QueryRangeRequest) returns (QueryRangeResponse);
+  rpc QueryRange(QueryRangeRequest) returns (QueryRangeResponse);
 
     // Measurement 管理
-    rpc ListMeasurements(ListMeasurementsRequest) returns (ListMeasurementsResponse);
-    rpc CreateMeasurement(CreateMeasurementRequest) returns (CreateMeasurementResponse);
-    rpc DropMeasurement(DropMeasurementRequest) returns (DropMeasurementResponse);
+  rpc ListMeasurements(ListMeasurementsRequest) returns (ListMeasurementsResponse);
+  rpc CreateMeasurement(CreateMeasurementRequest) returns (CreateMeasurementResponse);
+  rpc DropMeasurement(DropMeasurementRequest) returns (DropMeasurementResponse);
 
     // 数据库管理
-    rpc ListDatabases(ListDatabasesRequest) returns (ListDatabasesResponse);
-    rpc CreateDatabase(CreateDatabaseRequest) returns (CreateDatabaseResponse);
-    rpc DropDatabase(DropDatabaseRequest) returns (DropDatabaseResponse);
+  rpc ListDatabases(ListDatabasesRequest) returns (ListDatabasesResponse);
+  rpc CreateDatabase(CreateDatabaseRequest) returns (CreateDatabaseResponse);
+  rpc DropDatabase(DropDatabaseRequest) returns (DropDatabaseResponse);
 
     // 健康检查
-    rpc Health(HealthRequest) returns (HealthResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
 }

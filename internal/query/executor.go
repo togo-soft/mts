@@ -70,6 +70,6 @@ func (e *Executor) Execute(ctx context.Context, req *types.QueryRangeRequest) (*
 		EndTime:     req.EndTime,
 		TotalCount:  0,
 		HasMore:     false,
-		Rows:        []types.PointRow{},
+		Rows:        []*types.Row{},
 	}, nil
 }
