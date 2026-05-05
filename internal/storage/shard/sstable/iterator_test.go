@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestIterator_Empty(t *testing.T) {

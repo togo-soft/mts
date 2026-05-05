@@ -4,7 +4,7 @@ package measurement
 import (
 	"context"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // MetaStore 元数据存储接口

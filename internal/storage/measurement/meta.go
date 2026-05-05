@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // ErrInvalidMetaFile 表示 meta 文件格式无效。

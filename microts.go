@@ -31,10 +31,10 @@ import (
 	"context"
 	"time"
 
-	"micro-ts/internal/engine"
-	"micro-ts/internal/query"
-	"micro-ts/internal/storage/shard"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/engine"
+	"codeberg.org/micro-ts/mts/internal/query"
+	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // 重导出公共类型，方便用户使用

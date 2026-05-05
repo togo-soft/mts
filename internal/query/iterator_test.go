@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/internal/storage/measurement"
-	"micro-ts/internal/storage/shard"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestQueryIterator_EmptyShardList(t *testing.T) {

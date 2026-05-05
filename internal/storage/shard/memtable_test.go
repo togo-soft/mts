@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestMemTable_Write(t *testing.T) {

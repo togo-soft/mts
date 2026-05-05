@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"micro-ts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/internal/storage/measurement"
 )
 
 // ShardManager 管理所有 Shard 的生命周期。

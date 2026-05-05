@@ -18,10 +18,10 @@ import (
 	"sync"
 	"time"
 
-	"micro-ts/internal/query"
-	"micro-ts/internal/storage/measurement"
-	"micro-ts/internal/storage/shard"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/query"
+	"codeberg.org/micro-ts/mts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // Config 定义存储引擎的配置。

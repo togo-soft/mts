@@ -10,9 +10,9 @@ import (
 	"runtime/pprof"
 	"time"
 
-	microts "micro-ts"
-	"micro-ts/tests/e2e/pkg/data_gen"
-	"micro-ts/tests/e2e/pkg/metrics"
+	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 )
 
 func main() {

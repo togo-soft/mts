@@ -4,7 +4,7 @@ package microts
 import (
 	"testing"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestDB_Open(t *testing.T) {

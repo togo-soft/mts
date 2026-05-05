@@ -30,8 +30,8 @@ package api
 import (
 	"context"
 
-	"micro-ts/internal/api/pb"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/api/pb"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // MicroTSService 实现 gRPC MicroTS 服务。

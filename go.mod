@@ -1,4 +1,4 @@
-module micro-ts
+module codeberg.org/micro-ts/mts
 
 go 1.26
 

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	microts "micro-ts"
-	"micro-ts/tests/e2e/pkg/data_gen"
+	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
 )
 
 func main() {

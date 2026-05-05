@@ -1,7 +1,7 @@
 # micro-ts
 
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://golang.org/)
-[![Go Report Card](https://goreportcard.com/badge/github.com/yourusername/micro-ts)](https://goreportcard.com/report/github.com/yourusername/micro-ts)
+[![Go Report Card](https://goreportcard.com/badge/codeberg.org/micro-ts/mts)](https://goreportcard.com/report/codeberg.org/micro-ts/mts)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > 高性能微时序数据库，专为高吞吐写入和快速时间范围查询设计。
@@ -51,7 +51,7 @@
 ### 安装
 
 ```bash
-go get github.com/yourusername/micro-ts
+go get codeberg.org/micro-ts/mts
 ```
 
 ### 最小工作示例
@@ -234,4 +234,4 @@ go run tests/e2e/query_1k/main.go
 
 ## License
 
-[Apache 2.0](LICENSE) © 2024 micro-ts Authors
+[Apache 2.0](LICENSE) © 2026 micro-ts Authors

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestWAL_Write(t *testing.T) {

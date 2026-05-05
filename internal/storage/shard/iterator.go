@@ -1,7 +1,7 @@
 package shard
 
 import (
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // ShardIterator 是单个 Shard 的数据迭代器。

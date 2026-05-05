@@ -6,7 +6,7 @@ import (
 	"os"
 	"sort"
 
-	"micro-ts/internal/storage"
+	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
 // IndexMagic 是索引文件的魔数。
