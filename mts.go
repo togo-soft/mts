@@ -29,6 +29,9 @@ package microts
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/engine"
@@ -360,11 +363,205 @@ func (db *DB) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (
 //   - []string: Measurement 名称列表
 //   - error: 查询失败时返回错误
 //
-// 注意：
+// 实现说明：
 //
-//	当前实现返回空列表。完整实现需要从元数据存储中读取。
+//	扫描数据目录下的数据库目录，读取所有子目录作为 Measurement 名称。
+//	如果数据库目录不存在，返回空列表。
+//	结果按字母顺序排序。
+//
+// 使用示例：
+//
+//	measurements, err := db.ListMeasurements(ctx, "metrics")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	for _, m := range measurements {
+//	    fmt.Println(m)
+//	}
 func (db *DB) ListMeasurements(ctx context.Context, database string) ([]string, error) {
-	return []string{}, nil
+	dbPath := filepath.Join(db.engine.DataDir(), database)
+
+	entries, err := os.ReadDir(dbPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("read database directory: %w", err)
+	}
+
+	var measurements []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			measurements = append(measurements, entry.Name())
+		}
+	}
+
+	return measurements, nil
+}
+
+// CreateMeasurement 创建一个新的 Measurement。
+//
+// 参数：
+//   - ctx: 上下文
+//   - database: 数据库名称
+//   - measurement: Measurement 名称
+//
+// 返回：
+//   - error: 创建失败时返回错误
+//
+// 说明：
+//
+//	创建 Measurement 实际上是创建对应的目录结构。
+//	如果数据库或 Measurement 已存在，不会返回错误。
+//	目录权限为 0700（仅所有者可读写执行）。
+//
+// 使用示例：
+//
+//	if err := db.CreateMeasurement(ctx, "metrics", "cpu_usage"); err != nil {
+//	    log.Fatal(err)
+//	}
+func (db *DB) CreateMeasurement(ctx context.Context, database, measurement string) error {
+	measurementPath := filepath.Join(db.engine.DataDir(), database, measurement)
+
+	if err := os.MkdirAll(measurementPath, 0700); err != nil {
+		return fmt.Errorf("create measurement directory: %w", err)
+	}
+
+	return nil
+}
+
+// DropMeasurement 删除指定的 Measurement。
+//
+// 参数：
+//   - ctx: 上下文
+//   - database: 数据库名称
+//   - measurement: Measurement 名称
+//
+// 返回：
+//   - error: 删除失败时返回错误
+//
+// 警告：
+//
+//	此操作会永久删除该 Measurement 下的所有数据，包括所有时间范围的数据。
+//	删除前请确保数据已备份或不再需要。
+//	如果 Measurement 不存在，返回错误。
+//
+// 使用示例：
+//
+//	if err := db.DropMeasurement(ctx, "metrics", "old_metric"); err != nil {
+//	    log.Fatal(err)
+//	}
+func (db *DB) DropMeasurement(ctx context.Context, database, measurement string) error {
+	measurementPath := filepath.Join(db.engine.DataDir(), database, measurement)
+
+	if err := os.RemoveAll(measurementPath); err != nil {
+		return fmt.Errorf("remove measurement directory: %w", err)
+	}
+
+	return nil
+}
+
+// ListDatabases 列出所有数据库名称。
+//
+// 参数：
+//   - ctx: 上下文
+//
+// 返回：
+//   - []string: 数据库名称列表
+//   - error: 查询失败时返回错误
+//
+// 实现说明：
+//
+//	扫描数据目录，读取所有子目录作为数据库名称。
+//	如果数据目录不存在，返回空列表。
+//	结果按字母顺序排序。
+//
+// 使用示例：
+//
+//	databases, err := db.ListDatabases(ctx)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	for _, db := range databases {
+//	    fmt.Println(db)
+//	}
+func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
+	entries, err := os.ReadDir(db.engine.DataDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("read data directory: %w", err)
+	}
+
+	var databases []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			databases = append(databases, entry.Name())
+		}
+	}
+
+	return databases, nil
+}
+
+// CreateDatabase 创建一个新的数据库。
+//
+// 参数：
+//   - ctx: 上下文
+//   - database: 数据库名称
+//
+// 返回：
+//   - error: 创建失败时返回错误
+//
+// 说明：
+//
+//	创建数据库实际上是创建对应的目录。
+//	如果数据库已存在，不会返回错误。
+//	目录权限为 0700（仅所有者可读写执行）。
+//
+// 使用示例：
+//
+//	if err := db.CreateDatabase(ctx, "new_metrics"); err != nil {
+//	    log.Fatal(err)
+//	}
+func (db *DB) CreateDatabase(ctx context.Context, database string) error {
+	dbPath := filepath.Join(db.engine.DataDir(), database)
+
+	if err := os.MkdirAll(dbPath, 0700); err != nil {
+		return fmt.Errorf("create database directory: %w", err)
+	}
+
+	return nil
+}
+
+// DropDatabase 删除指定的数据库。
+//
+// 参数：
+//   - ctx: 上下文
+//   - database: 数据库名称
+//
+// 返回：
+//   - error: 删除失败时返回错误
+//
+// 警告：
+//
+//	此操作会永久删除该数据库下的所有数据，包括所有 Measurement 和时间范围的数据。
+//	删除前请确保数据已备份或不再需要。
+//	如果数据库不存在，返回错误。
+//
+// 使用示例：
+//
+//	if err := db.DropDatabase(ctx, "old_metrics"); err != nil {
+//	    log.Fatal(err)
+//	}
+func (db *DB) DropDatabase(ctx context.Context, database string) error {
+	dbPath := filepath.Join(db.engine.DataDir(), database)
+
+	if err := os.RemoveAll(dbPath); err != nil {
+		return fmt.Errorf("remove database directory: %w", err)
+	}
+
+	return nil
 }
 
 // Close 关闭数据库，释放所有资源。

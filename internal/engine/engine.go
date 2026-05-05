@@ -307,7 +307,13 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	}, nil
 }
 
-// QueryIterator 创建流式查询迭代器。
+// DataDir 返回引擎的数据目录。
+//
+// 返回：
+//   - string: 数据目录路径
+func (e *Engine) DataDir() string {
+	return e.cfg.DataDir
+}
 //
 // 相比 Query，迭代器按需加载数据，适合处理超过内存容量的大查询。
 //
