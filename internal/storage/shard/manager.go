@@ -65,7 +65,15 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 
 	// 创建新 Shard
 	shardDir := filepath.Join(m.dir, db, measurementName, formatTimeRange(startTime, endTime))
-	s = NewShard(db, measurementName, startTime, endTime, shardDir, metaStore, m.memTableCfg)
+	s = NewShard(ShardConfig{
+		DB:          db,
+		Measurement: measurementName,
+		StartTime:   startTime,
+		EndTime:     endTime,
+		Dir:         shardDir,
+		MetaStore:   metaStore,
+		MemTableCfg: m.memTableCfg,
+	})
 	m.shards[key] = s
 	return s, nil
 }

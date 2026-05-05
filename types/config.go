@@ -7,7 +7,8 @@ import "time"
 type FieldType int
 
 const (
-	FieldTypeInt64 FieldType = iota
+	FieldTypeUnknown FieldType = iota // 0 = 未知/无效类型
+	FieldTypeInt64
 	FieldTypeFloat64
 	FieldTypeString
 	FieldTypeBool

@@ -146,6 +146,13 @@ func (q *QueryIterator) Next() bool {
 		return false
 	}
 	for {
+		// 检查 context 取消
+		select {
+		case <-q.ctx.Done():
+			return false
+		default:
+		}
+
 		// 如果没有当前行，获取下一个
 		if q.currentRow == nil {
 			q.fetchNextValid()

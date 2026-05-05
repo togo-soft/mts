@@ -2,6 +2,7 @@
 package shard
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,17 @@ import (
 	"micro-ts/internal/storage/shard/sstable"
 	"micro-ts/types"
 )
+
+// ShardConfig Shard 配置
+type ShardConfig struct {
+	DB          string
+	Measurement string
+	StartTime   int64
+	EndTime     int64
+	Dir         string
+	MetaStore   *measurement.MeasurementMetaStore
+	MemTableCfg MemTableConfig
+}
 
 // Shard 单个 Shard
 type Shard struct {
@@ -29,9 +41,9 @@ type Shard struct {
 }
 
 // NewShard 创建 Shard
-func NewShard(db, measurement string, startTime, endTime int64, dir string, metaStore *measurement.MeasurementMetaStore, memTableCfg MemTableConfig) *Shard {
+func NewShard(cfg ShardConfig) *Shard {
 	// 创建 WAL
-	walDir := filepath.Join(dir, "wal")
+	walDir := filepath.Join(cfg.Dir, "wal")
 	wal, err := NewWAL(walDir, 0)
 	if err != nil {
 		// 如果 WAL 创建失败，使用 nil wal
@@ -39,14 +51,14 @@ func NewShard(db, measurement string, startTime, endTime int64, dir string, meta
 	}
 
 	return &Shard{
-		db:          db,
-		measurement: measurement,
-		startTime:   startTime,
-		endTime:     endTime,
-		dir:         dir,
-		memTable:    NewMemTable(memTableCfg),
+		db:          cfg.DB,
+		measurement: cfg.Measurement,
+		startTime:   cfg.StartTime,
+		endTime:     cfg.EndTime,
+		dir:         cfg.Dir,
+		memTable:    NewMemTable(cfg.MemTableCfg),
 		wal:         wal,
-		metaStore:   metaStore,
+		metaStore:   cfg.MetaStore,
 	}
 }
 
@@ -80,10 +92,10 @@ func (s *Shard) Write(point *types.Point) error {
 	if s.wal != nil {
 		data, err := serializePoint(point)
 		if err != nil {
-			return err
+			return fmt.Errorf("serialize point: %w", err)
 		}
 		if _, err := s.wal.Write(data); err != nil {
-			return err
+			return fmt.Errorf("write to wal: %w", err)
 		}
 	}
 
@@ -93,13 +105,13 @@ func (s *Shard) Write(point *types.Point) error {
 
 	// 3. 写入 MemTable
 	if err := s.memTable.Write(point); err != nil {
-		return err
+		return fmt.Errorf("write to memtable: %w", err)
 	}
 
 	// 4. 检查是否需要 flush
 	if s.memTable.ShouldFlush() {
 		if err := s.flushLocked(); err != nil {
-			return err
+			return fmt.Errorf("flush memtable: %w", err)
 		}
 	}
 
@@ -129,7 +141,7 @@ func (s *Shard) Read(startTime, endTime int64) ([]types.PointRow, error) {
 	// 2. 从 SSTable 读取
 	sstRows, err := s.readFromSSTable(startTime, endTime)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read from sstable: %w", err)
 	}
 	rows = append(rows, sstRows...)
 
@@ -153,7 +165,7 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]types.PointRow, err
 	// 读取所有 SSTable 子目录 (sst_0, sst_1, ...)
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read data dir: %w", err)
 	}
 
 	for _, entry := range entries {
@@ -200,16 +212,19 @@ func (s *Shard) Flush() error {
 	// 创建 SSTable Writer
 	w, err := sstable.NewWriter(s.dir, s.sstSeq)
 	if err != nil {
-		return err
+		return fmt.Errorf("create sstable writer: %w", err)
 	}
 	s.sstSeq++
 
 	if err := w.WritePoints(points); err != nil {
 		_ = w.Close()
-		return err
+		return fmt.Errorf("write points to sstable: %w", err)
 	}
 
-	return w.Close()
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close sstable writer: %w", err)
+	}
+	return nil
 }
 
 // flushLocked 内部刷写方法（已持有锁）
@@ -221,17 +236,17 @@ func (s *Shard) flushLocked() error {
 
 	w, err := sstable.NewWriter(s.dir, s.sstSeq)
 	if err != nil {
-		return err
+		return fmt.Errorf("create sstable writer: %w", err)
 	}
 	s.sstSeq++ // 递增序列号，确保下次 flush 使用不同的文件名
 
 	if err := w.WritePoints(points); err != nil {
 		_ = w.Close()
-		return err
+		return fmt.Errorf("write points to sstable: %w", err)
 	}
 
 	if err := w.Close(); err != nil {
-		return err
+		return fmt.Errorf("close sstable writer: %w", err)
 	}
 
 	// 显式清空 points 引用，帮助 GC 回收内存
@@ -252,23 +267,23 @@ func (s *Shard) Close() error {
 	if len(points) > 0 {
 		w, err := sstable.NewWriter(s.dir, s.sstSeq)
 		if err != nil {
-			return err
+			return fmt.Errorf("create sstable writer: %w", err)
 		}
 
 		if err := w.WritePoints(points); err != nil {
 			_ = w.Close()
-			return err
+			return fmt.Errorf("write points to sstable: %w", err)
 		}
 
 		if err := w.Close(); err != nil {
-			return err
+			return fmt.Errorf("close sstable writer: %w", err)
 		}
 	}
 
 	// 2. 关闭 WAL（WAL 关闭失败可接受，因为数据已在 SSTable）
 	if s.wal != nil {
 		if err := s.wal.Close(); err != nil {
-			return err
+			return fmt.Errorf("close wal: %w", err)
 		}
 	}
 

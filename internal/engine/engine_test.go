@@ -2,6 +2,7 @@
 package engine
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -14,9 +15,9 @@ func TestEngine_Open(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -33,7 +34,7 @@ func TestEngine_Close(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, _ := NewEngine(cfg)
+	engine, _ := New(cfg)
 	err := engine.Close()
 	if err != nil {
 		t.Fatalf("Close failed: %v", err)
@@ -46,9 +47,9 @@ func TestEngine_Write(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -74,9 +75,9 @@ func TestEngine_Query(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -115,7 +116,7 @@ func TestEngine_Query(t *testing.T) {
 		EndTime:     now + 2e9,
 	}
 
-	resp, err := engine.Query(req)
+	resp, err := engine.Query(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -131,9 +132,9 @@ func TestEngine_WriteBatch(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -168,9 +169,9 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -203,7 +204,7 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 		Fields:      []string{"usage", "count"}, // 字段过滤
 	}
 
-	resp, err := engine.Query(req)
+	resp, err := engine.Query(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -231,9 +232,9 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -273,7 +274,7 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 		Tags:        map[string]string{"host": "server1"}, // Tag 过滤
 	}
 
-	resp, err := engine.Query(req)
+	resp, err := engine.Query(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -293,9 +294,9 @@ func TestEngine_Query_Concurrent(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -325,7 +326,7 @@ func TestEngine_Query_Concurrent(t *testing.T) {
 		Limit:       50,
 	}
 
-	resp, err := engine.Query(req)
+	resp, err := engine.Query(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -341,9 +342,9 @@ func TestEngine_Query_Pagination(t *testing.T) {
 		ShardDuration: time.Hour,
 	}
 
-	engine, err := NewEngine(cfg)
+	engine, err := New(cfg)
 	if err != nil {
-		t.Fatalf("NewEngine failed: %v", err)
+		t.Fatalf("New failed: %v", err)
 	}
 	defer func() {
 		_ = engine.Close()
@@ -377,7 +378,7 @@ func TestEngine_Query_Pagination(t *testing.T) {
 		Limit:       10,
 	}
 
-	resp, err := engine.Query(req)
+	resp, err := engine.Query(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -397,7 +398,7 @@ func TestEngine_Query_Pagination(t *testing.T) {
 
 	// 查询第 20-30 条 (offset=20, limit=10)
 	req.Offset = 20
-	resp, err = engine.Query(req)
+	resp, err = engine.Query(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}

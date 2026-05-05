@@ -13,11 +13,11 @@ import (
 
 // 重导出公共类型，方便用户使用
 type (
-	Point                 = types.Point
-	PointRow              = types.PointRow
-	QueryRangeRequest     = types.QueryRangeRequest
-	QueryRangeResponse    = types.QueryRangeResponse
-	MemTableConfig        = types.MemTableConfig
+	Point              = types.Point
+	PointRow           = types.PointRow
+	QueryRangeRequest  = types.QueryRangeRequest
+	QueryRangeResponse = types.QueryRangeResponse
+	MemTableConfig     = types.MemTableConfig
 )
 
 // Config 配置
@@ -55,7 +55,7 @@ func Open(cfg Config) (*DB, error) {
 		memTableCfg = DefaultMemTableConfig()
 	}
 
-	eng, err := engine.NewEngine(&engine.Config{
+	eng, err := engine.New(&engine.Config{
 		DataDir:       cfg.DataDir,
 		ShardDuration: shardDuration,
 		MemTableCfg: shard.MemTableConfig{
@@ -82,7 +82,7 @@ func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 
 // QueryRange 范围查询
 func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
-	return db.engine.Query(req)
+	return db.engine.Query(ctx, req)
 }
 
 // QueryIterator 创建流式查询迭代器

@@ -49,14 +49,14 @@ type Writer struct {
 	blockIndex *BlockIndex
 
 	// 块缓冲
-	buf        []byte
-	bufPos     int
-	firstTs    int64
-	rowCount   uint32
+	buf      []byte
+	bufPos   int
+	firstTs  int64
+	rowCount uint32
 
 	// 每列的缓冲（用于收集一个 block 的数据）
 	fieldBufs  map[string][]byte
-	fieldSizes map[string]int  // 每行该字段的固定大小
+	fieldSizes map[string]int // 每行该字段的固定大小
 }
 
 // NewBlockIndex 创建空的 BlockIndex
@@ -71,17 +71,17 @@ func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 	// 使用 seq 创建独立的子目录，避免不同 SSTable 之间的冲突
 	dataDir := filepath.Join(shardDir, "data", fmt.Sprintf("sst_%d", seq))
 	if err := storage.SafeMkdirAll(dataDir, 0700); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 
 	fieldsDir := filepath.Join(dataDir, "fields")
 	if err := storage.SafeMkdirAll(fieldsDir, 0700); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create fields dir: %w", err)
 	}
 
 	tsFile, err := storage.SafeCreate(filepath.Join(dataDir, "_timestamps.bin"), 0600)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create timestamp file: %w", err)
 	}
 
 	return &Writer{
@@ -119,7 +119,7 @@ func (w *Writer) WritePoints(points []*types.Point) error {
 			filepath.Join(w.dataDir, "fields", name+".bin"),
 			os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 		if err != nil {
-			return err
+			return fmt.Errorf("open field file %s: %w", name, err)
 		}
 		w.fields[name] = f
 
@@ -131,7 +131,7 @@ func (w *Writer) WritePoints(points []*types.Point) error {
 	// 写入 points 到 block buffer
 	for _, p := range points {
 		if err := w.writePoint(p); err != nil {
-			return err
+			return fmt.Errorf("write point (timestamp=%d): %w", p.Timestamp, err)
 		}
 	}
 
@@ -239,19 +239,19 @@ func (w *Writer) flushBlock() error {
 	// 获取当前文件偏移量
 	info, err := w.timestamp.Stat()
 	if err != nil {
-		return err
+		return fmt.Errorf("stat timestamp file: %w", err)
 	}
 	offset := uint32(info.Size())
 
 	// 写入 timestamps block
 	if _, err := w.timestamp.Write(w.buf[:w.bufPos]); err != nil {
-		return err
+		return fmt.Errorf("write timestamp block: %w", err)
 	}
 
 	// 写入各字段 block
 	for name, buf := range w.fieldBufs {
 		if _, err := w.fields[name].Write(buf); err != nil {
-			return err
+			return fmt.Errorf("write field block %s: %w", name, err)
 		}
 		// 清空 buffer
 		w.fieldBufs[name] = w.fieldBufs[name][:0]
@@ -274,22 +274,22 @@ func (w *Writer) flushBlock() error {
 // Close 关闭
 func (w *Writer) Close() error {
 	if err := w.flushBlock(); err != nil {
-		return err
+		return fmt.Errorf("flush block: %w", err)
 	}
 	if err := w.writeSchema(); err != nil {
-		return err
+		return fmt.Errorf("write schema: %w", err)
 	}
 	if err := w.writeBlockIndex(); err != nil {
-		return err
+		return fmt.Errorf("write block index: %w", err)
 	}
 	if w.timestamp != nil {
 		if err := w.timestamp.Close(); err != nil {
-			return err
+			return fmt.Errorf("close timestamp file: %w", err)
 		}
 	}
-	for _, f := range w.fields {
+	for name, f := range w.fields {
 		if err := f.Close(); err != nil {
-			return err
+			return fmt.Errorf("close field file %s: %w", name, err)
 		}
 	}
 	return nil
@@ -305,16 +305,18 @@ func (w *Writer) writeBlockIndex() error {
 func (w *Writer) writeSchema() error {
 	schemaFile, err := storage.SafeCreate(filepath.Join(w.dataDir, "_schema.json"), 0600)
 	if err != nil {
-		return err
+		return fmt.Errorf("create schema file: %w", err)
 	}
 	defer schemaFile.Close()
 
 	data, err := json.Marshal(w.schema)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal schema: %w", err)
 	}
-	_, err = schemaFile.Write(data)
-	return err
+	if _, err := schemaFile.Write(data); err != nil {
+		return fmt.Errorf("write schema file: %w", err)
+	}
+	return nil
 }
 
 // detectFieldType 检测字段类型

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -94,101 +95,104 @@ func (m *MemoryMetaStore) Persist(ctx context.Context, path string) error {
 	// 确保目录存在
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+		return fmt.Errorf("create directory: %w", err)
 	}
 
 	var buf bytes.Buffer
 
 	// 写入 magic header
 	if err := binary.Write(&buf, binary.BigEndian, uint32(0x4D545348)); err != nil { // "MTSH"
-		return err
+		return fmt.Errorf("write magic header: %w", err)
 	}
 	// 写入版本
 	if err := binary.Write(&buf, binary.BigEndian, int64(1)); err != nil {
-		return err
+		return fmt.Errorf("write version: %w", err)
 	}
 
 	// 写入 MeasurementMeta
 	if m.meta != nil {
 		if err := binary.Write(&buf, binary.BigEndian, m.meta.Version); err != nil {
-			return err
+			return fmt.Errorf("write meta version: %w", err)
 		}
 		// FieldSchema
 		if err := binary.Write(&buf, binary.BigEndian, int64(len(m.meta.FieldSchema))); err != nil {
-			return err
+			return fmt.Errorf("write field schema count: %w", err)
 		}
 		for _, fd := range m.meta.FieldSchema {
 			if err := writeString(&buf, fd.Name); err != nil {
-				return err
+				return fmt.Errorf("write field name: %w", err)
 			}
 			if err := binary.Write(&buf, binary.BigEndian, int64(fd.Type)); err != nil {
-				return err
+				return fmt.Errorf("write field type: %w", err)
 			}
 		}
 		// TagKeys
 		if err := binary.Write(&buf, binary.BigEndian, int64(len(m.meta.TagKeys))); err != nil {
-			return err
+			return fmt.Errorf("write tag key count: %w", err)
 		}
 		for _, key := range m.meta.TagKeys {
 			if err := writeString(&buf, key); err != nil {
-				return err
+				return fmt.Errorf("write tag key: %w", err)
 			}
 		}
 		// NextSID
 		if err := binary.Write(&buf, binary.BigEndian, m.meta.NextSID); err != nil {
-			return err
+			return fmt.Errorf("write next sid: %w", err)
 		}
 	} else {
 		// meta 为空写入默认值
 		if err := binary.Write(&buf, binary.BigEndian, int64(0)); err != nil {
-			return err
+			return fmt.Errorf("write default version: %w", err)
 		}
 		if err := binary.Write(&buf, binary.BigEndian, int64(0)); err != nil {
-			return err
+			return fmt.Errorf("write default field count: %w", err)
 		}
 		if err := binary.Write(&buf, binary.BigEndian, int64(0)); err != nil {
-			return err
+			return fmt.Errorf("write default tag count: %w", err)
 		}
 		if err := binary.Write(&buf, binary.BigEndian, int64(0)); err != nil {
-			return err
+			return fmt.Errorf("write default sid: %w", err)
 		}
 	}
 
 	// 写入 series count
 	if err := binary.Write(&buf, binary.BigEndian, int64(len(m.series))); err != nil {
-		return err
+		return fmt.Errorf("write series count: %w", err)
 	}
 	// 写入 series entries
 	for sid, tags := range m.series {
 		if err := binary.Write(&buf, binary.BigEndian, sid); err != nil {
-			return err
+			return fmt.Errorf("write series sid: %w", err)
 		}
 		if err := writeBytes(&buf, tags); err != nil {
-			return err
+			return fmt.Errorf("write series tags: %w", err)
 		}
 	}
 
 	// 写入 tagIndex count
 	if err := binary.Write(&buf, binary.BigEndian, int64(len(m.tagIndex))); err != nil {
-		return err
+		return fmt.Errorf("write tag index count: %w", err)
 	}
 	// 写入 tagIndex entries
 	for key, sids := range m.tagIndex {
 		if err := writeString(&buf, key); err != nil {
-			return err
+			return fmt.Errorf("write tag index key: %w", err)
 		}
 		if err := binary.Write(&buf, binary.BigEndian, int64(len(sids))); err != nil {
-			return err
+			return fmt.Errorf("write tag index sid count: %w", err)
 		}
 		for _, sid := range sids {
 			if err := binary.Write(&buf, binary.BigEndian, sid); err != nil {
-				return err
+				return fmt.Errorf("write tag index sid: %w", err)
 			}
 		}
 	}
 
 	// 写入文件
-	return os.WriteFile(path, buf.Bytes(), 0600)
+	if err := os.WriteFile(path, buf.Bytes(), 0600); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	return nil
 }
 
 func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
@@ -197,7 +201,7 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("read file: %w", err)
 	}
 
 	buf := bytes.NewReader(data)
@@ -205,7 +209,7 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 	// 读取 magic header
 	var magic uint32
 	if err := binary.Read(buf, binary.BigEndian, &magic); err != nil {
-		return err
+		return fmt.Errorf("read magic header: %w", err)
 	}
 	if magic != 0x4D545348 {
 		return ErrInvalidMetaFile
@@ -214,7 +218,7 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 	// 读取版本
 	var version int64
 	if err := binary.Read(buf, binary.BigEndian, &version); err != nil {
-		return err
+		return fmt.Errorf("read version: %w", err)
 	}
 	if version != 1 {
 		return ErrInvalidMetaFile
@@ -223,59 +227,59 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 	// 读取 MeasurementMeta
 	meta := &types.MeasurementMeta{}
 	if err := binary.Read(buf, binary.BigEndian, &meta.Version); err != nil {
-		return err
+		return fmt.Errorf("read meta version: %w", err)
 	}
 	// FieldSchema
 	var fieldCount int64
 	if err := binary.Read(buf, binary.BigEndian, &fieldCount); err != nil {
-		return err
+		return fmt.Errorf("read field count: %w", err)
 	}
 	meta.FieldSchema = make([]types.FieldDef, fieldCount)
 	for i := int64(0); i < fieldCount; i++ {
 		name, err := readString(buf)
 		if err != nil {
-			return err
+			return fmt.Errorf("read field name: %w", err)
 		}
 		var typeVal int64
 		if err := binary.Read(buf, binary.BigEndian, &typeVal); err != nil {
-			return err
+			return fmt.Errorf("read field type: %w", err)
 		}
 		meta.FieldSchema[i] = types.FieldDef{Name: name, Type: types.FieldType(typeVal)}
 	}
 	// TagKeys
 	var tagKeyCount int64
 	if err := binary.Read(buf, binary.BigEndian, &tagKeyCount); err != nil {
-		return err
+		return fmt.Errorf("read tag key count: %w", err)
 	}
 	meta.TagKeys = make([]string, tagKeyCount)
 	for i := int64(0); i < tagKeyCount; i++ {
 		key, err := readString(buf)
 		if err != nil {
-			return err
+			return fmt.Errorf("read tag key: %w", err)
 		}
 		meta.TagKeys[i] = key
 	}
 	// NextSID
 	if err := binary.Read(buf, binary.BigEndian, &meta.NextSID); err != nil {
-		return err
+		return fmt.Errorf("read next sid: %w", err)
 	}
 	m.meta = meta
 
 	// 读取 series count
 	var seriesCount int64
 	if err := binary.Read(buf, binary.BigEndian, &seriesCount); err != nil {
-		return err
+		return fmt.Errorf("read series count: %w", err)
 	}
 	// 读取 series entries
 	m.series = make(map[uint64][]byte, seriesCount)
 	for i := int64(0); i < seriesCount; i++ {
 		var sid uint64
 		if err := binary.Read(buf, binary.BigEndian, &sid); err != nil {
-			return err
+			return fmt.Errorf("read series sid: %w", err)
 		}
 		tags, err := readBytes(buf)
 		if err != nil {
-			return err
+			return fmt.Errorf("read series tags: %w", err)
 		}
 		m.series[sid] = tags
 	}
@@ -283,24 +287,24 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 	// 读取 tagIndex count
 	var tagIndexCount int64
 	if err := binary.Read(buf, binary.BigEndian, &tagIndexCount); err != nil {
-		return err
+		return fmt.Errorf("read tag index count: %w", err)
 	}
 	// 读取 tagIndex entries
 	m.tagIndex = make(map[string][]uint64, tagIndexCount)
 	for i := int64(0); i < tagIndexCount; i++ {
 		key, err := readString(buf)
 		if err != nil {
-			return err
+			return fmt.Errorf("read tag index key: %w", err)
 		}
 		var sidCount int64
 		if err := binary.Read(buf, binary.BigEndian, &sidCount); err != nil {
-			return err
+			return fmt.Errorf("read tag index sid count: %w", err)
 		}
 		sids := make([]uint64, sidCount)
 		for j := int64(0); j < sidCount; j++ {
 			var sid uint64
 			if err := binary.Read(buf, binary.BigEndian, &sid); err != nil {
-				return err
+				return fmt.Errorf("read tag index sid: %w", err)
 			}
 			sids[j] = sid
 		}
@@ -313,21 +317,23 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 // writeString writes a length-prefixed string
 func writeString(buf *bytes.Buffer, s string) error {
 	if err := binary.Write(buf, binary.BigEndian, int64(len(s))); err != nil {
-		return err
+		return fmt.Errorf("write string length: %w", err)
 	}
-	_, err := buf.WriteString(s)
-	return err
+	if _, err := buf.WriteString(s); err != nil {
+		return fmt.Errorf("write string data: %w", err)
+	}
+	return nil
 }
 
 // readString reads a length-prefixed string
 func readString(buf *bytes.Reader) (string, error) {
 	var length int64
 	if err := binary.Read(buf, binary.BigEndian, &length); err != nil {
-		return "", err
+		return "", fmt.Errorf("read string length: %w", err)
 	}
 	b := make([]byte, length)
 	if _, err := buf.Read(b); err != nil {
-		return "", err
+		return "", fmt.Errorf("read string data: %w", err)
 	}
 	return string(b), nil
 }
@@ -335,21 +341,23 @@ func readString(buf *bytes.Reader) (string, error) {
 // writeBytes writes a length-prefixed byte slice
 func writeBytes(buf *bytes.Buffer, b []byte) error {
 	if err := binary.Write(buf, binary.BigEndian, int64(len(b))); err != nil {
-		return err
+		return fmt.Errorf("write bytes length: %w", err)
 	}
-	_, err := buf.Write(b)
-	return err
+	if _, err := buf.Write(b); err != nil {
+		return fmt.Errorf("write bytes data: %w", err)
+	}
+	return nil
 }
 
 // readBytes reads a length-prefixed byte slice
 func readBytes(buf *bytes.Reader) ([]byte, error) {
 	var length int64
 	if err := binary.Read(buf, binary.BigEndian, &length); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read bytes length: %w", err)
 	}
 	b := make([]byte, length)
 	if _, err := buf.Read(b); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read bytes data: %w", err)
 	}
 	return b, nil
 }

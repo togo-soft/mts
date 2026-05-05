@@ -35,7 +35,15 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
-	s := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	// 写入 MemTable 数据
 	points := []*types.Point{
@@ -87,8 +95,24 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 		t.Fatalf("failed to create shard1 dir: %v", err)
 	}
 
-	s0 := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir0, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
-	s1 := shard.NewShard("db", "cpu", 3600*1e9, 7200*1e9, shardDir1, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s0 := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir0,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
+	s1 := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   3600 * 1e9,
+		EndTime:     7200 * 1e9,
+		Dir:         shardDir1,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	// Shard0: 1000, 3000
 	points0 := []*types.Point{
@@ -147,7 +171,15 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
-	s := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	// 写入不同 tag 的数据
 	points := []*types.Point{
@@ -197,7 +229,15 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
-	s := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	// 写入包含多个字段的数据
 	points := []*types.Point{
@@ -251,7 +291,15 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
-	s := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	// 写入 5 条数据
 	points := []*types.Point{
@@ -303,7 +351,15 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
-	s := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	// 写入 5 条数据
 	points := []*types.Point{
@@ -354,7 +410,15 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
-	s := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	// 写入 10 条数据
 	points := make([]*types.Point, 10)
@@ -406,7 +470,15 @@ func TestQueryIterator_Close(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
-	s := shard.NewShard("db", "cpu", 0, 3600*1e9, shardDir, measurement.NewMeasurementMetaStore(), shard.DefaultMemTableConfig())
+	s := shard.NewShard(shard.ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         shardDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: shard.DefaultMemTableConfig(),
+	})
 
 	points := []*types.Point{
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
