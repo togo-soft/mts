@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/engine"
@@ -195,6 +196,13 @@ func Open(cfg Config) (*DB, error) {
 		memTableCfg = DefaultMemTableConfig()
 	}
 
+	// 确保数据目录存在
+	if cfg.DataDir != "" {
+		if err := os.MkdirAll(cfg.DataDir, 0700); err != nil {
+			return nil, fmt.Errorf("create data directory: %w", err)
+		}
+	}
+
 	eng, err := engine.New(&engine.Config{
 		DataDir:       cfg.DataDir,
 		ShardDuration: shardDuration,
@@ -307,7 +315,7 @@ func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 //	    Offset:      0,
 //	    Limit:       1000,
 //	})
-//	if err != nil nil {
+//	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	for _, row := range resp.Rows {
@@ -360,14 +368,14 @@ func (db *DB) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (
 //   - database: 数据库名称
 //
 // 返回：
-//   - []string: Measurement 名称列表
-//   - error: 查询失败时返回错误
+//   - []string: Measurement 名称列表（按字母序排序）
+//   - error: 如果数据库不存在返回错误
 //
 // 实现说明：
 //
-//	扫描数据目录下的数据库目录，读取所有子目录作为 Measurement 名称。
-//	如果数据库目录不存在，返回空列表。
-//	结果按字母顺序排序。
+//	从 Engine 的 DatabaseMetaStore 获取元数据，遍历 measurement keys。
+//	这反映了当前已知的所有 measurement（有元数据的）。
+//	返回的列表按字母序排序。
 //
 // 使用示例：
 //
@@ -379,27 +387,18 @@ func (db *DB) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (
 //	    fmt.Println(m)
 //	}
 func (db *DB) ListMeasurements(ctx context.Context, database string) ([]string, error) {
-	dbPath := filepath.Join(db.engine.DataDir(), database)
-
-	entries, err := os.ReadDir(dbPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, fmt.Errorf("read database directory: %w", err)
+	_ = ctx // 保留参数以符合接口约定
+	measurements, found := db.engine.ListMeasurements(database)
+	if !found {
+		// 数据库不存在时返回空列表（与旧行为兼容）
+		return []string{}, nil
 	}
-
-	var measurements []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			measurements = append(measurements, entry.Name())
-		}
-	}
-
+	// 按字母序排序
+	sort.Strings(measurements)
 	return measurements, nil
 }
 
-// CreateMeasurement 创建一个新的 Measurement。
+// CreateMeasurement 在指定数据库中创建一个新的 Measurement。
 //
 // 参数：
 //   - ctx: 上下文
@@ -411,9 +410,9 @@ func (db *DB) ListMeasurements(ctx context.Context, database string) ([]string, 
 //
 // 说明：
 //
-//	创建 Measurement 实际上是创建对应的目录结构。
-//	如果数据库或 Measurement 已存在，不会返回错误。
-//	目录权限为 0700（仅所有者可读写执行）。
+//	创建 DatabaseMetaStore（如果不存在）并创建 MeasurementMetaStore。
+//	实际的数据目录在第一次写入时才会创建。
+//	如果 measurement 已存在，不会返回错误。
 //
 // 使用示例：
 //
@@ -421,12 +420,8 @@ func (db *DB) ListMeasurements(ctx context.Context, database string) ([]string, 
 //	    log.Fatal(err)
 //	}
 func (db *DB) CreateMeasurement(ctx context.Context, database, measurement string) error {
-	measurementPath := filepath.Join(db.engine.DataDir(), database, measurement)
-
-	if err := os.MkdirAll(measurementPath, 0700); err != nil {
-		return fmt.Errorf("create measurement directory: %w", err)
-	}
-
+	_ = ctx // 保留参数以符合接口约定
+	_, _ = db.engine.CreateMeasurement(database, measurement)
 	return nil
 }
 
@@ -442,9 +437,9 @@ func (db *DB) CreateMeasurement(ctx context.Context, database, measurement strin
 //
 // 警告：
 //
-//	此操作会永久删除该 Measurement 下的所有数据，包括所有时间范围的数据。
-//	删除前请确保数据已备份或不再需要。
-//	如果 Measurement 不存在，返回错误。
+//	此操作会永久删除该 Measurement 的元数据（Schema、Series、Tag 索引）。
+//	磁盘上的数据文件不会被立即删除，需要单独清理。
+//	如果数据库或 Measurement 不存在，返回错误。
 //
 // 使用示例：
 //
@@ -452,12 +447,14 @@ func (db *DB) CreateMeasurement(ctx context.Context, database, measurement strin
 //	    log.Fatal(err)
 //	}
 func (db *DB) DropMeasurement(ctx context.Context, database, measurement string) error {
-	measurementPath := filepath.Join(db.engine.DataDir(), database, measurement)
-
-	if err := os.RemoveAll(measurementPath); err != nil {
-		return fmt.Errorf("remove measurement directory: %w", err)
+	_ = ctx // 保留参数以符合接口约定
+	found, err := db.engine.DropMeasurement(database, measurement)
+	if err != nil {
+		return err
 	}
-
+	if !found {
+		return fmt.Errorf("measurement not found: %s/%s", database, measurement)
+	}
 	return nil
 }
 
@@ -467,14 +464,14 @@ func (db *DB) DropMeasurement(ctx context.Context, database, measurement string)
 //   - ctx: 上下文
 //
 // 返回：
-//   - []string: 数据库名称列表
-//   - error: 查询失败时返回错误
+//   - []string: 数据库名称列表（按字母序排序）
+//   - error: 查询失败时返回错误（当前不会返回错误）
 //
 // 实现说明：
 //
-//	扫描数据目录，读取所有子目录作为数据库名称。
-//	如果数据目录不存在，返回空列表。
-//	结果按字母顺序排序。
+//	从 Engine 的 dbMetaStores 获取所有数据库名称。
+//	这反映了当前已知的所有数据库（有元数据的）。
+//	返回的列表按字母序排序。
 //
 // 使用示例：
 //
@@ -482,25 +479,14 @@ func (db *DB) DropMeasurement(ctx context.Context, database, measurement string)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	for _, db := range databases {
-//	    fmt.Println(db)
+//	for _, dbName := range databases {
+//	    fmt.Println(dbName)
 //	}
 func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
-	entries, err := os.ReadDir(db.engine.DataDir())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, fmt.Errorf("read data directory: %w", err)
-	}
-
-	var databases []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			databases = append(databases, entry.Name())
-		}
-	}
-
+	_ = ctx // 保留参数以符合接口约定
+	databases := db.engine.ListDatabases()
+	// 按字母序排序
+	sort.Strings(databases)
 	return databases, nil
 }
 
@@ -511,13 +497,13 @@ func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
 //   - database: 数据库名称
 //
 // 返回：
-//   - error: 创建失败时返回错误
+//   - error: 创建失败时返回错误（当前不会返回错误）
 //
 // 说明：
 //
-//	创建数据库实际上是创建对应的目录。
+//	创建 DatabaseMetaStore 并注册到 Engine。
+//	实际的数据目录在第一次写入时才会创建。
 //	如果数据库已存在，不会返回错误。
-//	目录权限为 0700（仅所有者可读写执行）。
 //
 // 使用示例：
 //
@@ -525,12 +511,8 @@ func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
 //	    log.Fatal(err)
 //	}
 func (db *DB) CreateDatabase(ctx context.Context, database string) error {
-	dbPath := filepath.Join(db.engine.DataDir(), database)
-
-	if err := os.MkdirAll(dbPath, 0700); err != nil {
-		return fmt.Errorf("create database directory: %w", err)
-	}
-
+	_ = ctx // 保留参数以符合接口约定
+	_ = db.engine.CreateDatabase(database)
 	return nil
 }
 
@@ -545,8 +527,8 @@ func (db *DB) CreateDatabase(ctx context.Context, database string) error {
 //
 // 警告：
 //
-//	此操作会永久删除该数据库下的所有数据，包括所有 Measurement 和时间范围的数据。
-//	删除前请确保数据已备份或不再需要。
+//	此操作会永久删除该数据库的所有元数据（包括所有 Measurement）。
+//	磁盘上的数据文件不会被立即删除，需要单独清理。
 //	如果数据库不存在，返回错误。
 //
 // 使用示例：
@@ -555,12 +537,11 @@ func (db *DB) CreateDatabase(ctx context.Context, database string) error {
 //	    log.Fatal(err)
 //	}
 func (db *DB) DropDatabase(ctx context.Context, database string) error {
-	dbPath := filepath.Join(db.engine.DataDir(), database)
-
-	if err := os.RemoveAll(dbPath); err != nil {
-		return fmt.Errorf("remove database directory: %w", err)
+	_ = ctx // 保留参数以符合接口约定
+	found := db.engine.DropDatabase(database)
+	if !found {
+		return fmt.Errorf("database not found: %s", database)
 	}
-
 	return nil
 }
 
@@ -582,5 +563,33 @@ func (db *DB) DropDatabase(ctx context.Context, database string) error {
 //		}
 //		defer db.Close()
 func (db *DB) Close() error {
+	if db.engine == nil {
+		return nil
+	}
 	return db.engine.Close()
+}
+
+// DataDir 返回数据库的数据目录路径。
+//
+// 返回：
+//   - string: 数据目录路径
+func (db *DB) DataDir() string {
+	return db.engine.DataDir()
+}
+
+// CreateEmptyMeasurement 创建一个空目录结构的 Measurement（用于兼容旧 API）。
+// 此函数在首次写入数据时自动调用，通常不需要手动调用。
+//
+// 参数：
+//   - database: 数据库名称
+//   - measurement: Measurement 名称
+//
+// 返回：
+//   - error: 创建失败时返回错误
+func (db *DB) CreateEmptyMeasurement(database, measurement string) error {
+	measurementPath := filepath.Join(db.engine.DataDir(), database, measurement)
+	if err := os.MkdirAll(measurementPath, 0700); err != nil {
+		return fmt.Errorf("create measurement directory: %w", err)
+	}
+	return nil
 }

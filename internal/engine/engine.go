@@ -50,10 +50,10 @@ type Config struct {
 //
 // 字段说明：
 //
-//   - cfg:          引擎配置
-//   - shardManager: Shard 管理器，负责创建、回收 Shard
-//   - metaStores:   测量元数据缓存
-//   - mu:           保护 metaStores 的读写锁
+//   - cfg:           引擎配置
+//   - shardManager:  Shard 管理器，负责创建、回收 Shard
+//   - dbMetaStores:  数据库级元数据缓存（database -> DatabaseMetaStore）
+//   - mu:            保护 dbMetaStores 的读写锁
 //
 // 并发安全：
 //
@@ -68,7 +68,7 @@ type Config struct {
 type Engine struct {
 	cfg          *Config
 	shardManager *shard.ShardManager
-	metaStores   map[string]*measurement.MemoryMetaStore
+	dbMetaStores map[string]*measurement.DatabaseMetaStore
 	mu           sync.RWMutex
 }
 
@@ -98,7 +98,7 @@ func New(cfg *Config) (*Engine, error) {
 	return &Engine{
 		cfg:          cfg,
 		shardManager: shard.NewShardManager(cfg.DataDir, cfg.ShardDuration, memTableCfg),
-		metaStores:   make(map[string]*measurement.MemoryMetaStore),
+		dbMetaStores: make(map[string]*measurement.DatabaseMetaStore),
 	}, nil
 }
 
@@ -115,7 +115,10 @@ func New(cfg *Config) (*Engine, error) {
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.metaStores = nil
+	for _, dbMeta := range e.dbMetaStores {
+		_ = dbMeta.Close()
+	}
+	e.dbMetaStores = nil
 	return nil
 }
 
@@ -314,7 +317,7 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 func (e *Engine) DataDir() string {
 	return e.cfg.DataDir
 }
-//
+
 // 相比 Query，迭代器按需加载数据，适合处理超过内存容量的大查询。
 //
 // 参数：
@@ -341,4 +344,175 @@ func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest
 	}
 
 	return query.NewQueryIterator(ctx, shards, req), nil
+}
+
+// getOrCreateDBMetaStore 获取或创建指定数据库的 DatabaseMetaStore。
+func (e *Engine) getOrCreateDBMetaStore(db string) *measurement.DatabaseMetaStore {
+	e.mu.RLock()
+	dbMeta, ok := e.dbMetaStores[db]
+	e.mu.RUnlock()
+	if ok {
+		return dbMeta
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// 双重检查
+	if dbMeta, ok = e.dbMetaStores[db]; ok {
+		return dbMeta
+	}
+	dbMeta = measurement.NewDatabaseMetaStore()
+	e.dbMetaStores[db] = dbMeta
+	return dbMeta
+}
+
+// ListDatabases 列出所有数据库名称。
+//
+// 返回：
+//   - []string: 数据库名称列表（按字母序排序）
+//
+// 说明：
+//
+//	遍历 dbMetaStores 的 keys，返回所有数据库名称。
+//	这反映了当前已知的所有数据库（有元数据的）。
+func (e *Engine) ListDatabases() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	databases := make([]string, 0, len(e.dbMetaStores))
+	for name := range e.dbMetaStores {
+		databases = append(databases, name)
+	}
+	return databases
+}
+
+// ListMeasurements 列出指定数据库中的所有 Measurement 名称。
+//
+// 参数：
+//   - database: 数据库名称
+//
+// 返回：
+//   - []string: Measurement 名称列表（按字母序排序）
+//   - bool: 数据库是否存在
+//
+// 说明：
+//
+//	遍历 DatabaseMetaStore 中的 measurements map keys。
+//	如果数据库不存在，返回空列表和 false。
+func (e *Engine) ListMeasurements(database string) ([]string, bool) {
+	e.mu.RLock()
+	dbMeta, ok := e.dbMetaStores[database]
+	e.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+
+	return dbMeta.ListMeasurements(), true
+}
+
+// CreateDatabase 创建一个新的数据库。
+//
+// 参数：
+//   - database: 数据库名称
+//
+// 返回：
+//   - bool: 是否新创建（false 表示已存在）
+//
+// 说明：
+//
+//	创建 DatabaseMetaStore 并缓存。
+//	实际的数据目录在第一次写入时才会创建。
+func (e *Engine) CreateDatabase(database string) bool {
+	e.mu.RLock()
+	_, ok := e.dbMetaStores[database]
+	e.mu.RUnlock()
+	if ok {
+		return false
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// 双重检查
+	if _, ok = e.dbMetaStores[database]; ok {
+		return false
+	}
+	e.dbMetaStores[database] = measurement.NewDatabaseMetaStore()
+	return true
+}
+
+// DropDatabase 删除指定的数据库。
+//
+// 参数：
+//   - database: 数据库名称
+//
+// 返回：
+//   - bool: 是否成功删除（false 表示不存在）
+//
+// 警告：
+//
+//	此操作会永久删除该数据库下的所有元数据。
+//	磁盘上的数据文件不会被立即删除，需要单独清理。
+func (e *Engine) DropDatabase(database string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	dbMeta, ok := e.dbMetaStores[database]
+	if !ok {
+		return false
+	}
+
+	_ = dbMeta.Close()
+	delete(e.dbMetaStores, database)
+	return true
+}
+
+// CreateMeasurement 在指定数据库中创建一个新的 Measurement。
+//
+// 参数：
+//   - database: 数据库名称
+//   - measurement: Measurement 名称
+//
+// 返回：
+//   - bool: 是否新创建（false 表示已存在）
+//   - error: 如果数据库不存在则返回错误
+//
+// 说明：
+//
+//	调用 DatabaseMetaStore.GetOrCreate 创建 MeasurementMetaStore。
+//	实际的目录和数据在第一次写入时才会创建。
+func (e *Engine) CreateMeasurement(database, measurement string) (bool, error) {
+	dbMeta := e.getOrCreateDBMetaStore(database)
+
+	// DatabaseMetaStore 内部使用双检锁，这里不需要额外加锁
+	// GetOrCreate 返回时，measurement 一定已存在
+	dbMeta.GetOrCreate(measurement)
+
+	// 注意：这里无法区分是新建还是已存在，GetOrCreate 不返回这个信息
+	// 对于当前需求（空 measurement 不做处理），这不影响功能
+	return true, nil
+}
+
+// DropMeasurement 删除指定的 Measurement。
+//
+// 参数：
+//   - database: 数据库名称
+//   - measurement: Measurement 名称
+//
+// 返回：
+//   - bool: 是否成功删除（false 表示不存在）
+//   - error: 如果数据库不存在则返回错误
+//
+// 警告：
+//
+//	此操作会永久删除该 Measurement 的元数据（包括 Schema、Series、Tag 索引）。
+//	磁盘上的数据文件不会被立即删除，需要单独清理。
+func (e *Engine) DropMeasurement(database, measurement string) (bool, error) {
+	e.mu.RLock()
+	dbMeta, ok := e.dbMetaStores[database]
+	e.mu.RUnlock()
+	if !ok {
+		return false, fmt.Errorf("database not found: %s", database)
+	}
+
+	return dbMeta.DropMeasurement(measurement), nil
 }
