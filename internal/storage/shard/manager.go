@@ -194,3 +194,30 @@ func formatTimeRange(start, end int64) string {
 func formatInt64(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
+
+// FlushAll 刷新所有 Shard 的 MemTable 到 SSTable。
+//
+// 返回：
+//   - error: 如果任一 Shard 刷盘失败则返回错误
+//
+// 说明：
+//
+//	遍历所有已创建的 Shard，调用其 Flush() 方法。
+//	用于优雅关闭前确保所有内存数据持久化。
+//	错误被聚合，尽可能多地刷盘。
+func (m *ShardManager) FlushAll() error {
+	m.mu.RLock()
+	shards := make([]*Shard, 0, len(m.shards))
+	for _, s := range m.shards {
+		shards = append(shards, s)
+	}
+	m.mu.RUnlock()
+
+	var firstErr error
+	for _, s := range shards {
+		if err := s.Flush(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
