@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"testing"
 
 	"micro-ts/internal/api/pb"
@@ -32,7 +31,7 @@ func TestNew(t *testing.T) {
 
 func TestMicroTSService_Health_CheckResponse(t *testing.T) {
 	srv := New(nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	resp, err := srv.Health(ctx, &pb.HealthRequest{})
 	if err != nil {
@@ -54,7 +53,7 @@ func TestMicroTSService_Health_CheckResponse(t *testing.T) {
 
 func TestMicroTSService_Write(t *testing.T) {
 	srv := New(nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	req := &pb.WriteRequest{
 		Database:    "testdb",
@@ -80,7 +79,7 @@ func TestMicroTSService_Write(t *testing.T) {
 
 func TestMicroTSService_WriteBatch(t *testing.T) {
 	srv := New(nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	req := &pb.WriteBatchRequest{
 		Points: []*pb.WriteRequest{
@@ -119,7 +118,7 @@ func TestMicroTSService_WriteBatch(t *testing.T) {
 
 func TestMicroTSService_QueryRange(t *testing.T) {
 	srv := New(nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	req := &pb.QueryRangeRequest{
 		Database:    "testdb",
@@ -156,7 +155,7 @@ func TestMicroTSService_QueryRange(t *testing.T) {
 
 func TestMicroTSService_ListMeasurements(t *testing.T) {
 	srv := New(nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	req := &pb.ListMeasurementsRequest{
 		Database: "testdb",

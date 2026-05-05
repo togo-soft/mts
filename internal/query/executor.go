@@ -13,7 +13,7 @@ type Executor struct {
 }
 
 // NewExecutor 创建 Executor
-func NewExecutor(engine interface{}) *Executor {
+func NewExecutor(engine any) *Executor {
 	return &Executor{}
 }
 

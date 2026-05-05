@@ -1,7 +1,6 @@
 package query
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +11,7 @@ import (
 )
 
 func TestQueryIterator_EmptyShardList(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
 		EndTime:   1000,
@@ -21,7 +20,7 @@ func TestQueryIterator_EmptyShardList(t *testing.T) {
 	iter := NewQueryIterator(ctx, nil, req)
 
 	// 空 shard 列表，Next 应该返回 false
-	if iter.Next() {
+	if iter.Next(ctx) {
 		t.Error("expected Next() to return false for empty shard list")
 	}
 }
@@ -57,7 +56,7 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
 		EndTime:   4000,
@@ -67,7 +66,7 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 
 	// 收集所有结果
 	var got []*types.PointRow
-	for iter.Next() {
+	for iter.Next(ctx) {
 		got = append(got, iter.Points())
 	}
 
@@ -136,7 +135,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
 		EndTime:   6000,
@@ -148,7 +147,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 	expected := []int64{1000, 3000, 4000, 5000}
 
 	var got []*types.PointRow
-	for iter.Next() {
+	for iter.Next(ctx) {
 		got = append(got, iter.Points())
 	}
 
@@ -194,7 +193,7 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	// 只查询 region=us 的数据
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
@@ -205,7 +204,7 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
-	for iter.Next() {
+	for iter.Next(ctx) {
 		got = append(got, iter.Points())
 	}
 
@@ -250,7 +249,7 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	// 只查询 field1 和 field2
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
@@ -261,7 +260,7 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
-	for iter.Next() {
+	for iter.Next(ctx) {
 		got = append(got, iter.Points())
 	}
 
@@ -315,7 +314,7 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	// 跳过前 2 条
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
@@ -326,7 +325,7 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
-	for iter.Next() {
+	for iter.Next(ctx) {
 		got = append(got, iter.Points())
 	}
 
@@ -375,7 +374,7 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	// 只返回前 3 条
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
@@ -386,7 +385,7 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
-	for iter.Next() {
+	for iter.Next(ctx) {
 		got = append(got, iter.Points())
 	}
 
@@ -433,7 +432,7 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	// 跳过前 2 条，只返回接下来的 3 条
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
@@ -445,7 +444,7 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
-	for iter.Next() {
+	for iter.Next(ctx) {
 		got = append(got, iter.Points())
 	}
 
@@ -489,7 +488,7 @@ func TestQueryIterator_Close(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
 		EndTime:   2000,
@@ -503,7 +502,7 @@ func TestQueryIterator_Close(t *testing.T) {
 	}
 
 	// Close 后 Next 应该返回 false
-	if iter.Next() {
+	if iter.Next(ctx) {
 		t.Error("Next() should return false after Close()")
 	}
 }

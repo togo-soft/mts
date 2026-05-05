@@ -111,7 +111,7 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	skipped := 0
 	collected := 0
 	hasLimit := req.Limit > 0
-	for qit.Next() {
+	for qit.Next(ctx) {
 		row := qit.Points()
 		if row == nil {
 			continue
