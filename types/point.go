@@ -1,4 +1,4 @@
-// Package types 定义了微时序数据库的公共数据类型。
+// Package types 提供公共数据类型。
 //
 // 这些类型是数据库 API 的核心，被用于写入、查询和数据交换。
 // 类型设计遵循时序数据库的惯例，兼容 InfluxDB 等主流时序数据库的概念。
@@ -14,6 +14,9 @@
 //   - 时间戳使用纳秒级 Unix 时间戳（int64）
 //   - 标签使用字符串键值对，用于 Series 唯一标识
 //   - 字段支持多种数据类型：float64, int64, string, bool
+//
+// 注意：QueryRangeRequest/QueryRangeResponse 和 gRPC 消息类型
+// 现在由 protobuf 生成，位于 microts.pb.go 中。
 package types
 
 // Point 是写入时序数据库的基本数据单元。
@@ -31,7 +34,7 @@ package types
 //
 // 时间戳使用建议：
 //
-//	推荐使用时间.Now().UnixNano() 获取当前时间的纳秒戳。
+//	推荐使用 time.Now().UnixNano() 获取当前时间的纳秒戳。
 //	数据库支持乱序写入，但顺序写入性能更好。
 //
 // 使用示例：
@@ -59,8 +62,8 @@ type Point struct {
 
 // PointRow 是查询结果的单行数据。
 //
-// 包含完整的 Time-Series-Data 信息：时间戳、标签和字段值。
-// SID（Series ID）是内部使用的序列标识符，用户通常不需要直接使用。
+// 包含 Series ID (SID)、时间戳、标签和字段值。
+// SID 是内部生成的序列标识符，用户通常不需要直接使用。
 //
 // PointRow 结构用于查询返回，相比写入时的 Point 结构更扁平化：
 //

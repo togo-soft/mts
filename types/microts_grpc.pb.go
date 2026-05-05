@@ -4,7 +4,7 @@
 // - protoc             v3.19.6
 // source: proto/microts.proto
 
-package pb
+package types
 
 import (
 	context "context"

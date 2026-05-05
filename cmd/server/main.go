@@ -11,7 +11,7 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/api"
 	"codeberg.org/micro-ts/mts/internal/engine"
-	pb "codeberg.org/micro-ts/mts/internal/api/pb"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterMicroTSServer(s, api.New(eng))
+	types.RegisterMicroTSServer(s, api.New(eng))
 
 	logger.Info("mts grpc server listening", slog.String("addr", ":2026"))
 	if err := s.Serve(lis); err != nil {

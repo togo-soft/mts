@@ -246,7 +246,7 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 			StartTime:   req.StartTime,
 			EndTime:     req.EndTime,
 			TotalCount:  0,
-			Rows:        []types.PointRow{},
+			Rows:        []*types.Row{},
 		}, nil
 	}
 
@@ -258,7 +258,7 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	defer qit.Close()
 
 	// 流式收集结果，跳过 offset 行，然后收集 limit 行
-	var rows []types.PointRow
+	var pointRows []types.PointRow
 	targetCount := int(req.Limit) + int(req.Offset)
 	hasExplicitLimit := req.Limit > 0
 	// 如果没有指定 limit，不设置目标数量上限（使用最大 int）
@@ -279,7 +279,7 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 			skipped++
 			continue
 		}
-		rows = append(rows, *row)
+		pointRows = append(pointRows, *row)
 		collected++
 		// 已收集足够的行（仅在指定了 limit 时提前停止）
 		if hasLimit && collected >= int(req.Limit) {
@@ -302,13 +302,24 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	// 计算 totalCount
 	// 流式语义：当 HasMore=true 时，无法知道精确总数
 	// 当 HasMore=false 时，表示已处理完所有数据，可以报告精确总数
-	var totalCount int64
-	if hasMore {
-		// 有更多数据，只报告已处理的数量
-		totalCount = int64(skipped + collected)
-	} else {
-		// 已处理完所有数据，报告精确总数
-		totalCount = int64(skipped + collected)
+	totalCount := int64(skipped + collected)
+
+	// 将 PointRow 转换为 Row
+	rows := make([]*types.Row, len(pointRows))
+	for i, pr := range pointRows {
+		fields := make(map[string]*types.FieldValue, len(pr.Fields))
+		for name, v := range pr.Fields {
+			fv, err := anyToProtoFieldValue(v)
+			if err != nil {
+				return nil, fmt.Errorf("convert field %s: %w", name, err)
+			}
+			fields[name] = fv
+		}
+		rows[i] = &types.Row{
+			Timestamp: pr.Timestamp,
+			Tags:      pr.Tags,
+			Fields:    fields,
+		}
 	}
 
 	return &types.QueryRangeResponse{
@@ -320,6 +331,22 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 		HasMore:     hasMore,
 		Rows:        rows,
 	}, nil
+}
+
+// anyToProtoFieldValue 将 any 转换为 protobuf FieldValue。
+func anyToProtoFieldValue(v any) (*types.FieldValue, error) {
+	switch val := v.(type) {
+	case int64:
+		return &types.FieldValue{Value: &types.FieldValue_IntValue{IntValue: val}}, nil
+	case float64:
+		return &types.FieldValue{Value: &types.FieldValue_FloatValue{FloatValue: val}}, nil
+	case string:
+		return &types.FieldValue{Value: &types.FieldValue_StringValue{StringValue: val}}, nil
+	case bool:
+		return &types.FieldValue{Value: &types.FieldValue_BoolValue{BoolValue: val}}, nil
+	default:
+		return nil, fmt.Errorf("unsupported field type: %T", v)
+	}
 }
 
 // DataDir 返回引擎的数据目录。
