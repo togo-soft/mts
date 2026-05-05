@@ -2,7 +2,7 @@
 
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](https://golang.org/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yourusername/micro-ts)](https://goreportcard.com/report/github.com/yourusername/micro-ts)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > 高性能微时序数据库，专为高吞吐写入和快速时间范围查询设计。
 
@@ -234,4 +234,4 @@ go run tests/e2e/query_1k/main.go
 
 ## License
 
-[MIT](LICENSE) © micro-ts Authors
+[Apache 2.0](LICENSE) © 2024 micro-ts Authors
