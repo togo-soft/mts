@@ -15,7 +15,39 @@ import (
 	"micro-ts/types"
 )
 
-// WAL Write-Ahead Log
+// WAL Write-Ahead Log 实现。
+//
+// 功能：
+//
+//   - 提供先写日志的持久化保证
+//   - 支持缓冲写入提高性能
+//   - 支持定期同步和显式同步
+//
+// 数据格式：
+//
+//	[length:4 bytes][data:N bytes]
+//	length 为 uint32 大端序
+//
+// 字段说明：
+//
+//   - dir:    WAL 文件所在目录
+//   - seq:    文件序列号
+//   - file:   底层文件句柄
+//   - mu:     保护并发访问的锁
+//   - buf:    4KB 写缓冲区
+//   - pos:    缓冲区当前位置
+//   - logger: 日志记录器
+//
+// 使用模式：
+//
+//	wal.Write(data)
+//	wal.StartPeriodicSync(5*time.Second, done)
+//	// ...
+//	wal.Close()
+//
+// 恢复：
+//
+//	使用 ReplayWAL 函数在启动时恢复数据点。
 type WAL struct {
 	dir    string
 	seq    uint64
@@ -26,12 +58,40 @@ type WAL struct {
 	logger *slog.Logger
 }
 
-// NewWAL 创建 WAL
+// NewWAL 创建新的 WAL 实例。
+//
+// 参数：
+//   - dir: WAL 存储目录
+//   - seq: 序列号（用于生成文件名）
+//
+// 返回：
+//   - *WAL: 初始化的 WAL
+//   - error: 创建失败时返回错误
+//
+// 默认行为：
+//
+//	使用 slog.Default() 作为日志记录器。
+//	如果需要自定义日志，使用 NewWALWithLogger。
 func NewWAL(dir string, seq uint64) (*WAL, error) {
 	return NewWALWithLogger(dir, seq, slog.Default())
 }
 
-// NewWALWithLogger 创建 WAL 并指定 logger
+// NewWALWithLogger 创建 WAL 并指定自定义日志记录器。
+//
+// 参数：
+//   - dir:    WAL 存储目录
+//   - seq:    序列号
+//   - logger: 日志记录器
+//
+// 返回：
+//   - *WAL:   WAL 实例
+//   - error:  创建失败时返回错误
+//
+// 文件创建：
+//
+//	目录：dir（自动创建，权限 0700）
+//	文件：{seq:020d}.wal（如 00000000000000000001.wal）
+//	权限：0600
 func NewWALWithLogger(dir string, seq uint64, logger *slog.Logger) (*WAL, error) {
 	if err := storage.SafeMkdirAll(dir, 0700); err != nil {
 		return nil, err
@@ -56,7 +116,24 @@ func padSeq(seq uint64) string {
 	return fmt.Sprintf("%020d", seq)
 }
 
-// Write 写入数据
+// Write 写入数据到 WAL。
+//
+// 参数：
+//   - data: 要写入的数据
+//
+// 返回：
+//   - int:   成功写入的数据字节数（不含长度前缀）
+//   - error: 写入失败时返回错误
+//
+// 写入格式：
+//
+//	[length:4][data:N]
+//	length 为 uint32 大端序，表示跟随的数据长度
+//
+// 缓冲策略：
+//
+//	数据先写入 4KB 缓冲区，缓冲区满时刷到文件。
+//	应用程序应定期调用 Sync() 或启动 StartPeriodicSync 确保持久化。
 func (w *WAL) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -81,6 +158,9 @@ func (w *WAL) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+// ErrShortWrite 表示写入的字节数少于预期。
+//
+// 通常意味着磁盘满或 IO 错误。
 var ErrShortWrite = fmt.Errorf("short write")
 
 func (w *WAL) flushLocked() error {
@@ -99,7 +179,20 @@ func (w *WAL) flushLocked() error {
 	return nil
 }
 
-// Sync 刷盘
+// Sync 将缓冲数据刷盘。
+//
+// 返回：
+//   - error: 刷盘失败时返回错误
+//
+// 保证：
+//
+//   - Sync 返回后，之前的所有 Write 数据都已持久化到磁盘。
+//   - 操作系统崩溃不会导致数据丢失（fsync 语义）。
+//
+// 性能：
+//
+//	同步写入会显著降低吞吐量。
+//	建议使用 StartPeriodicSync 进行定期同步，平衡性能和数据安全。
 func (w *WAL) Sync() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -110,7 +203,27 @@ func (w *WAL) Sync() error {
 	return w.file.Sync()
 }
 
-// StartPeriodicSync 启动定期 Sync goroutine
+// StartPeriodicSync 启动定期同步的 goroutine。
+//
+// 参数：
+//   - interval: 同步间隔
+//   - done:     关闭信号通道，接收到信号后停止同步
+//
+// 使用场景：
+//
+//	后台定期刷盘，避免每次写入都同步的性能损失。
+//	提供折中的数据安全性：最坏情况下丢失一个间隔内的数据。
+//
+// 使用示例：
+//
+//	done := make(chan struct{})
+//	wal.StartPeriodicSync(5*time.Second, done)
+//	...
+//	close(done) // 停止同步 goroutine
+//
+// 错误处理：
+//
+//	sync 失败会记录 Error 日志，不会中断同步循环。
 func (w *WAL) StartPeriodicSync(interval time.Duration, done <-chan struct{}) {
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -128,12 +241,29 @@ func (w *WAL) StartPeriodicSync(interval time.Duration, done <-chan struct{}) {
 	}()
 }
 
-// Sequence 返回当前序列号
+// Sequence 返回当前 WAL 的序列号。
+//
+// 返回：
+//   - uint64: WAL 序列号，用于日志轮转或标识
 func (w *WAL) Sequence() uint64 {
 	return w.seq
 }
 
-// Close 关闭
+// Close 关闭 WAL，释放资源。
+//
+// 返回：
+//   - error: 关闭失败时返回错误
+//
+// 关闭流程：
+//
+//  1. 刷出缓冲区中的所有数据
+//  2. 执行 fsync 确保持久化
+//  3. 关闭文件句柄
+//
+// 注意：
+//
+//	关闭后 WAL 不可再使用。
+//	关闭后会丢失未同步的数据。
 func (w *WAL) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -365,7 +495,31 @@ func deserializePoint(data []byte) (*types.Point, error) {
 	}, nil
 }
 
-// ReplayWAL 重放 WAL 文件
+// ReplayWAL 重放 WAL 文件，恢复数据点。
+//
+// 参数：
+//   - walDir: WAL 目录路径
+//
+// 返回：
+//   - []*types.Point: 恢复的数据点
+//   - error:          重放失败时返回错误
+//
+// 重放过程：
+//
+//  1. 扫描目录下所有 .wal 文件
+//  2. 按顺序读取每个文件
+//  3. 解析 length-prefixed 数据
+//  4. 反序列化为 Point
+//
+// 错误处理：
+//
+//	文件读取错误会跳过该文件。
+//	数据解析错误会跳过该条目。
+//	尽可能恢复有效数据。
+//
+// 使用场景：
+//
+//	数据库启动时调用，恢复崩溃前的未刷盘数据。
 func ReplayWAL(walDir string) ([]*types.Point, error) {
 	files, err := filepath.Glob(filepath.Join(walDir, "*.wal"))
 	if err != nil {

@@ -1,4 +1,19 @@
-// internal/storage/measurement/meta.go
+// Package measurement 实现测量元数据管理。
+//
+// 提供 Measurement 级别的元数据存储，包括 Schema、Series 定义和 Tag 索引。
+// 支持内存存储和磁盘持久化两种模式。
+//
+// 核心组件：
+//
+//	MetaStore:        元数据存储接口
+//	MemoryMetaStore:  内存实现，支持持久化
+//	MeasurementMetaStore: Measurement 级 Series 管理
+//
+// 元数据类型：
+//
+//   - Schema:    字段定义（名称、类型）
+//   - Series:    唯一标签组合和对应的 SID
+//   - TagIndex:  标签到 Series ID 的倒排索引
 package measurement
 
 import (
@@ -14,10 +29,34 @@ import (
 	"micro-ts/types"
 )
 
-// ErrInvalidMetaFile 无效的 meta 文件
+// ErrInvalidMetaFile 表示 meta 文件格式无效。
+//
+// 可能原因：
+//   - 魔数不匹配（不是有效的 meta 文件）
+//   - 版本不匹配
+//   - 文件损坏或截断
 var ErrInvalidMetaFile = errors.New("invalid meta file")
 
-// MemoryMetaStore 内存实现的 MetaStore
+// MemoryMetaStore 是内存实现的元数据存储。
+//
+// 功能完整，支持持久化到磁盘。
+// 适合作为嵌入式或开发场景的默认实现。
+//
+// 数据结构：
+//
+//   - meta:     Measurement Schema（字段定义、标签键）
+//   - series:   Sid 到序列化标签的映射
+//   - tagIndex: 标签值到 Sid 列表的倒排索引
+//   - dirty:    是否被修改（用于懒写的优化）
+//
+// 持久化格式：
+//
+//	二进制文件，包含魔数（"MTSH"）、版本和结构化数据。
+//	具体格式参见 Persist 和 Load 方法的实现。
+//
+// 线程安全：
+//
+//	所有公共方法都是线程安全的，使用读写锁保护。
 type MemoryMetaStore struct {
 	mu       sync.RWMutex
 	meta     *types.MeasurementMeta

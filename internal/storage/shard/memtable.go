@@ -9,7 +9,25 @@ import (
 	"micro-ts/types"
 )
 
-// MemTableConfig MemTable 配置
+// MemTableConfig MemTable 配置。
+//
+// 配置项：
+//
+//   - MaxSize:      估算的最大内存占用（字节）
+//   - MaxCount:     最大条目数
+//   - IdleDuration: 空闲时间，超过此时间没有写入则触发刷盘
+//
+// 刷盘触发条件：
+//
+//	满足以下任一条件即触发刷盘：
+//	- 估算大小 >= MaxSize
+//	- 条目数 >= MaxCount
+//	- 空闲时间 >= IdleDuration 且至少有数据
+//
+// 性能影响：
+//
+//	较大的 MaxSize 减少刷盘频率但增加内存使用和恢复时间。
+//	较小的 IdleDuration 更快释放内存但产生更多小文件。
 type MemTableConfig struct {
 	// MaxSize 最大内存大小（字节），默认 64MB
 	MaxSize int64
@@ -33,7 +51,35 @@ type entry struct {
 	Point types.Point
 }
 
-// MemTable 内存跳表
+// MemTable 是内存中的写入缓冲区，按时间戳排序存储数据点。
+//
+// 功能：
+//
+//   - 缓冲写入操作，批量刷盘
+//   - 维护按时间排序的数据
+//   - 支持顺序和迭代器遍历
+//
+// 字段说明：
+//
+//   - mu:          读写锁，保护所有字段
+//   - entries:     存储的数据点条目
+//   - maxSize:     触发刷盘的大小阈值
+//   - maxCount:    触发刷盘的条目数阈值
+//   - idleTimeout: 触发刷盘的空闲时间阈值
+//   - lastWrite:   上次写入时间，用于空闲检测
+//   - count:       当前条目数（缓存优化）
+//
+// 并发安全：
+//
+//	所有公共方法都是线程安全的。
+//	内部使用锁保护，不建议在外部加锁。
+//
+// 使用模式：
+//
+//	写入：m.Write(point)
+//	检查：m.ShouldFlush()
+//	刷盘：points := m.Flush()
+//	遍历：it := m.Iterator(); for it.Next() { ... }
 type MemTable struct {
 	mu          sync.RWMutex
 	entries     []*entry
@@ -44,7 +90,19 @@ type MemTable struct {
 	count       int       // 当前条目数
 }
 
-// NewMemTable 创建 MemTable
+// NewMemTable 创建新的 MemTable 实例。
+//
+// 参数：
+//   - cfg: MemTable 配置
+//
+// 返回：
+//   - *MemTable: 初始化后的 MemTable
+//
+// 初始化状态：
+//
+//   - entries: 预分配 1024 容量的切片
+//   - lastWrite: 当前时间
+//   - count: 0
 func NewMemTable(cfg MemTableConfig) *MemTable {
 	return &MemTable{
 		entries:     make([]*entry, 0, 1024),
@@ -55,7 +113,23 @@ func NewMemTable(cfg MemTableConfig) *MemTable {
 	}
 }
 
-// Write 写入
+// Write 写入一个数据点到 MemTable。
+//
+// 参数：
+//   - p: 要写入的数据点
+//
+// 返回：
+//   - error: 写入失败时返回错误
+//
+// 数据拷贝：
+//
+//	为保证数据独立性，会深拷贝 Tags 和 Fields 的 map。
+//	避免客户端和存储层共享同一底层数据。
+//
+// 排序维护：
+//
+//	当检测到乱序写入（新时间小于前一个），触发全局排序。
+//	频繁乱序写入会影响性能，建议尽量顺序写入。
 func (m *MemTable) Write(p *types.Point) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -94,14 +168,34 @@ func (m *MemTable) Write(p *types.Point) error {
 	return nil
 }
 
-// Count 返回条数
+// Count 返回 MemTable 中的条目数。
+//
+// 返回：
+//   - int: 当前存储的数据点数量
+//
+// 线程安全：
+//
+//	使用读锁，可并发调用。
 func (m *MemTable) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.count
 }
 
-// ShouldFlush 检查是否应该刷盘
+// ShouldFlush 检查 MemTable 是否满足刷盘条件。
+//
+// 返回：
+//   - bool: true 表示应该执行刷盘
+//
+// 刷盘条件：
+//
+//   - 估算大小 >= MaxSize（按每个条目1KB估算）
+//   - 条目数 >= MaxCount（如果 MaxCount > 0）
+//   - 空闲时间 >= IdleDuration（如果 IdleDuration > 0 且有数据）
+//
+// 线程安全：
+//
+//	使用读锁，可并发调用。
 func (m *MemTable) ShouldFlush() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -127,7 +221,19 @@ func (m *MemTable) shouldFlushUnsafe() bool {
 	return false
 }
 
-// Flush 刷盘（返回数据用于生成 SSTable）
+// Flush 将 MemTable 数据刷盘并返回。
+//
+// 返回：
+//   - []*types.Point: 刷盘的数据点列表
+//
+// 线程安全：
+//
+//	函数内部加锁，获取数据后清空 entries。
+//	返回的数据点引用原内存，但在清空后不再受保护。
+//
+// GC 优化：
+//
+//	返回后显式清空原 entries 数组，帮助 GC。
 func (m *MemTable) Flush() []*types.Point {
 	m.mu.Lock()
 	result := m.entries
@@ -152,7 +258,15 @@ func (m *MemTable) Flush() []*types.Point {
 	return points
 }
 
-// Iterator 迭代器
+// Iterator 返回 MemTable 的迭代器。
+//
+// 返回：
+//   - *MemTableIterator: 新创建的迭代器，初始位置在第一个元素之前
+//
+// 注意：
+//
+//	迭代器不持有锁，返回后 MemTable 可能被修改。
+//	遍历前应考虑是否加锁或使用快照。
 func (m *MemTable) Iterator() *MemTableIterator {
 	return &MemTableIterator{
 		entries: m.entries,

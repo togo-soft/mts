@@ -9,7 +9,9 @@ import (
 	"micro-ts/internal/storage"
 )
 
-// IndexMagic 索引文件魔数 "TSIDX001"
+// IndexMagic 是索引文件的魔数。
+//
+// 值："TSIDX001"
 var IndexMagic = [8]byte{0x54, 0x53, 0x49, 0x44, 0x58, 0x30, 0x30, 0x31}
 
 // IndexVersion 索引版本
@@ -23,7 +25,26 @@ type BlockIndexEntry struct {
 	RowCount       uint32 // 该 block 的行数
 }
 
-// BlockIndex 索引管理器
+// BlockIndex 是 SSTable 的数据块索引。
+//
+// 为每个数据块维护索引信息，支持快速定位时间范围对应的数据块。
+//
+// 索引条目：
+//
+//	FirstTimestamp:  Block 中第一个时间戳
+//	LastTimestamp:   Block 中最后一个时间戳
+//	Offset:          在 timestamps.bin 中的偏移量
+//	RowCount:        Block 中的行数
+//
+// 查询优化：
+//
+//	使用二分查找（FindBlock）定位目标 Block。
+//	避免扫描整个文件。
+//
+// 文件格式：
+//
+//	[magic:8][version:4][count:4][entries...]
+//	每个 entry 24 字节。
 type BlockIndex struct {
 	entries []BlockIndexEntry
 }
@@ -31,6 +52,9 @@ type BlockIndex struct {
 // ErrInvalidIndex 无效索引错误
 var ErrInvalidIndex = &IndexError{msg: "invalid index file"}
 
+// IndexError 表示索引操作错误。
+//
+// 包含具体的错误信息。
 type IndexError struct {
 	msg string
 }
@@ -39,7 +63,23 @@ func (e *IndexError) Error() string {
 	return e.msg
 }
 
-// Write 写入索引到指定文件
+// Write 将索引写入文件。
+//
+// 参数：
+//   - file: 目标文件路径
+//
+// 返回：
+//   - error: 写入失败时返回错误
+//
+// 文件格式：
+//
+//	[magic:8][version:4][count:4][entries...]
+//	每个 entry 24 字节
+//
+// 错误处理：
+//
+//	如果写入失败，可能产生不完整的文件。
+//	调用方应考虑原子写入或删除不完整文件。
 func (idx *BlockIndex) Write(file string) error {
 	f, err := storage.SafeCreate(file, 0600)
 	if err != nil {
@@ -71,7 +111,18 @@ func (idx *BlockIndex) Write(file string) error {
 	return nil
 }
 
-// Read 从指定文件读取索引
+// Read 从文件读取索引。
+//
+// 参数：
+//   - file: 源文件路径
+//
+// 返回：
+//   - error: 读取失败时返回错误
+//
+// 验证：
+//
+//	检查文件大小、魔数和版本。
+//	任何验证失败都返回 ErrInvalidIndex。
 func (idx *BlockIndex) Read(file string) error {
 	data, err := storage.SafeOpenFile(file, os.O_RDONLY, 0600)
 	if err != nil {
@@ -130,25 +181,69 @@ func (idx *BlockIndex) Read(file string) error {
 	return nil
 }
 
-// FindBlock 二分查找第一个 last_timestamp >= target 的 block
-// 返回 block 索引，如果不存在返回 len(entries)
+// FindBlock 二分查找第一个包含或晚于目标时间的 Block。
+//
+// 参数：
+//   - target: 目标时间戳
+//
+// 返回：
+//   - int: Block 索引，如果不存在返回 len(entries)
+//
+// 查找逻辑：
+//
+//	查找第一个 LastTimestamp >= target 的 Block。
+//	因为 Block 按时间排序且互不重叠，这一定位是有效的。
+//
+// 使用示例：
+//
+//	idx := blockIndex.FindBlock(startTime)
+//	for i := idx; i < blockIndex.Len(); i++ {
+//	    entry := blockIndex.Entry(i)
+//	    if entry.FirstTimestamp > endTime {
+//	        break // 超出范围
+//	    }
+//	    // 读取此 block...
+//	}
 func (idx *BlockIndex) FindBlock(target int64) int {
 	return sort.Search(len(idx.entries), func(i int) bool {
 		return idx.entries[i].LastTimestamp >= target
 	})
 }
 
-// Len 返回 entry 数量
+// Len 返回索引条目数量。
+//
+// 返回：
+//   - int: Block 数量
 func (idx *BlockIndex) Len() int {
 	return len(idx.entries)
 }
 
-// Entry 返回指定索引的 entry
+// Entry 返回指定索引的 Block 条目。
+//
+// 参数：
+//   - i: Block 索引
+//
+// 返回：
+//   - BlockIndexEntry: Block 信息
+//
+// panic：
+//
+//	如果 i < 0 或 i >= Len()，会导致 panic。
 func (idx *BlockIndex) Entry(i int) BlockIndexEntry {
 	return idx.entries[i]
 }
 
-// Add 添加一个 block 的索引
+// Add 添加一个 Block 的索引条目。
+//
+// 参数：
+//   - firstTs:  Block 起始时间
+//   - lastTs:   Block 结束时间
+//   - offset:   Block 在文件中的偏移量
+//   - rowCount: Block 行数
+//
+// 注意：
+//
+//	应该按时间顺序调用 Add，添加的 Block 时间不应重叠。
 func (idx *BlockIndex) Add(firstTs, lastTs int64, offset uint32, rowCount uint32) {
 	idx.entries = append(idx.entries, BlockIndexEntry{
 		FirstTimestamp: firstTs,

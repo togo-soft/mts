@@ -1,4 +1,29 @@
-// internal/storage/shard/sstable/writer.go
+// Package sstable 实现 SSTable（Sorted String Table）存储格式。
+//
+// SSTable 是一种持久化的列式存储格式，特点：
+//   - 数据不可变，只能追加写入
+//   - 按时间戳排序存储
+//   - 按列存储，同一字段的数据连续存放
+//   - 支持 Block 级别的索引，加速查询
+//
+// 文件结构：
+//
+//	{shardDir}/data/sst_{seq}/
+//	├── _timestamps.bin    # 时间戳列（int64 数组）
+//	├── fields/
+//	│   ├── {field1}.bin   # 字段1数据
+//	│   └── {field2}.bin   # 字段2数据
+//	├── _index.bin         # Block 索引
+//	└── _schema.json       # Schema 定义
+//
+// 使用流程：
+//
+//	w := sstable.NewWriter(shardDir, seq)
+//	w.WritePoints(points)
+//	w.Close()
+//
+//	r, _ := sstable.NewReader(dataDir)
+//	rows, _ := r.ReadRange(start, end)
 package sstable
 
 import (
@@ -66,7 +91,25 @@ func NewBlockIndex() *BlockIndex {
 	}
 }
 
-// NewWriter 创建 Writer
+// NewWriter 创建 SSTable Writer。
+//
+// 参数：
+//   - shardDir: Shard 数据目录
+//   - seq:      SSTable 序列号
+//
+// 返回：
+//   - *Writer: 初始化的 Writer
+//   - error:   创建失败时返回错误
+//
+// 目录结构：
+//
+//	shardDir/data/sst_{seq}/
+//	├── _timestamps.bin
+//	├── fields/
+//	│   ├── {field1}.bin
+//	│   └── {field2}.bin
+//	├── _index.bin
+//	└── _schema.json
 func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 	// 使用 seq 创建独立的子目录，避免不同 SSTable 之间的冲突
 	dataDir := filepath.Join(shardDir, "data", fmt.Sprintf("sst_%d", seq))
@@ -100,7 +143,24 @@ func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 	}, nil
 }
 
-// WritePoints 写入一批 points
+// WritePoints 写入一批数据点到 SSTable。
+//
+// 参数：
+//   - points: 要写入的数据点
+//
+// 返回：
+//   - error: 写入失败时返回错误
+//
+// 处理流程：
+//
+//  1. 收集所有字段名并推断类型
+//  2. 打开各字段的数据文件
+//  3. 逐个写入数据点（可能触发 block flush）
+//
+// 错误处理：
+//
+//	写入失败返回错误，但已写入的数据不会自动回滚。
+//	建议发现错误后删除不完整的数据目录。
 func (w *Writer) WritePoints(points []*types.Point) error {
 	// 收集所有字段名并检测类型
 	fieldNames := make(map[string]bool)
@@ -271,7 +331,22 @@ func (w *Writer) flushBlock() error {
 	return nil
 }
 
-// Close 关闭
+// Close 关闭 Writer，完成 SSTable 写入。
+//
+// 返回：
+//   - error: 关闭失败时返回错误
+//
+// 关闭流程：
+//
+//  1. Flush 剩余 block 数据
+//  2. 写入 schema.json
+//  3. 写入 _index.bin
+//  4. 关闭各文件句柄
+//
+// 原子性：
+//
+//	如果关闭过程中出错，SSTable 可能处于不完整状态。
+//	完整的数据恢复需要结合 WAL 重放。
 func (w *Writer) Close() error {
 	if err := w.flushBlock(); err != nil {
 		return fmt.Errorf("flush block: %w", err)
