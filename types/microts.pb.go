@@ -21,7 +21,86 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// 字段类型枚举
+//
+// 支持的字段数据类型。
+// 字段类型用于 Schema 定义和类型检查。
+type FieldType int32
+
+const (
+	// 未知/无效类型
+	FieldType_FIELD_TYPE_UNKNOWN FieldType = 0
+	// 64位有符号整数
+	FieldType_FIELD_TYPE_INT64 FieldType = 1
+	// 64位浮点数
+	FieldType_FIELD_TYPE_FLOAT64 FieldType = 2
+	// 可变长度字符串
+	FieldType_FIELD_TYPE_STRING FieldType = 3
+	// 布尔值
+	FieldType_FIELD_TYPE_BOOL FieldType = 4
+)
+
+// Enum value maps for FieldType.
+var (
+	FieldType_name = map[int32]string{
+		0: "FIELD_TYPE_UNKNOWN",
+		1: "FIELD_TYPE_INT64",
+		2: "FIELD_TYPE_FLOAT64",
+		3: "FIELD_TYPE_STRING",
+		4: "FIELD_TYPE_BOOL",
+	}
+	FieldType_value = map[string]int32{
+		"FIELD_TYPE_UNKNOWN": 0,
+		"FIELD_TYPE_INT64":   1,
+		"FIELD_TYPE_FLOAT64": 2,
+		"FIELD_TYPE_STRING":  3,
+		"FIELD_TYPE_BOOL":    4,
+	}
+)
+
+func (x FieldType) Enum() *FieldType {
+	p := new(FieldType)
+	*p = x
+	return p
+}
+
+func (x FieldType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FieldType) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_microts_proto_enumTypes[0].Descriptor()
+}
+
+func (FieldType) Type() protoreflect.EnumType {
+	return &file_proto_microts_proto_enumTypes[0]
+}
+
+func (x FieldType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FieldType.Descriptor instead.
+func (FieldType) EnumDescriptor() ([]byte, []int) {
+	return file_proto_microts_proto_rawDescGZIP(), []int{0}
+}
+
 // 字段值
+//
+// Point 的字段值使用 oneof 支持多种数据类型。
+// 存储引擎会根据值的实际类型进行相应的编码和处理。
+//
+// 支持的类型：
+//
+//   - int_value: 64位有符号整数，适用于计数器、ID 等
+//   - float_value: 64位浮点数，适用于温度、电压等连续值
+//   - string_value: 可变长度字符串，适用于状态描述
+//   - bool_value: 布尔值，适用于开关状态
+//
+// 类型说明：
+//
+//	写入时根据值的类型自动选择对应的字段。
+//	查询时根据实际存储的类型返回相应值。
 type FieldValue struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Value:
@@ -136,6 +215,198 @@ func (*FieldValue_StringValue) isFieldValue_Value() {}
 
 func (*FieldValue_BoolValue) isFieldValue_Value() {}
 
+// 数据点
+//
+// Point 是写入时序数据库的基本数据单元。
+// 每个 Point 代表时间序列中的一个数据点。
+//
+// 必需字段：
+//
+//   - database: 数据库名称，用于隔离不同业务的数据
+//   - measurement: 测量名称，类似关系数据库的表名
+//   - timestamp: 纳秒级 Unix 时间戳
+//   - tags: 标签键值对，用于标识时间序列
+//   - fields: 字段值，存储实际的数据
+//
+// 标签与字段的区别：
+//
+//	标签用于索引和分组，会被存储在 Series Key 中，查询效率高。
+//	字段存储实际数据值，不会被索引，但可以存储大量不同的值。
+//
+// 最佳实践：
+//
+//	标签建议使用 host, region, service 等维度信息。
+//	时间戳推荐使用 time.Now().UnixNano() 获取。
+type Point struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 数据库名称
+	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	// 测量名称（类似表名）
+	Measurement string `protobuf:"bytes,2,opt,name=measurement,proto3" json:"measurement,omitempty"`
+	// 标签键值对，用于标识时间序列
+	Tags map[string]string `protobuf:"bytes,3,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// 时间戳，纳秒级 Unix 时间戳
+	Timestamp int64 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// 字段值，存储实际的数据
+	Fields        map[string]*FieldValue `protobuf:"bytes,5,rep,name=fields,proto3" json:"fields,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Point) Reset() {
+	*x = Point{}
+	mi := &file_proto_microts_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Point) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Point) ProtoMessage() {}
+
+func (x *Point) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_microts_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Point.ProtoReflect.Descriptor instead.
+func (*Point) Descriptor() ([]byte, []int) {
+	return file_proto_microts_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Point) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *Point) GetMeasurement() string {
+	if x != nil {
+		return x.Measurement
+	}
+	return ""
+}
+
+func (x *Point) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *Point) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *Point) GetFields() map[string]*FieldValue {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+// 查询结果行
+//
+// PointRow 是查询结果的单行数据。
+// 相比 Point，PointRow 增加了 SID 字段用于内部标识。
+//
+// 字段说明：
+//
+//   - sid: Series ID，内部生成的序列标识符（从1开始递增）
+//   - timestamp: 数据点的时间戳（纳秒）
+//   - tags: 标签键值对
+//   - fields: 字段值
+//
+// SID 说明：
+//
+//	SID 由存储引擎为每个唯一的标签组合分配。
+//	相同的标签组合始终对应同一个 SID。
+//	用户通常不需要直接使用此字段。
+type PointRow struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Series ID，用于内部标识唯一的标签组合
+	Sid uint64 `protobuf:"varint,1,opt,name=sid,proto3" json:"sid,omitempty"`
+	// 时间戳
+	Timestamp int64 `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// 标签键值对
+	Tags map[string]string `protobuf:"bytes,3,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// 字段值
+	Fields        map[string]*FieldValue `protobuf:"bytes,4,rep,name=fields,proto3" json:"fields,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PointRow) Reset() {
+	*x = PointRow{}
+	mi := &file_proto_microts_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PointRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PointRow) ProtoMessage() {}
+
+func (x *PointRow) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_microts_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PointRow.ProtoReflect.Descriptor instead.
+func (*PointRow) Descriptor() ([]byte, []int) {
+	return file_proto_microts_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PointRow) GetSid() uint64 {
+	if x != nil {
+		return x.Sid
+	}
+	return 0
+}
+
+func (x *PointRow) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *PointRow) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *PointRow) GetFields() map[string]*FieldValue {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
 // 写入请求
 type WriteRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -150,7 +421,7 @@ type WriteRequest struct {
 
 func (x *WriteRequest) Reset() {
 	*x = WriteRequest{}
-	mi := &file_proto_microts_proto_msgTypes[1]
+	mi := &file_proto_microts_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -162,7 +433,7 @@ func (x *WriteRequest) String() string {
 func (*WriteRequest) ProtoMessage() {}
 
 func (x *WriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[1]
+	mi := &file_proto_microts_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,7 +446,7 @@ func (x *WriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteRequest.ProtoReflect.Descriptor instead.
 func (*WriteRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{1}
+	return file_proto_microts_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *WriteRequest) GetDatabase() string {
@@ -223,7 +494,7 @@ type WriteBatchRequest struct {
 
 func (x *WriteBatchRequest) Reset() {
 	*x = WriteBatchRequest{}
-	mi := &file_proto_microts_proto_msgTypes[2]
+	mi := &file_proto_microts_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -235,7 +506,7 @@ func (x *WriteBatchRequest) String() string {
 func (*WriteBatchRequest) ProtoMessage() {}
 
 func (x *WriteBatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[2]
+	mi := &file_proto_microts_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -248,7 +519,7 @@ func (x *WriteBatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteBatchRequest.ProtoReflect.Descriptor instead.
 func (*WriteBatchRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{2}
+	return file_proto_microts_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WriteBatchRequest) GetPoints() []*WriteRequest {
@@ -269,7 +540,7 @@ type WriteResponse struct {
 
 func (x *WriteResponse) Reset() {
 	*x = WriteResponse{}
-	mi := &file_proto_microts_proto_msgTypes[3]
+	mi := &file_proto_microts_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -281,7 +552,7 @@ func (x *WriteResponse) String() string {
 func (*WriteResponse) ProtoMessage() {}
 
 func (x *WriteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[3]
+	mi := &file_proto_microts_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -294,7 +565,7 @@ func (x *WriteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteResponse.ProtoReflect.Descriptor instead.
 func (*WriteResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{3}
+	return file_proto_microts_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *WriteResponse) GetSuccess() bool {
@@ -323,7 +594,7 @@ type WriteBatchResponse struct {
 
 func (x *WriteBatchResponse) Reset() {
 	*x = WriteBatchResponse{}
-	mi := &file_proto_microts_proto_msgTypes[4]
+	mi := &file_proto_microts_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +606,7 @@ func (x *WriteBatchResponse) String() string {
 func (*WriteBatchResponse) ProtoMessage() {}
 
 func (x *WriteBatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[4]
+	mi := &file_proto_microts_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +619,7 @@ func (x *WriteBatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteBatchResponse.ProtoReflect.Descriptor instead.
 func (*WriteBatchResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{4}
+	return file_proto_microts_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *WriteBatchResponse) GetSuccess() bool {
@@ -389,7 +660,7 @@ type QueryRangeRequest struct {
 
 func (x *QueryRangeRequest) Reset() {
 	*x = QueryRangeRequest{}
-	mi := &file_proto_microts_proto_msgTypes[5]
+	mi := &file_proto_microts_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -401,7 +672,7 @@ func (x *QueryRangeRequest) String() string {
 func (*QueryRangeRequest) ProtoMessage() {}
 
 func (x *QueryRangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[5]
+	mi := &file_proto_microts_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +685,7 @@ func (x *QueryRangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRangeRequest.ProtoReflect.Descriptor instead.
 func (*QueryRangeRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{5}
+	return file_proto_microts_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *QueryRangeRequest) GetDatabase() string {
@@ -473,7 +744,7 @@ func (x *QueryRangeRequest) GetLimit() int64 {
 	return 0
 }
 
-// 一行数据
+// 一行数据（用于查询响应）
 type Row struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Timestamp     int64                  `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
@@ -485,7 +756,7 @@ type Row struct {
 
 func (x *Row) Reset() {
 	*x = Row{}
-	mi := &file_proto_microts_proto_msgTypes[6]
+	mi := &file_proto_microts_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -497,7 +768,7 @@ func (x *Row) String() string {
 func (*Row) ProtoMessage() {}
 
 func (x *Row) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[6]
+	mi := &file_proto_microts_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -510,7 +781,7 @@ func (x *Row) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Row.ProtoReflect.Descriptor instead.
 func (*Row) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{6}
+	return file_proto_microts_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Row) GetTimestamp() int64 {
@@ -550,7 +821,7 @@ type QueryRangeResponse struct {
 
 func (x *QueryRangeResponse) Reset() {
 	*x = QueryRangeResponse{}
-	mi := &file_proto_microts_proto_msgTypes[7]
+	mi := &file_proto_microts_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -562,7 +833,7 @@ func (x *QueryRangeResponse) String() string {
 func (*QueryRangeResponse) ProtoMessage() {}
 
 func (x *QueryRangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[7]
+	mi := &file_proto_microts_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -575,7 +846,7 @@ func (x *QueryRangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRangeResponse.ProtoReflect.Descriptor instead.
 func (*QueryRangeResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{7}
+	return file_proto_microts_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *QueryRangeResponse) GetDatabase() string {
@@ -637,7 +908,7 @@ type ListMeasurementsRequest struct {
 
 func (x *ListMeasurementsRequest) Reset() {
 	*x = ListMeasurementsRequest{}
-	mi := &file_proto_microts_proto_msgTypes[8]
+	mi := &file_proto_microts_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -649,7 +920,7 @@ func (x *ListMeasurementsRequest) String() string {
 func (*ListMeasurementsRequest) ProtoMessage() {}
 
 func (x *ListMeasurementsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[8]
+	mi := &file_proto_microts_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -662,7 +933,7 @@ func (x *ListMeasurementsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementsRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{8}
+	return file_proto_microts_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListMeasurementsRequest) GetDatabase() string {
@@ -682,7 +953,7 @@ type ListMeasurementsResponse struct {
 
 func (x *ListMeasurementsResponse) Reset() {
 	*x = ListMeasurementsResponse{}
-	mi := &file_proto_microts_proto_msgTypes[9]
+	mi := &file_proto_microts_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -694,7 +965,7 @@ func (x *ListMeasurementsResponse) String() string {
 func (*ListMeasurementsResponse) ProtoMessage() {}
 
 func (x *ListMeasurementsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[9]
+	mi := &file_proto_microts_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -707,7 +978,7 @@ func (x *ListMeasurementsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementsResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{9}
+	return file_proto_microts_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListMeasurementsResponse) GetMeasurements() []string {
@@ -728,7 +999,7 @@ type CreateMeasurementRequest struct {
 
 func (x *CreateMeasurementRequest) Reset() {
 	*x = CreateMeasurementRequest{}
-	mi := &file_proto_microts_proto_msgTypes[10]
+	mi := &file_proto_microts_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -740,7 +1011,7 @@ func (x *CreateMeasurementRequest) String() string {
 func (*CreateMeasurementRequest) ProtoMessage() {}
 
 func (x *CreateMeasurementRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[10]
+	mi := &file_proto_microts_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -753,7 +1024,7 @@ func (x *CreateMeasurementRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMeasurementRequest.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{10}
+	return file_proto_microts_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CreateMeasurementRequest) GetDatabase() string {
@@ -781,7 +1052,7 @@ type CreateMeasurementResponse struct {
 
 func (x *CreateMeasurementResponse) Reset() {
 	*x = CreateMeasurementResponse{}
-	mi := &file_proto_microts_proto_msgTypes[11]
+	mi := &file_proto_microts_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -793,7 +1064,7 @@ func (x *CreateMeasurementResponse) String() string {
 func (*CreateMeasurementResponse) ProtoMessage() {}
 
 func (x *CreateMeasurementResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[11]
+	mi := &file_proto_microts_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -806,7 +1077,7 @@ func (x *CreateMeasurementResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMeasurementResponse.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{11}
+	return file_proto_microts_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CreateMeasurementResponse) GetSuccess() bool {
@@ -834,7 +1105,7 @@ type DropMeasurementRequest struct {
 
 func (x *DropMeasurementRequest) Reset() {
 	*x = DropMeasurementRequest{}
-	mi := &file_proto_microts_proto_msgTypes[12]
+	mi := &file_proto_microts_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -846,7 +1117,7 @@ func (x *DropMeasurementRequest) String() string {
 func (*DropMeasurementRequest) ProtoMessage() {}
 
 func (x *DropMeasurementRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[12]
+	mi := &file_proto_microts_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -859,7 +1130,7 @@ func (x *DropMeasurementRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropMeasurementRequest.ProtoReflect.Descriptor instead.
 func (*DropMeasurementRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{12}
+	return file_proto_microts_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DropMeasurementRequest) GetDatabase() string {
@@ -887,7 +1158,7 @@ type DropMeasurementResponse struct {
 
 func (x *DropMeasurementResponse) Reset() {
 	*x = DropMeasurementResponse{}
-	mi := &file_proto_microts_proto_msgTypes[13]
+	mi := &file_proto_microts_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -899,7 +1170,7 @@ func (x *DropMeasurementResponse) String() string {
 func (*DropMeasurementResponse) ProtoMessage() {}
 
 func (x *DropMeasurementResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[13]
+	mi := &file_proto_microts_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -912,7 +1183,7 @@ func (x *DropMeasurementResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropMeasurementResponse.ProtoReflect.Descriptor instead.
 func (*DropMeasurementResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{13}
+	return file_proto_microts_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DropMeasurementResponse) GetSuccess() bool {
@@ -938,7 +1209,7 @@ type ListDatabasesRequest struct {
 
 func (x *ListDatabasesRequest) Reset() {
 	*x = ListDatabasesRequest{}
-	mi := &file_proto_microts_proto_msgTypes[14]
+	mi := &file_proto_microts_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +1221,7 @@ func (x *ListDatabasesRequest) String() string {
 func (*ListDatabasesRequest) ProtoMessage() {}
 
 func (x *ListDatabasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[14]
+	mi := &file_proto_microts_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +1234,7 @@ func (x *ListDatabasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDatabasesRequest.ProtoReflect.Descriptor instead.
 func (*ListDatabasesRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{14}
+	return file_proto_microts_proto_rawDescGZIP(), []int{16}
 }
 
 // 列出数据库响应
@@ -976,7 +1247,7 @@ type ListDatabasesResponse struct {
 
 func (x *ListDatabasesResponse) Reset() {
 	*x = ListDatabasesResponse{}
-	mi := &file_proto_microts_proto_msgTypes[15]
+	mi := &file_proto_microts_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -988,7 +1259,7 @@ func (x *ListDatabasesResponse) String() string {
 func (*ListDatabasesResponse) ProtoMessage() {}
 
 func (x *ListDatabasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[15]
+	mi := &file_proto_microts_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1001,7 +1272,7 @@ func (x *ListDatabasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDatabasesResponse.ProtoReflect.Descriptor instead.
 func (*ListDatabasesResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{15}
+	return file_proto_microts_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListDatabasesResponse) GetDatabases() []string {
@@ -1021,7 +1292,7 @@ type CreateDatabaseRequest struct {
 
 func (x *CreateDatabaseRequest) Reset() {
 	*x = CreateDatabaseRequest{}
-	mi := &file_proto_microts_proto_msgTypes[16]
+	mi := &file_proto_microts_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1033,7 +1304,7 @@ func (x *CreateDatabaseRequest) String() string {
 func (*CreateDatabaseRequest) ProtoMessage() {}
 
 func (x *CreateDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[16]
+	mi := &file_proto_microts_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1046,7 +1317,7 @@ func (x *CreateDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*CreateDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{16}
+	return file_proto_microts_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateDatabaseRequest) GetDatabase() string {
@@ -1067,7 +1338,7 @@ type CreateDatabaseResponse struct {
 
 func (x *CreateDatabaseResponse) Reset() {
 	*x = CreateDatabaseResponse{}
-	mi := &file_proto_microts_proto_msgTypes[17]
+	mi := &file_proto_microts_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1079,7 +1350,7 @@ func (x *CreateDatabaseResponse) String() string {
 func (*CreateDatabaseResponse) ProtoMessage() {}
 
 func (x *CreateDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[17]
+	mi := &file_proto_microts_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1092,7 +1363,7 @@ func (x *CreateDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*CreateDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{17}
+	return file_proto_microts_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateDatabaseResponse) GetSuccess() bool {
@@ -1119,7 +1390,7 @@ type DropDatabaseRequest struct {
 
 func (x *DropDatabaseRequest) Reset() {
 	*x = DropDatabaseRequest{}
-	mi := &file_proto_microts_proto_msgTypes[18]
+	mi := &file_proto_microts_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1131,7 +1402,7 @@ func (x *DropDatabaseRequest) String() string {
 func (*DropDatabaseRequest) ProtoMessage() {}
 
 func (x *DropDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[18]
+	mi := &file_proto_microts_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1144,7 +1415,7 @@ func (x *DropDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*DropDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{18}
+	return file_proto_microts_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DropDatabaseRequest) GetDatabase() string {
@@ -1165,7 +1436,7 @@ type DropDatabaseResponse struct {
 
 func (x *DropDatabaseResponse) Reset() {
 	*x = DropDatabaseResponse{}
-	mi := &file_proto_microts_proto_msgTypes[19]
+	mi := &file_proto_microts_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1177,7 +1448,7 @@ func (x *DropDatabaseResponse) String() string {
 func (*DropDatabaseResponse) ProtoMessage() {}
 
 func (x *DropDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[19]
+	mi := &file_proto_microts_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1190,7 +1461,7 @@ func (x *DropDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*DropDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{19}
+	return file_proto_microts_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *DropDatabaseResponse) GetSuccess() bool {
@@ -1216,7 +1487,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_proto_microts_proto_msgTypes[20]
+	mi := &file_proto_microts_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1228,7 +1499,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[20]
+	mi := &file_proto_microts_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1241,7 +1512,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{20}
+	return file_proto_microts_proto_rawDescGZIP(), []int{22}
 }
 
 // 健康检查响应
@@ -1255,7 +1526,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_proto_microts_proto_msgTypes[21]
+	mi := &file_proto_microts_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1267,7 +1538,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_microts_proto_msgTypes[21]
+	mi := &file_proto_microts_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1280,7 +1551,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_proto_microts_proto_rawDescGZIP(), []int{21}
+	return file_proto_microts_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *HealthResponse) GetHealthy() bool {
@@ -1297,6 +1568,317 @@ func (x *HealthResponse) GetVersion() string {
 	return ""
 }
 
+// 字段定义
+//
+// 定义字段的名称和数据类型。
+// 用于 Measurement 的 Schema 定义。
+type FieldDef struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 字段名称
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// 字段类型
+	Type          FieldType `protobuf:"varint,2,opt,name=type,proto3,enum=microts.v1.FieldType" json:"type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FieldDef) Reset() {
+	*x = FieldDef{}
+	mi := &file_proto_microts_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FieldDef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FieldDef) ProtoMessage() {}
+
+func (x *FieldDef) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_microts_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FieldDef.ProtoReflect.Descriptor instead.
+func (*FieldDef) Descriptor() ([]byte, []int) {
+	return file_proto_microts_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *FieldDef) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FieldDef) GetType() FieldType {
+	if x != nil {
+		return x.Type
+	}
+	return FieldType_FIELD_TYPE_UNKNOWN
+}
+
+// Measurement 元数据
+//
+// MeasurementMeta 包含 Measurement 的元信息，
+// 包括字段 Schema、标签键列表和下一个 Series ID。
+//
+// 字段说明：
+//
+//   - version: Schema 版本号，用于 Schema 演进
+//   - field_schema: 字段定义列表
+//   - tag_keys: 所有标签的键名
+//   - next_sid: 下一个待分配的 Series ID
+//
+// 内部使用：
+//
+//	用户不直接操作此结构，由数据库内部管理。
+//	可以通过元数据 API 查询这些信息。
+type MeasurementMeta struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Schema 版本号
+	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// 字段 Schema 定义
+	FieldSchema []*FieldDef `protobuf:"bytes,2,rep,name=field_schema,json=fieldSchema,proto3" json:"field_schema,omitempty"`
+	// 所有标签的键名
+	TagKeys []string `protobuf:"bytes,3,rep,name=tag_keys,json=tagKeys,proto3" json:"tag_keys,omitempty"`
+	// 下一个待分配的 Series ID
+	NextSid       int64 `protobuf:"varint,4,opt,name=next_sid,json=nextSid,proto3" json:"next_sid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MeasurementMeta) Reset() {
+	*x = MeasurementMeta{}
+	mi := &file_proto_microts_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MeasurementMeta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MeasurementMeta) ProtoMessage() {}
+
+func (x *MeasurementMeta) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_microts_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MeasurementMeta.ProtoReflect.Descriptor instead.
+func (*MeasurementMeta) Descriptor() ([]byte, []int) {
+	return file_proto_microts_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *MeasurementMeta) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *MeasurementMeta) GetFieldSchema() []*FieldDef {
+	if x != nil {
+		return x.FieldSchema
+	}
+	return nil
+}
+
+func (x *MeasurementMeta) GetTagKeys() []string {
+	if x != nil {
+		return x.TagKeys
+	}
+	return nil
+}
+
+func (x *MeasurementMeta) GetNextSid() int64 {
+	if x != nil {
+		return x.NextSid
+	}
+	return 0
+}
+
+// 内存表配置
+//
+// 内存表（MemTable）是写入缓冲区，数据先写入 MemTable，
+// 当满足任一条件时刷新到 SSTable。
+//
+// 刷新条件（满足任一即触发）：
+//
+//   - max_size: 内存占用（估算）达到上限
+//   - max_count: 条目数达到上限
+//   - idle_duration_nanos: 超过空闲时间没有新数据写入（纳秒）
+//
+// 性能调优建议：
+//
+//	增加 max_size 可以减少刷盘频率，但会增加内存占用和恢复时间。
+//	减少 idle_duration 可以更快释放内存，但会增加小文件数量。
+//	max_count 主要作为后备保护。
+//
+// 默认值：
+//
+//   - max_size: 64MB
+//   - max_count: 3000
+//   - idle_duration_nanos: 60秒（60000000000纳秒）
+type MemTableConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最大内存大小（字节），默认 64MB
+	MaxSize int64 `protobuf:"varint,1,opt,name=max_size,json=maxSize,proto3" json:"max_size,omitempty"`
+	// 最大条目数，默认 3000
+	MaxCount int32 `protobuf:"varint,2,opt,name=max_count,json=maxCount,proto3" json:"max_count,omitempty"`
+	// 空闲时间阈值（纳秒），默认 60秒
+	IdleDurationNanos int64 `protobuf:"varint,3,opt,name=idle_duration_nanos,json=idleDurationNanos,proto3" json:"idle_duration_nanos,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *MemTableConfig) Reset() {
+	*x = MemTableConfig{}
+	mi := &file_proto_microts_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemTableConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemTableConfig) ProtoMessage() {}
+
+func (x *MemTableConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_microts_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemTableConfig.ProtoReflect.Descriptor instead.
+func (*MemTableConfig) Descriptor() ([]byte, []int) {
+	return file_proto_microts_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *MemTableConfig) GetMaxSize() int64 {
+	if x != nil {
+		return x.MaxSize
+	}
+	return 0
+}
+
+func (x *MemTableConfig) GetMaxCount() int32 {
+	if x != nil {
+		return x.MaxCount
+	}
+	return 0
+}
+
+func (x *MemTableConfig) GetIdleDurationNanos() int64 {
+	if x != nil {
+		return x.IdleDurationNanos
+	}
+	return 0
+}
+
+// 引擎配置
+//
+// Config 是数据库的完整配置结构。
+// 这是存储引擎使用的配置，包含数据目录、分片时长和内存表配置。
+//
+// 字段说明：
+//
+//   - data_dir: 数据存储目录路径
+//   - shard_duration_nanos: Shard 时间窗口（纳秒），最小 1 小时
+//   - mem_table_cfg: 内存表配置
+//
+// ShardDuration 说明：
+//
+//	ShardDuration 控制数据在磁盘上的分片大小。
+//	较小的值会产生更多小文件，利于过期数据快速清理。
+//	较大的值减少文件数量，提高大时间范围查询效率。
+//	建议值：1小时(3600000000000) - 7天(604800000000000)。
+type Config struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 数据目录
+	DataDir string `protobuf:"bytes,1,opt,name=data_dir,json=dataDir,proto3" json:"data_dir,omitempty"`
+	// Shard 时间窗口（纳秒）
+	ShardDurationNanos int64 `protobuf:"varint,2,opt,name=shard_duration_nanos,json=shardDurationNanos,proto3" json:"shard_duration_nanos,omitempty"`
+	// 内存表配置
+	MemTableCfg   *MemTableConfig `protobuf:"bytes,3,opt,name=mem_table_cfg,json=memTableCfg,proto3" json:"mem_table_cfg,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Config) Reset() {
+	*x = Config{}
+	mi := &file_proto_microts_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Config) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Config) ProtoMessage() {}
+
+func (x *Config) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_microts_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Config.ProtoReflect.Descriptor instead.
+func (*Config) Descriptor() ([]byte, []int) {
+	return file_proto_microts_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *Config) GetDataDir() string {
+	if x != nil {
+		return x.DataDir
+	}
+	return ""
+}
+
+func (x *Config) GetShardDurationNanos() int64 {
+	if x != nil {
+		return x.ShardDurationNanos
+	}
+	return 0
+}
+
+func (x *Config) GetMemTableCfg() *MemTableConfig {
+	if x != nil {
+		return x.MemTableCfg
+	}
+	return nil
+}
+
 var File_proto_microts_proto protoreflect.FileDescriptor
 
 const file_proto_microts_proto_rawDesc = "" +
@@ -1311,7 +1893,30 @@ const file_proto_microts_proto_rawDesc = "" +
 	"\fstring_value\x18\x03 \x01(\tH\x00R\vstringValue\x12\x1f\n" +
 	"\n" +
 	"bool_value\x18\x04 \x01(\bH\x00R\tboolValueB\a\n" +
-	"\x05value\"\xec\x02\n" +
+	"\x05value\"\xd7\x02\n" +
+	"\x05Point\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12 \n" +
+	"\vmeasurement\x18\x02 \x01(\tR\vmeasurement\x12/\n" +
+	"\x04tags\x18\x03 \x03(\v2\x1b.microts.v1.Point.TagsEntryR\x04tags\x12\x1c\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x125\n" +
+	"\x06fields\x18\x05 \x03(\v2\x1d.microts.v1.Point.FieldsEntryR\x06fields\x1a7\n" +
+	"\tTagsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aQ\n" +
+	"\vFieldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.microts.v1.FieldValueR\x05value:\x028\x01\"\xb4\x02\n" +
+	"\bPointRow\x12\x10\n" +
+	"\x03sid\x18\x01 \x01(\x04R\x03sid\x12\x1c\n" +
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x122\n" +
+	"\x04tags\x18\x03 \x03(\v2\x1e.microts.v1.PointRow.TagsEntryR\x04tags\x128\n" +
+	"\x06fields\x18\x04 \x03(\v2 .microts.v1.PointRow.FieldsEntryR\x06fields\x1a7\n" +
+	"\tTagsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aQ\n" +
+	"\vFieldsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.microts.v1.FieldValueR\x05value:\x028\x01\"\xec\x02\n" +
 	"\fWriteRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12 \n" +
 	"\vmeasurement\x18\x02 \x01(\tR\vmeasurement\x126\n" +
@@ -1398,7 +2003,29 @@ const file_proto_microts_proto_rawDesc = "" +
 	"\rHealthRequest\"D\n" +
 	"\x0eHealthResponse\x12\x18\n" +
 	"\ahealthy\x18\x01 \x01(\bR\ahealthy\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion2\xc1\x06\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"I\n" +
+	"\bFieldDef\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
+	"\x04type\x18\x02 \x01(\x0e2\x15.microts.v1.FieldTypeR\x04type\"\x9a\x01\n" +
+	"\x0fMeasurementMeta\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\x127\n" +
+	"\ffield_schema\x18\x02 \x03(\v2\x14.microts.v1.FieldDefR\vfieldSchema\x12\x19\n" +
+	"\btag_keys\x18\x03 \x03(\tR\atagKeys\x12\x19\n" +
+	"\bnext_sid\x18\x04 \x01(\x03R\anextSid\"x\n" +
+	"\x0eMemTableConfig\x12\x19\n" +
+	"\bmax_size\x18\x01 \x01(\x03R\amaxSize\x12\x1b\n" +
+	"\tmax_count\x18\x02 \x01(\x05R\bmaxCount\x12.\n" +
+	"\x13idle_duration_nanos\x18\x03 \x01(\x03R\x11idleDurationNanos\"\x95\x01\n" +
+	"\x06Config\x12\x19\n" +
+	"\bdata_dir\x18\x01 \x01(\tR\adataDir\x120\n" +
+	"\x14shard_duration_nanos\x18\x02 \x01(\x03R\x12shardDurationNanos\x12>\n" +
+	"\rmem_table_cfg\x18\x03 \x01(\v2\x1a.microts.v1.MemTableConfigR\vmemTableCfg*}\n" +
+	"\tFieldType\x12\x16\n" +
+	"\x12FIELD_TYPE_UNKNOWN\x10\x00\x12\x14\n" +
+	"\x10FIELD_TYPE_INT64\x10\x01\x12\x16\n" +
+	"\x12FIELD_TYPE_FLOAT64\x10\x02\x12\x15\n" +
+	"\x11FIELD_TYPE_STRING\x10\x03\x12\x13\n" +
+	"\x0fFIELD_TYPE_BOOL\x10\x042\xc1\x06\n" +
 	"\aMicroTS\x12<\n" +
 	"\x05Write\x12\x18.microts.v1.WriteRequest\x1a\x19.microts.v1.WriteResponse\x12K\n" +
 	"\n" +
@@ -1411,7 +2038,7 @@ const file_proto_microts_proto_rawDesc = "" +
 	"\rListDatabases\x12 .microts.v1.ListDatabasesRequest\x1a!.microts.v1.ListDatabasesResponse\x12W\n" +
 	"\x0eCreateDatabase\x12!.microts.v1.CreateDatabaseRequest\x1a\".microts.v1.CreateDatabaseResponse\x12Q\n" +
 	"\fDropDatabase\x12\x1f.microts.v1.DropDatabaseRequest\x1a .microts.v1.DropDatabaseResponse\x12?\n" +
-	"\x06Health\x12\x19.microts.v1.HealthRequest\x1a\x1a.microts.v1.HealthResponseB!Z\x1fcodeberg.org/micro-ts/mts/typesb\x06proto3"
+	"\x06Health\x12\x19.microts.v1.HealthRequest\x1a\x1a.microts.v1.HealthResponseB'Z%codeberg.org/micro-ts/mts/types;typesb\x06proto3"
 
 var (
 	file_proto_microts_proto_rawDescOnce sync.Once
@@ -1425,71 +2052,92 @@ func file_proto_microts_proto_rawDescGZIP() []byte {
 	return file_proto_microts_proto_rawDescData
 }
 
-var file_proto_microts_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_proto_microts_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_proto_microts_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
 var file_proto_microts_proto_goTypes = []any{
-	(*FieldValue)(nil),                // 0: microts.v1.FieldValue
-	(*WriteRequest)(nil),              // 1: microts.v1.WriteRequest
-	(*WriteBatchRequest)(nil),         // 2: microts.v1.WriteBatchRequest
-	(*WriteResponse)(nil),             // 3: microts.v1.WriteResponse
-	(*WriteBatchResponse)(nil),        // 4: microts.v1.WriteBatchResponse
-	(*QueryRangeRequest)(nil),         // 5: microts.v1.QueryRangeRequest
-	(*Row)(nil),                       // 6: microts.v1.Row
-	(*QueryRangeResponse)(nil),        // 7: microts.v1.QueryRangeResponse
-	(*ListMeasurementsRequest)(nil),   // 8: microts.v1.ListMeasurementsRequest
-	(*ListMeasurementsResponse)(nil),  // 9: microts.v1.ListMeasurementsResponse
-	(*CreateMeasurementRequest)(nil),  // 10: microts.v1.CreateMeasurementRequest
-	(*CreateMeasurementResponse)(nil), // 11: microts.v1.CreateMeasurementResponse
-	(*DropMeasurementRequest)(nil),    // 12: microts.v1.DropMeasurementRequest
-	(*DropMeasurementResponse)(nil),   // 13: microts.v1.DropMeasurementResponse
-	(*ListDatabasesRequest)(nil),      // 14: microts.v1.ListDatabasesRequest
-	(*ListDatabasesResponse)(nil),     // 15: microts.v1.ListDatabasesResponse
-	(*CreateDatabaseRequest)(nil),     // 16: microts.v1.CreateDatabaseRequest
-	(*CreateDatabaseResponse)(nil),    // 17: microts.v1.CreateDatabaseResponse
-	(*DropDatabaseRequest)(nil),       // 18: microts.v1.DropDatabaseRequest
-	(*DropDatabaseResponse)(nil),      // 19: microts.v1.DropDatabaseResponse
-	(*HealthRequest)(nil),             // 20: microts.v1.HealthRequest
-	(*HealthResponse)(nil),            // 21: microts.v1.HealthResponse
-	nil,                               // 22: microts.v1.WriteRequest.TagsEntry
-	nil,                               // 23: microts.v1.WriteRequest.FieldsEntry
-	nil,                               // 24: microts.v1.QueryRangeRequest.TagsEntry
-	nil,                               // 25: microts.v1.Row.TagsEntry
-	nil,                               // 26: microts.v1.Row.FieldsEntry
+	(FieldType)(0),                    // 0: microts.v1.FieldType
+	(*FieldValue)(nil),                // 1: microts.v1.FieldValue
+	(*Point)(nil),                     // 2: microts.v1.Point
+	(*PointRow)(nil),                  // 3: microts.v1.PointRow
+	(*WriteRequest)(nil),              // 4: microts.v1.WriteRequest
+	(*WriteBatchRequest)(nil),         // 5: microts.v1.WriteBatchRequest
+	(*WriteResponse)(nil),             // 6: microts.v1.WriteResponse
+	(*WriteBatchResponse)(nil),        // 7: microts.v1.WriteBatchResponse
+	(*QueryRangeRequest)(nil),         // 8: microts.v1.QueryRangeRequest
+	(*Row)(nil),                       // 9: microts.v1.Row
+	(*QueryRangeResponse)(nil),        // 10: microts.v1.QueryRangeResponse
+	(*ListMeasurementsRequest)(nil),   // 11: microts.v1.ListMeasurementsRequest
+	(*ListMeasurementsResponse)(nil),  // 12: microts.v1.ListMeasurementsResponse
+	(*CreateMeasurementRequest)(nil),  // 13: microts.v1.CreateMeasurementRequest
+	(*CreateMeasurementResponse)(nil), // 14: microts.v1.CreateMeasurementResponse
+	(*DropMeasurementRequest)(nil),    // 15: microts.v1.DropMeasurementRequest
+	(*DropMeasurementResponse)(nil),   // 16: microts.v1.DropMeasurementResponse
+	(*ListDatabasesRequest)(nil),      // 17: microts.v1.ListDatabasesRequest
+	(*ListDatabasesResponse)(nil),     // 18: microts.v1.ListDatabasesResponse
+	(*CreateDatabaseRequest)(nil),     // 19: microts.v1.CreateDatabaseRequest
+	(*CreateDatabaseResponse)(nil),    // 20: microts.v1.CreateDatabaseResponse
+	(*DropDatabaseRequest)(nil),       // 21: microts.v1.DropDatabaseRequest
+	(*DropDatabaseResponse)(nil),      // 22: microts.v1.DropDatabaseResponse
+	(*HealthRequest)(nil),             // 23: microts.v1.HealthRequest
+	(*HealthResponse)(nil),            // 24: microts.v1.HealthResponse
+	(*FieldDef)(nil),                  // 25: microts.v1.FieldDef
+	(*MeasurementMeta)(nil),           // 26: microts.v1.MeasurementMeta
+	(*MemTableConfig)(nil),            // 27: microts.v1.MemTableConfig
+	(*Config)(nil),                    // 28: microts.v1.Config
+	nil,                               // 29: microts.v1.Point.TagsEntry
+	nil,                               // 30: microts.v1.Point.FieldsEntry
+	nil,                               // 31: microts.v1.PointRow.TagsEntry
+	nil,                               // 32: microts.v1.PointRow.FieldsEntry
+	nil,                               // 33: microts.v1.WriteRequest.TagsEntry
+	nil,                               // 34: microts.v1.WriteRequest.FieldsEntry
+	nil,                               // 35: microts.v1.QueryRangeRequest.TagsEntry
+	nil,                               // 36: microts.v1.Row.TagsEntry
+	nil,                               // 37: microts.v1.Row.FieldsEntry
 }
 var file_proto_microts_proto_depIdxs = []int32{
-	22, // 0: microts.v1.WriteRequest.tags:type_name -> microts.v1.WriteRequest.TagsEntry
-	23, // 1: microts.v1.WriteRequest.fields:type_name -> microts.v1.WriteRequest.FieldsEntry
-	1,  // 2: microts.v1.WriteBatchRequest.points:type_name -> microts.v1.WriteRequest
-	24, // 3: microts.v1.QueryRangeRequest.tags:type_name -> microts.v1.QueryRangeRequest.TagsEntry
-	25, // 4: microts.v1.Row.tags:type_name -> microts.v1.Row.TagsEntry
-	26, // 5: microts.v1.Row.fields:type_name -> microts.v1.Row.FieldsEntry
-	6,  // 6: microts.v1.QueryRangeResponse.rows:type_name -> microts.v1.Row
-	0,  // 7: microts.v1.WriteRequest.FieldsEntry.value:type_name -> microts.v1.FieldValue
-	0,  // 8: microts.v1.Row.FieldsEntry.value:type_name -> microts.v1.FieldValue
-	1,  // 9: microts.v1.MicroTS.Write:input_type -> microts.v1.WriteRequest
-	2,  // 10: microts.v1.MicroTS.WriteBatch:input_type -> microts.v1.WriteBatchRequest
-	5,  // 11: microts.v1.MicroTS.QueryRange:input_type -> microts.v1.QueryRangeRequest
-	8,  // 12: microts.v1.MicroTS.ListMeasurements:input_type -> microts.v1.ListMeasurementsRequest
-	10, // 13: microts.v1.MicroTS.CreateMeasurement:input_type -> microts.v1.CreateMeasurementRequest
-	12, // 14: microts.v1.MicroTS.DropMeasurement:input_type -> microts.v1.DropMeasurementRequest
-	14, // 15: microts.v1.MicroTS.ListDatabases:input_type -> microts.v1.ListDatabasesRequest
-	16, // 16: microts.v1.MicroTS.CreateDatabase:input_type -> microts.v1.CreateDatabaseRequest
-	18, // 17: microts.v1.MicroTS.DropDatabase:input_type -> microts.v1.DropDatabaseRequest
-	20, // 18: microts.v1.MicroTS.Health:input_type -> microts.v1.HealthRequest
-	3,  // 19: microts.v1.MicroTS.Write:output_type -> microts.v1.WriteResponse
-	4,  // 20: microts.v1.MicroTS.WriteBatch:output_type -> microts.v1.WriteBatchResponse
-	7,  // 21: microts.v1.MicroTS.QueryRange:output_type -> microts.v1.QueryRangeResponse
-	9,  // 22: microts.v1.MicroTS.ListMeasurements:output_type -> microts.v1.ListMeasurementsResponse
-	11, // 23: microts.v1.MicroTS.CreateMeasurement:output_type -> microts.v1.CreateMeasurementResponse
-	13, // 24: microts.v1.MicroTS.DropMeasurement:output_type -> microts.v1.DropMeasurementResponse
-	15, // 25: microts.v1.MicroTS.ListDatabases:output_type -> microts.v1.ListDatabasesResponse
-	17, // 26: microts.v1.MicroTS.CreateDatabase:output_type -> microts.v1.CreateDatabaseResponse
-	19, // 27: microts.v1.MicroTS.DropDatabase:output_type -> microts.v1.DropDatabaseResponse
-	21, // 28: microts.v1.MicroTS.Health:output_type -> microts.v1.HealthResponse
-	19, // [19:29] is the sub-list for method output_type
-	9,  // [9:19] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	29, // 0: microts.v1.Point.tags:type_name -> microts.v1.Point.TagsEntry
+	30, // 1: microts.v1.Point.fields:type_name -> microts.v1.Point.FieldsEntry
+	31, // 2: microts.v1.PointRow.tags:type_name -> microts.v1.PointRow.TagsEntry
+	32, // 3: microts.v1.PointRow.fields:type_name -> microts.v1.PointRow.FieldsEntry
+	33, // 4: microts.v1.WriteRequest.tags:type_name -> microts.v1.WriteRequest.TagsEntry
+	34, // 5: microts.v1.WriteRequest.fields:type_name -> microts.v1.WriteRequest.FieldsEntry
+	4,  // 6: microts.v1.WriteBatchRequest.points:type_name -> microts.v1.WriteRequest
+	35, // 7: microts.v1.QueryRangeRequest.tags:type_name -> microts.v1.QueryRangeRequest.TagsEntry
+	36, // 8: microts.v1.Row.tags:type_name -> microts.v1.Row.TagsEntry
+	37, // 9: microts.v1.Row.fields:type_name -> microts.v1.Row.FieldsEntry
+	9,  // 10: microts.v1.QueryRangeResponse.rows:type_name -> microts.v1.Row
+	0,  // 11: microts.v1.FieldDef.type:type_name -> microts.v1.FieldType
+	25, // 12: microts.v1.MeasurementMeta.field_schema:type_name -> microts.v1.FieldDef
+	27, // 13: microts.v1.Config.mem_table_cfg:type_name -> microts.v1.MemTableConfig
+	1,  // 14: microts.v1.Point.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	1,  // 15: microts.v1.PointRow.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	1,  // 16: microts.v1.WriteRequest.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	1,  // 17: microts.v1.Row.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	4,  // 18: microts.v1.MicroTS.Write:input_type -> microts.v1.WriteRequest
+	5,  // 19: microts.v1.MicroTS.WriteBatch:input_type -> microts.v1.WriteBatchRequest
+	8,  // 20: microts.v1.MicroTS.QueryRange:input_type -> microts.v1.QueryRangeRequest
+	11, // 21: microts.v1.MicroTS.ListMeasurements:input_type -> microts.v1.ListMeasurementsRequest
+	13, // 22: microts.v1.MicroTS.CreateMeasurement:input_type -> microts.v1.CreateMeasurementRequest
+	15, // 23: microts.v1.MicroTS.DropMeasurement:input_type -> microts.v1.DropMeasurementRequest
+	17, // 24: microts.v1.MicroTS.ListDatabases:input_type -> microts.v1.ListDatabasesRequest
+	19, // 25: microts.v1.MicroTS.CreateDatabase:input_type -> microts.v1.CreateDatabaseRequest
+	21, // 26: microts.v1.MicroTS.DropDatabase:input_type -> microts.v1.DropDatabaseRequest
+	23, // 27: microts.v1.MicroTS.Health:input_type -> microts.v1.HealthRequest
+	6,  // 28: microts.v1.MicroTS.Write:output_type -> microts.v1.WriteResponse
+	7,  // 29: microts.v1.MicroTS.WriteBatch:output_type -> microts.v1.WriteBatchResponse
+	10, // 30: microts.v1.MicroTS.QueryRange:output_type -> microts.v1.QueryRangeResponse
+	12, // 31: microts.v1.MicroTS.ListMeasurements:output_type -> microts.v1.ListMeasurementsResponse
+	14, // 32: microts.v1.MicroTS.CreateMeasurement:output_type -> microts.v1.CreateMeasurementResponse
+	16, // 33: microts.v1.MicroTS.DropMeasurement:output_type -> microts.v1.DropMeasurementResponse
+	18, // 34: microts.v1.MicroTS.ListDatabases:output_type -> microts.v1.ListDatabasesResponse
+	20, // 35: microts.v1.MicroTS.CreateDatabase:output_type -> microts.v1.CreateDatabaseResponse
+	22, // 36: microts.v1.MicroTS.DropDatabase:output_type -> microts.v1.DropDatabaseResponse
+	24, // 37: microts.v1.MicroTS.Health:output_type -> microts.v1.HealthResponse
+	28, // [28:38] is the sub-list for method output_type
+	18, // [18:28] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_proto_microts_proto_init() }
@@ -1508,13 +2156,14 @@ func file_proto_microts_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_microts_proto_rawDesc), len(file_proto_microts_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   27,
+			NumEnums:      1,
+			NumMessages:   37,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_proto_microts_proto_goTypes,
 		DependencyIndexes: file_proto_microts_proto_depIdxs,
+		EnumInfos:         file_proto_microts_proto_enumTypes,
 		MessageInfos:      file_proto_microts_proto_msgTypes,
 	}.Build()
 	File_proto_microts_proto = out.File

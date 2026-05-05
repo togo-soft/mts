@@ -174,8 +174,8 @@ func (m *MemoryMetaStore) Persist(ctx context.Context, path string) error {
 				return fmt.Errorf("write tag key: %w", err)
 			}
 		}
-		// NextSID
-		if err := binary.Write(&buf, binary.BigEndian, m.meta.NextSID); err != nil {
+		// NextSid
+		if err := binary.Write(&buf, binary.BigEndian, m.meta.NextSid); err != nil {
 			return fmt.Errorf("write next sid: %w", err)
 		}
 	} else {
@@ -273,7 +273,7 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 	if err := binary.Read(buf, binary.BigEndian, &fieldCount); err != nil {
 		return fmt.Errorf("read field count: %w", err)
 	}
-	meta.FieldSchema = make([]types.FieldDef, fieldCount)
+	meta.FieldSchema = make([]*types.FieldDef, fieldCount)
 	for i := int64(0); i < fieldCount; i++ {
 		name, err := readString(buf)
 		if err != nil {
@@ -283,7 +283,7 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 		if err := binary.Read(buf, binary.BigEndian, &typeVal); err != nil {
 			return fmt.Errorf("read field type: %w", err)
 		}
-		meta.FieldSchema[i] = types.FieldDef{Name: name, Type: types.FieldType(typeVal)}
+		meta.FieldSchema[i] = &types.FieldDef{Name: name, Type: types.FieldType(typeVal)}
 	}
 	// TagKeys
 	var tagKeyCount int64
@@ -298,8 +298,8 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 		}
 		meta.TagKeys[i] = key
 	}
-	// NextSID
-	if err := binary.Read(buf, binary.BigEndian, &meta.NextSID); err != nil {
+	// NextSid
+	if err := binary.Read(buf, binary.BigEndian, &meta.NextSid); err != nil {
 		return fmt.Errorf("read next sid: %w", err)
 	}
 	m.meta = meta

@@ -41,7 +41,7 @@ import (
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
-	MemTableCfg   shard.MemTableConfig
+	MemTableCfg   types.MemTableConfig
 }
 
 // Engine 是微时序数据库的存储引擎。
@@ -335,6 +335,11 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 
 // anyToProtoFieldValue 将 any 转换为 protobuf FieldValue。
 func anyToProtoFieldValue(v any) (*types.FieldValue, error) {
+	// 如果已经是 *types.FieldValue，直接返回
+	if fv, ok := v.(*types.FieldValue); ok {
+		return fv, nil
+	}
+
 	switch val := v.(type) {
 	case int64:
 		return &types.FieldValue{Value: &types.FieldValue_IntValue{IntValue: val}}, nil

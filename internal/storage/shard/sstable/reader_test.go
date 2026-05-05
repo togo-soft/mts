@@ -22,12 +22,12 @@ func TestReader_ReadAll(t *testing.T) {
 		{
 			Timestamp: 1000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 85.5, "count": int64(100)},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5), "count": types.NewFieldValue(int64(100))},
 		},
 		{
 			Timestamp: 2000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 90.0, "count": int64(200)},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0), "count": types.NewFieldValue(int64(200))},
 		},
 	}
 
@@ -74,9 +74,9 @@ func TestReader_ReadTimestamps(t *testing.T) {
 	}
 
 	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]any{"usage": 85.5}},
-		{Timestamp: 2000, Tags: map[string]string{"host": "server1"}, Fields: map[string]any{"usage": 90.0}},
-		{Timestamp: 3000, Tags: map[string]string{"host": "server1"}, Fields: map[string]any{"usage": 95.5}},
+		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)}},
+		{Timestamp: 2000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)}},
+		{Timestamp: 3000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(95.5)}},
 	}
 	if err := w.WritePoints(points); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)

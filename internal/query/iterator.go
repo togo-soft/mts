@@ -178,14 +178,14 @@ func (q *QueryIterator) projectFields(row *types.PointRow) *types.PointRow {
 	if len(q.req.Fields) == 0 {
 		return row
 	}
-	filtered := make(map[string]any)
+	filtered := make(map[string]*types.FieldValue)
 	for _, name := range q.req.Fields {
 		if v, ok := row.Fields[name]; ok {
 			filtered[name] = v
 		}
 	}
 	return &types.PointRow{
-		SID:       row.SID,
+		Sid:       row.Sid,
 		Timestamp: row.Timestamp,
 		Tags:      row.Tags,
 		Fields:    filtered,

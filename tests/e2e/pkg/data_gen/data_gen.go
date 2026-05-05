@@ -36,24 +36,24 @@ func (g *DataGenerator) GeneratePoint(db, measurement string, timestamp int64) *
 }
 
 // generateFields 生成 10 个字段
-func (g *DataGenerator) generateFields() map[string]any {
-	fields := make(map[string]any)
+func (g *DataGenerator) generateFields() map[string]*types.FieldValue {
+	fields := make(map[string]*types.FieldValue)
 
 	// 5 个浮点数: field_float_1 ~ field_float_5
 	for i := 1; i <= 5; i++ {
-		fields["field_float_"+itoa(i)] = g.rand.Float64() * 1000
+		fields["field_float_"+itoa(i)] = types.NewFieldValue(g.rand.Float64() * 1000)
 	}
 
 	// 3 个整数: field_int_1 ~ field_int_3
 	for i := 1; i <= 3; i++ {
-		fields["field_int_"+itoa(i)] = int64(g.rand.Intn(100000))
+		fields["field_int_"+itoa(i)] = types.NewFieldValue(int64(g.rand.Intn(100000)))
 	}
 
 	// 1 个字符串
-	fields["field_string_1"] = g.randomString(8 + g.rand.Intn(9))
+	fields["field_string_1"] = types.NewFieldValue(g.randomString(8 + g.rand.Intn(9)))
 
 	// 1 个布尔
-	fields["field_bool_1"] = g.rand.Intn(2) == 1
+	fields["field_bool_1"] = types.NewFieldValue(g.rand.Intn(2) == 1)
 
 	return fields
 }

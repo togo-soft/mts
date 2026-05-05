@@ -46,9 +46,9 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 
 	// 写入 MemTable 数据
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100), "field2": float64(10.5)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200), "field2": float64(20.5)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]any{"field1": int64(300), "field2": float64(30.5)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100)), "field2": types.NewFieldValue(float64(10.5))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200)), "field2": types.NewFieldValue(float64(20.5))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300)), "field2": types.NewFieldValue(float64(30.5))}},
 	}
 	for _, p := range points {
 		if err := s.Write(p); err != nil {
@@ -115,8 +115,8 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 
 	// Shard0: 1000, 3000
 	points0 := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]any{"field1": int64(300)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
 	}
 	for _, p := range points0 {
 		if err := s0.Write(p); err != nil {
@@ -126,8 +126,8 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 
 	// Shard1: 4000, 5000
 	points1 := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]any{"field1": int64(400)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]any{"field1": int64(500)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
 	}
 	for _, p := range points1 {
 		if err := s1.Write(p); err != nil {
@@ -182,10 +182,10 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 
 	// 写入不同 tag 的数据
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1", "region": "us"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server2", "region": "us"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200)}},
-		{Tags: map[string]string{"host": "server1", "region": "eu"}, Timestamp: 3000, Fields: map[string]any{"field1": int64(300)}},
-		{Tags: map[string]string{"host": "server2", "region": "eu"}, Timestamp: 4000, Fields: map[string]any{"field1": int64(400)}},
+		{Tags: map[string]string{"host": "server1", "region": "us"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server2", "region": "us"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
+		{Tags: map[string]string{"host": "server1", "region": "eu"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
+		{Tags: map[string]string{"host": "server2", "region": "eu"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
 	}
 	for _, p := range points {
 		if err := s.Write(p); err != nil {
@@ -240,8 +240,8 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 
 	// 写入包含多个字段的数据
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100), "field2": float64(10.5), "field3": "text"}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200), "field2": float64(20.5), "field3": "text2"}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100)), "field2": types.NewFieldValue(float64(10.5)), "field3": types.NewFieldValue("text")}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200)), "field2": types.NewFieldValue(float64(20.5)), "field3": types.NewFieldValue("text2")}},
 	}
 	for _, p := range points {
 		if err := s.Write(p); err != nil {
@@ -302,11 +302,11 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 
 	// 写入 5 条数据
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]any{"field1": int64(300)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]any{"field1": int64(400)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]any{"field1": int64(500)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
 	}
 	for _, p := range points {
 		if err := s.Write(p); err != nil {
@@ -362,11 +362,11 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 
 	// 写入 5 条数据
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]any{"field1": int64(300)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]any{"field1": int64(400)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]any{"field1": int64(500)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
 	}
 	for _, p := range points {
 		if err := s.Write(p); err != nil {
@@ -425,7 +425,7 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 		points[i] = &types.Point{
 			Tags:      map[string]string{"host": "server1"},
 			Timestamp: int64((i + 1) * 1000),
-			Fields:    map[string]any{"field1": int64((i + 1) * 100)},
+			Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(int64((i + 1) * 100))},
 		}
 		if err := s.Write(points[i]); err != nil {
 			t.Fatalf("failed to write point: %v", err)
@@ -480,7 +480,7 @@ func TestQueryIterator_Close(t *testing.T) {
 	})
 
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
 	}
 	for _, p := range points {
 		if err := s.Write(p); err != nil {

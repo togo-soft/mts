@@ -59,8 +59,8 @@ type Iterator struct {
 
 	// 无索引时的回退模式：一次性加载所有数据
 	fallbackMode       bool
-	fallbackTimestamps []int64          // 回退模式的 timestamps
-	fallbackFields     []map[string]any // 回退模式的字段值 [row][fieldName] = value
+	fallbackTimestamps []int64                        // 回退模式的 timestamps
+	fallbackFields     []map[string]*types.FieldValue // 回退模式的字段值 [row][fieldName] = value
 	fallbackPos        int
 }
 
@@ -149,9 +149,9 @@ func (it *Iterator) loadAllData() error {
 
 	// 构建数据
 	it.fallbackTimestamps = timestamps
-	it.fallbackFields = make([]map[string]any, len(timestamps))
+	it.fallbackFields = make([]map[string]*types.FieldValue, len(timestamps))
 	for i := 0; i < len(timestamps); i++ {
-		row := make(map[string]any)
+		row := make(map[string]*types.FieldValue)
 		for _, name := range fieldNames {
 			row[name] = it.decodeFieldValueFromData(name, fieldData[name], i)
 		}
@@ -162,7 +162,7 @@ func (it *Iterator) loadAllData() error {
 }
 
 // decodeFieldValueFromData 从原始数据中解码字段值（用于无索引回退模式）
-func (it *Iterator) decodeFieldValueFromData(name string, data []byte, pos int) any {
+func (it *Iterator) decodeFieldValueFromData(name string, data []byte, pos int) *types.FieldValue {
 	fieldType := it.reader.schema.Fields[name]
 	fixedSize := it.fieldFixedSize(fieldType)
 
@@ -389,7 +389,7 @@ func (it *Iterator) Point() *types.PointRow {
 	row := &types.PointRow{
 		Timestamp: it.blockTimestamps[it.pos],
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    make(map[string]any),
+		Fields:    make(map[string]*types.FieldValue),
 	}
 
 	// 解码字段
@@ -401,7 +401,7 @@ func (it *Iterator) Point() *types.PointRow {
 }
 
 // decodeFieldValue 解码字段值
-func (it *Iterator) decodeFieldValue(name string, data []byte, pos int) any {
+func (it *Iterator) decodeFieldValue(name string, data []byte, pos int) *types.FieldValue {
 	fieldType := it.reader.schema.Fields[name]
 	fixedSize := it.fieldFixedSize(fieldType)
 
@@ -433,65 +433,65 @@ func (it *Iterator) fieldFixedSize(t FieldType) int {
 }
 
 // decodeFixedValue 解码固定大小字段
-func (it *Iterator) decodeFixedValue(data []byte, t FieldType) any {
+func (it *Iterator) decodeFixedValue(data []byte, t FieldType) *types.FieldValue {
 	switch t {
 	case FieldTypeFloat64:
 		bits := binary.BigEndian.Uint64(data)
-		return math.Float64frombits(bits)
+		return types.NewFieldValue(math.Float64frombits(bits))
 	case FieldTypeInt64:
 		bits := binary.BigEndian.Uint64(data)
-		return int64(bits)
+		return types.NewFieldValue(int64(bits))
 	case FieldTypeBool:
 		if len(data) > 0 && data[0] != 0 {
-			return true
+			return types.NewFieldValue(true)
 		}
-		return false
+		return types.NewFieldValue(false)
 	default:
 		bits := binary.BigEndian.Uint64(data)
-		return bits
+		return types.NewFieldValue(bits)
 	}
 }
 
 // decodeString 解码字符串字段
-func (it *Iterator) decodeString(data []byte, pos int) string {
+func (it *Iterator) decodeString(data []byte, pos int) *types.FieldValue {
 	// 字符串数据格式：[len1][string1][len2][string2]...
 	// 每个字符串前面有 4 字节的长度
 	offset := 0
 	for i := 0; i < pos; i++ {
 		if offset+4 > len(data) {
-			return ""
+			return types.NewFieldValue("")
 		}
 		strLen := int(binary.BigEndian.Uint32(data[offset:]))
 		offset += 4 + strLen
 	}
 
 	if offset+4 > len(data) {
-		return ""
+		return types.NewFieldValue("")
 	}
 
 	strLen := int(binary.BigEndian.Uint32(data[offset:]))
 	offset += 4
 
 	if offset+strLen > len(data) {
-		return string(data[offset:])
+		return types.NewFieldValue(string(data[offset:]))
 	}
 
-	return string(data[offset : offset+strLen])
+	return types.NewFieldValue(string(data[offset : offset+strLen]))
 }
 
 // zeroValue 返回类型的零值
-func (it *Iterator) zeroValue(t FieldType) any {
+func (it *Iterator) zeroValue(t FieldType) *types.FieldValue {
 	switch t {
 	case FieldTypeFloat64:
-		return float64(0)
+		return types.NewFieldValue(float64(0))
 	case FieldTypeInt64:
-		return int64(0)
+		return types.NewFieldValue(int64(0))
 	case FieldTypeBool:
-		return false
+		return types.NewFieldValue(false)
 	case FieldTypeString:
-		return ""
+		return types.NewFieldValue("")
 	default:
-		return float64(0)
+		return types.NewFieldValue(float64(0))
 	}
 }
 

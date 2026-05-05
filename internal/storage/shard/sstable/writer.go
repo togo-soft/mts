@@ -247,18 +247,18 @@ func (w *Writer) writePoint(p *types.Point) error {
 }
 
 // zeroValue 返回类型的零值
-func (w *Writer) zeroValue(t FieldType) any {
+func (w *Writer) zeroValue(t FieldType) *types.FieldValue {
 	switch t {
 	case FieldTypeFloat64:
-		return float64(0)
+		return types.NewFieldValue(float64(0))
 	case FieldTypeInt64:
-		return int64(0)
+		return types.NewFieldValue(int64(0))
 	case FieldTypeBool:
-		return false
+		return types.NewFieldValue(false)
 	case FieldTypeString:
-		return ""
+		return types.NewFieldValue("")
 	default:
-		return float64(0)
+		return types.NewFieldValue(float64(0))
 	}
 }
 
@@ -266,6 +266,46 @@ func (w *Writer) zeroValue(t FieldType) any {
 func (w *Writer) appendFieldValue(name string, val any) {
 	buf := w.fieldBufs[name]
 
+	if val == nil {
+		// 写入零值
+		buf = w.appendZeroValue(buf, w.schema.Fields[name])
+		w.fieldBufs[name] = buf
+		return
+	}
+
+	// 处理 *types.FieldValue 类型
+	if fv, ok := val.(*types.FieldValue); ok {
+		if fv == nil || fv.Value == nil {
+			buf = w.appendZeroValue(buf, w.schema.Fields[name])
+			w.fieldBufs[name] = buf
+			return
+		}
+		switch v := fv.Value.(type) {
+		case *types.FieldValue_FloatValue:
+			var b [8]byte
+			binary.BigEndian.PutUint64(b[:], math.Float64bits(v.FloatValue))
+			buf = append(buf, b[:]...)
+		case *types.FieldValue_IntValue:
+			var b [8]byte
+			binary.BigEndian.PutUint64(b[:], uint64(v.IntValue))
+			buf = append(buf, b[:]...)
+		case *types.FieldValue_StringValue:
+			var lenBuf [4]byte
+			binary.BigEndian.PutUint32(lenBuf[:], uint32(len(v.StringValue)))
+			buf = append(buf, lenBuf[:]...)
+			buf = append(buf, v.StringValue...)
+		case *types.FieldValue_BoolValue:
+			if v.BoolValue {
+				buf = append(buf, 1)
+			} else {
+				buf = append(buf, 0)
+			}
+		}
+		w.fieldBufs[name] = buf
+		return
+	}
+
+	// 处理裸类型（向后兼容，理论上不应再使用）
 	switch v := val.(type) {
 	case float64:
 		var b [8]byte
@@ -288,6 +328,24 @@ func (w *Writer) appendFieldValue(name string, val any) {
 		}
 	}
 	w.fieldBufs[name] = buf
+}
+
+// appendZeroValue 追加类型的零值到 buffer
+func (w *Writer) appendZeroValue(buf []byte, t FieldType) []byte {
+	switch t {
+	case FieldTypeFloat64, FieldTypeInt64:
+		var b [8]byte
+		buf = append(buf, b[:]...)
+	case FieldTypeBool:
+		buf = append(buf, 0)
+	case FieldTypeString:
+		var lenBuf [4]byte
+		buf = append(buf, lenBuf[:]...)
+	default:
+		var b [8]byte
+		buf = append(buf, b[:]...)
+	}
+	return buf
 }
 
 // flushBlock 将当前 block 缓冲写入文件
@@ -396,6 +454,29 @@ func (w *Writer) writeSchema() error {
 
 // detectFieldType 检测字段类型
 func detectFieldType(val any) FieldType {
+	if val == nil {
+		return FieldTypeFloat64
+	}
+
+	// 处理 *types.FieldValue 类型
+	if fv, ok := val.(*types.FieldValue); ok {
+		if fv == nil || fv.Value == nil {
+			return FieldTypeFloat64
+		}
+		switch fv.Value.(type) {
+		case *types.FieldValue_FloatValue:
+			return FieldTypeFloat64
+		case *types.FieldValue_IntValue:
+			return FieldTypeInt64
+		case *types.FieldValue_StringValue:
+			return FieldTypeString
+		case *types.FieldValue_BoolValue:
+			return FieldTypeBool
+		}
+		return FieldTypeFloat64
+	}
+
+	// 处理裸类型（向后兼容）
 	switch val.(type) {
 	case float64:
 		return FieldTypeFloat64

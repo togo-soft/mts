@@ -14,11 +14,11 @@ func TestMemoryMetaStore_SetAndGetMeta(t *testing.T) {
 
 	meta := &types.MeasurementMeta{
 		Version: 1,
-		FieldSchema: []types.FieldDef{
-			{Name: "usage", Type: types.FieldTypeFloat64},
+		FieldSchema: []*types.FieldDef{
+			{Name: "usage", Type: types.FieldType_FIELD_TYPE_FLOAT64},
 		},
 		TagKeys: []string{"host"},
-		NextSID: 1,
+		NextSid: 1,
 	}
 
 	err := store.SetMeta(t.Context(), meta)
@@ -90,9 +90,9 @@ func TestMemoryMetaStore_NextSID(t *testing.T) {
 
 	meta := &types.MeasurementMeta{
 		Version:     1,
-		FieldSchema: []types.FieldDef{},
+		FieldSchema: []*types.FieldDef{},
 		TagKeys:     []string{},
-		NextSID:     1,
+		NextSid:     1,
 	}
 
 	err := store.SetMeta(t.Context(), meta)
@@ -102,20 +102,20 @@ func TestMemoryMetaStore_NextSID(t *testing.T) {
 
 	// 获取当前 sid
 	m, _ := store.GetMeta(t.Context())
-	if m.NextSID != 1 {
-		t.Errorf("expected NextSID 1, got %d", m.NextSID)
+	if m.NextSid != 1 {
+		t.Errorf("expected NextSid 1, got %d", m.NextSid)
 	}
 
 	// 分配新 sid
-	newSID := m.NextSID
-	m.NextSID++
+	newSID := m.NextSid
+	m.NextSid++
 	if err := store.SetMeta(t.Context(), m); err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
 	}
 
 	m, _ = store.GetMeta(t.Context())
-	if m.NextSID != newSID+1 {
-		t.Errorf("expected NextSID %d, got %d", newSID+1, m.NextSID)
+	if m.NextSid != newSID+1 {
+		t.Errorf("expected NextSid %d, got %d", newSID+1, m.NextSid)
 	}
 }
 
@@ -129,12 +129,12 @@ func TestMemoryMetaStore_PersistAndLoad(t *testing.T) {
 	// 设置 MeasurementMeta
 	meta := &types.MeasurementMeta{
 		Version: 1,
-		FieldSchema: []types.FieldDef{
-			{Name: "usage", Type: types.FieldTypeFloat64},
-			{Name: "count", Type: types.FieldTypeInt64},
+		FieldSchema: []*types.FieldDef{
+			{Name: "usage", Type: types.FieldType_FIELD_TYPE_FLOAT64},
+			{Name: "count", Type: types.FieldType_FIELD_TYPE_INT64},
 		},
 		TagKeys: []string{"host", "region"},
-		NextSID: 100,
+		NextSid: 100,
 	}
 	if err := store.SetMeta(t.Context(), meta); err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
@@ -189,8 +189,8 @@ func TestMemoryMetaStore_PersistAndLoad(t *testing.T) {
 	if len(loadedMeta.TagKeys) != len(meta.TagKeys) {
 		t.Errorf("TagKeys length mismatch: expected %d, got %d", len(meta.TagKeys), len(loadedMeta.TagKeys))
 	}
-	if loadedMeta.NextSID != meta.NextSID {
-		t.Errorf("NextSID mismatch: expected %d, got %d", meta.NextSID, loadedMeta.NextSID)
+	if loadedMeta.NextSid != meta.NextSid {
+		t.Errorf("NextSid mismatch: expected %d, got %d", meta.NextSid, loadedMeta.NextSid)
 	}
 
 	// 验证 series

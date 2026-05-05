@@ -23,9 +23,9 @@ func main() {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: microts.MemTableConfig{
-			MaxSize:      64 * 1024 * 1024,
-			MaxCount:     3000,
-			IdleDuration: 10 * time.Second,
+			MaxSize:           64 * 1024 * 1024,
+			MaxCount:          3000,
+			IdleDurationNanos: int64(10 * time.Second),
 		},
 	}
 
@@ -130,8 +130,8 @@ func main() {
 				}
 				continue
 			}
-			if actualVal != expectedVal {
-				fmt.Printf("row %d: field %s mismatch\n", i, name)
+			if !fieldValueEqual(actualVal, expectedVal) {
+				fmt.Printf("row %d: field %s mismatch (expected %v, got %v)\n", i, name, expectedVal.GetValue(), actualVal.GetValue())
 				errorCount++
 				if errorCount > 10 {
 					break
@@ -149,4 +149,31 @@ func main() {
 	}
 
 	fmt.Printf("PASS: Data integrity verified successfully (%d points)\n", count)
+}
+
+// fieldValueEqual 比较两个 FieldValue 的值是否相等
+func fieldValueEqual(a, b *types.FieldValue) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	// 使用 GetValue() 获取实际值进行比较
+	switch av := a.Value.(type) {
+	case *types.FieldValue_IntValue:
+		if bv, ok := b.Value.(*types.FieldValue_IntValue); ok {
+			return av.IntValue == bv.IntValue
+		}
+	case *types.FieldValue_FloatValue:
+		if bv, ok := b.Value.(*types.FieldValue_FloatValue); ok {
+			return av.FloatValue == bv.FloatValue
+		}
+	case *types.FieldValue_StringValue:
+		if bv, ok := b.Value.(*types.FieldValue_StringValue); ok {
+			return av.StringValue == bv.StringValue
+		}
+	case *types.FieldValue_BoolValue:
+		if bv, ok := b.Value.(*types.FieldValue_BoolValue); ok {
+			return av.BoolValue == bv.BoolValue
+		}
+	}
+	return false
 }

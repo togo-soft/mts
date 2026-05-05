@@ -37,7 +37,6 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/internal/query"
-	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -119,7 +118,7 @@ type (
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
-	MemTableCfg   MemTableConfig
+	MemTableCfg   types.MemTableConfig
 }
 
 // DefaultMemTableConfig 返回默认的 MemTable 配置。
@@ -139,11 +138,11 @@ type Config struct {
 //	    DataDir:       "/data",
 //	    MemTableCfg:   microts.DefaultMemTableConfig(),
 //	}
-func DefaultMemTableConfig() MemTableConfig {
-	return MemTableConfig{
-		MaxSize:      64 * 1024 * 1024,
-		MaxCount:     3000,
-		IdleDuration: time.Minute,
+func DefaultMemTableConfig() types.MemTableConfig {
+	return types.MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          3000,
+		IdleDurationNanos: int64(time.Minute),
 	}
 }
 
@@ -206,10 +205,10 @@ func Open(cfg Config) (*DB, error) {
 	eng, err := engine.New(&engine.Config{
 		DataDir:       cfg.DataDir,
 		ShardDuration: shardDuration,
-		MemTableCfg: shard.MemTableConfig{
-			MaxSize:      memTableCfg.MaxSize,
-			MaxCount:     memTableCfg.MaxCount,
-			IdleDuration: memTableCfg.IdleDuration,
+		MemTableCfg: types.MemTableConfig{
+			MaxSize:           memTableCfg.MaxSize,
+			MaxCount:          int32(memTableCfg.MaxCount),
+			IdleDurationNanos: memTableCfg.IdleDurationNanos,
 		},
 	})
 	if err != nil {

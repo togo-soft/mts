@@ -94,7 +94,7 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 		p := &types.Point{
 			Timestamp: int64(i) * 1e9,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": float64(i)},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
 		err := s.Write(p)
 		if err != nil {
@@ -113,7 +113,7 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 		p := &types.Point{
 			Timestamp: int64(i) * 1e9,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": float64(i)},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
 		err := s.Write(p)
 		if err != nil {
@@ -155,7 +155,7 @@ func TestShard_WriteWithWAL(t *testing.T) {
 	p := &types.Point{
 		Timestamp: 1000000000,
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]any{"usage": float64(85.5)},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(85.5))},
 	}
 	if err := s.Write(p); err != nil {
 		t.Fatalf("Write failed: %v", err)

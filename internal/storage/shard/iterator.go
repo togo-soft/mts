@@ -89,7 +89,7 @@ func (si *ShardIterator) pointToRow(p *types.Point) *types.PointRow {
 		return nil
 	}
 	return &types.PointRow{
-		SID:       0,
+		Sid:       0,
 		Timestamp: p.Timestamp,
 		Tags:      p.Tags,
 		Fields:    p.Fields,

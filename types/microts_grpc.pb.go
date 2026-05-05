@@ -35,22 +35,68 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// gRPC 服务
+// # MicroTS 时序数据库服务
+//
+// 提供完整的时序数据库远程访问接口，包括：
+//
+//   - 数据写入：单点写入、批量写入
+//   - 数据查询：范围查询、分页支持
+//   - 元数据管理：数据库和 Measurement 的增删改查
+//   - 健康检查：服务状态查询
+//
+// 并发安全：
+//
+//	所有 RPC 方法都可以从多个 goroutine 并发调用。
+//	gRPC 框架保证每个请求在独立的 goroutine 中处理。
 type MicroTSClient interface {
-	// 数据写入
+	// 单点写入
+	//
+	// 将单个数据点写入时序数据库。
+	// 数据首先写入 WAL，然后写入 MemTable。
 	Write(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*WriteResponse, error)
+	// 批量写入
+	//
+	// 批量写入多个数据点，吞吐量通常比单点写入高。
+	// 批量写入不是原子操作，部分失败不会回滚已写入的点。
 	WriteBatch(ctx context.Context, in *WriteBatchRequest, opts ...grpc.CallOption) (*WriteBatchResponse, error)
-	// 数据查询
+	// 范围查询
+	//
+	// 查询指定时间范围内的数据，支持字段过滤、标签过滤和分页。
+	// 数据按时间戳升序返回。
 	QueryRange(ctx context.Context, in *QueryRangeRequest, opts ...grpc.CallOption) (*QueryRangeResponse, error)
-	// Measurement 管理
+	// 列出 Measurement
+	//
+	// 返回指定数据库中的所有 Measurement 名称。
+	// 如果数据库不存在，返回空列表。
 	ListMeasurements(ctx context.Context, in *ListMeasurementsRequest, opts ...grpc.CallOption) (*ListMeasurementsResponse, error)
+	// 创建 Measurement
+	//
+	// 在指定数据库中创建一个新的 Measurement。
+	// 如果数据库不存在，会自动创建。
+	// 如果 Measurement 已存在，不会返回错误。
 	CreateMeasurement(ctx context.Context, in *CreateMeasurementRequest, opts ...grpc.CallOption) (*CreateMeasurementResponse, error)
+	// 删除 Measurement
+	//
+	// 删除指定的 Measurement 及其所有元数据。
+	// 注意：磁盘上的数据文件不会被立即删除。
 	DropMeasurement(ctx context.Context, in *DropMeasurementRequest, opts ...grpc.CallOption) (*DropMeasurementResponse, error)
-	// 数据库管理
+	// 列出数据库
+	//
+	// 返回所有数据库名称列表。
 	ListDatabases(ctx context.Context, in *ListDatabasesRequest, opts ...grpc.CallOption) (*ListDatabasesResponse, error)
+	// 创建数据库
+	//
+	// 创建一个新的数据库。
+	// 如果数据库已存在，不会返回错误。
 	CreateDatabase(ctx context.Context, in *CreateDatabaseRequest, opts ...grpc.CallOption) (*CreateDatabaseResponse, error)
+	// 删除数据库
+	//
+	// 删除指定的数据库及其所有 Measurement。
+	// 警告：此操作会永久删除元数据，且不可恢复。
 	DropDatabase(ctx context.Context, in *DropDatabaseRequest, opts ...grpc.CallOption) (*DropDatabaseResponse, error)
 	// 健康检查
+	//
+	// 返回服务的健康状态，用于负载均衡器健康检查和监控。
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
 }
 
@@ -166,22 +212,68 @@ func (c *microTSClient) Health(ctx context.Context, in *HealthRequest, opts ...g
 // All implementations must embed UnimplementedMicroTSServer
 // for forward compatibility.
 //
-// gRPC 服务
+// # MicroTS 时序数据库服务
+//
+// 提供完整的时序数据库远程访问接口，包括：
+//
+//   - 数据写入：单点写入、批量写入
+//   - 数据查询：范围查询、分页支持
+//   - 元数据管理：数据库和 Measurement 的增删改查
+//   - 健康检查：服务状态查询
+//
+// 并发安全：
+//
+//	所有 RPC 方法都可以从多个 goroutine 并发调用。
+//	gRPC 框架保证每个请求在独立的 goroutine 中处理。
 type MicroTSServer interface {
-	// 数据写入
+	// 单点写入
+	//
+	// 将单个数据点写入时序数据库。
+	// 数据首先写入 WAL，然后写入 MemTable。
 	Write(context.Context, *WriteRequest) (*WriteResponse, error)
+	// 批量写入
+	//
+	// 批量写入多个数据点，吞吐量通常比单点写入高。
+	// 批量写入不是原子操作，部分失败不会回滚已写入的点。
 	WriteBatch(context.Context, *WriteBatchRequest) (*WriteBatchResponse, error)
-	// 数据查询
+	// 范围查询
+	//
+	// 查询指定时间范围内的数据，支持字段过滤、标签过滤和分页。
+	// 数据按时间戳升序返回。
 	QueryRange(context.Context, *QueryRangeRequest) (*QueryRangeResponse, error)
-	// Measurement 管理
+	// 列出 Measurement
+	//
+	// 返回指定数据库中的所有 Measurement 名称。
+	// 如果数据库不存在，返回空列表。
 	ListMeasurements(context.Context, *ListMeasurementsRequest) (*ListMeasurementsResponse, error)
+	// 创建 Measurement
+	//
+	// 在指定数据库中创建一个新的 Measurement。
+	// 如果数据库不存在，会自动创建。
+	// 如果 Measurement 已存在，不会返回错误。
 	CreateMeasurement(context.Context, *CreateMeasurementRequest) (*CreateMeasurementResponse, error)
+	// 删除 Measurement
+	//
+	// 删除指定的 Measurement 及其所有元数据。
+	// 注意：磁盘上的数据文件不会被立即删除。
 	DropMeasurement(context.Context, *DropMeasurementRequest) (*DropMeasurementResponse, error)
-	// 数据库管理
+	// 列出数据库
+	//
+	// 返回所有数据库名称列表。
 	ListDatabases(context.Context, *ListDatabasesRequest) (*ListDatabasesResponse, error)
+	// 创建数据库
+	//
+	// 创建一个新的数据库。
+	// 如果数据库已存在，不会返回错误。
 	CreateDatabase(context.Context, *CreateDatabaseRequest) (*CreateDatabaseResponse, error)
+	// 删除数据库
+	//
+	// 删除指定的数据库及其所有 Measurement。
+	// 警告：此操作会永久删除元数据，且不可恢复。
 	DropDatabase(context.Context, *DropDatabaseRequest) (*DropDatabaseResponse, error)
 	// 健康检查
+	//
+	// 返回服务的健康状态，用于负载均衡器健康检查和监控。
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
 	mustEmbedUnimplementedMicroTSServer()
 }

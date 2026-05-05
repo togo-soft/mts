@@ -4,7 +4,26 @@ package microts.v1;
 
 option go_package = "codeberg.org/micro-ts/mts/types;types";
 
+// ===================================
+// 基础类型定义
+// ===================================
+
 // 字段值
+//
+// Point 的字段值使用 oneof 支持多种数据类型。
+// 存储引擎会根据值的实际类型进行相应的编码和处理。
+//
+// 支持的类型：
+//
+//   - int_value: 64位有符号整数，适用于计数器、ID 等
+//   - float_value: 64位浮点数，适用于温度、电压等连续值
+//   - string_value: 可变长度字符串，适用于状态描述
+//   - bool_value: 布尔值，适用于开关状态
+//
+// 类型说明：
+//
+//	写入时根据值的类型自动选择对应的字段。
+//	查询时根据实际存储的类型返回相应值。
 message FieldValue {
   oneof value {
     int64  int_value    = 1;
@@ -13,6 +32,80 @@ message FieldValue {
     bool   bool_value   = 4;
   }
 }
+
+// 数据点
+//
+// Point 是写入时序数据库的基本数据单元。
+// 每个 Point 代表时间序列中的一个数据点。
+//
+// 必需字段：
+//
+//   - database: 数据库名称，用于隔离不同业务的数据
+//   - measurement: 测量名称，类似关系数据库的表名
+//   - timestamp: 纳秒级 Unix 时间戳
+//   - tags: 标签键值对，用于标识时间序列
+//   - fields: 字段值，存储实际的数据
+//
+// 标签与字段的区别：
+//
+//	标签用于索引和分组，会被存储在 Series Key 中，查询效率高。
+//	字段存储实际数据值，不会被索引，但可以存储大量不同的值。
+//
+// 最佳实践：
+//
+//	标签建议使用 host, region, service 等维度信息。
+//	时间戳推荐使用 time.Now().UnixNano() 获取。
+message Point {
+  // 数据库名称
+  string database = 1;
+
+  // 测量名称（类似表名）
+  string measurement = 2;
+
+  // 标签键值对，用于标识时间序列
+  map<string, string> tags = 3;
+
+  // 时间戳，纳秒级 Unix 时间戳
+  int64 timestamp = 4;
+
+  // 字段值，存储实际的数据
+  map<string, FieldValue> fields = 5;
+}
+
+// 查询结果行
+//
+// PointRow 是查询结果的单行数据。
+// 相比 Point，PointRow 增加了 SID 字段用于内部标识。
+//
+// 字段说明：
+//
+//   - sid: Series ID，内部生成的序列标识符（从1开始递增）
+//   - timestamp: 数据点的时间戳（纳秒）
+//   - tags: 标签键值对
+//   - fields: 字段值
+//
+// SID 说明：
+//
+//	SID 由存储引擎为每个唯一的标签组合分配。
+//	相同的标签组合始终对应同一个 SID。
+//	用户通常不需要直接使用此字段。
+message PointRow {
+  // Series ID，用于内部标识唯一的标签组合
+  uint64 sid = 1;
+
+  // 时间戳
+  int64 timestamp = 2;
+
+  // 标签键值对
+  map<string, string> tags = 3;
+
+  // 字段值
+  map<string, FieldValue> fields = 4;
+}
+
+// ===================================
+// gRPC 请求/响应消息
+// ===================================
 
 // 写入请求
 message WriteRequest {
@@ -53,7 +146,7 @@ message QueryRangeRequest {
   int64               limit       = 8;
 }
 
-// 一行数据
+// 一行数据（用于查询响应）
 message Row {
   int64                   timestamp = 1;
   map<string, string>     tags      = 2;
@@ -146,25 +239,208 @@ message HealthResponse {
   string version = 2;
 }
 
-// gRPC 服务
+// ===================================
+// 内部元数据类型（Measurement 元数据）
+// ===================================
+
+// 字段类型枚举
+//
+// 支持的字段数据类型。
+// 字段类型用于 Schema 定义和类型检查。
+enum FieldType {
+  // 未知/无效类型
+  FIELD_TYPE_UNKNOWN = 0;
+
+  // 64位有符号整数
+  FIELD_TYPE_INT64 = 1;
+
+  // 64位浮点数
+  FIELD_TYPE_FLOAT64 = 2;
+
+  // 可变长度字符串
+  FIELD_TYPE_STRING = 3;
+
+  // 布尔值
+  FIELD_TYPE_BOOL = 4;
+}
+
+// 字段定义
+//
+// 定义字段的名称和数据类型。
+// 用于 Measurement 的 Schema 定义。
+message FieldDef {
+  // 字段名称
+  string name = 1;
+
+  // 字段类型
+  FieldType type = 2;
+}
+
+// Measurement 元数据
+//
+// MeasurementMeta 包含 Measurement 的元信息，
+// 包括字段 Schema、标签键列表和下一个 Series ID。
+//
+// 字段说明：
+//
+//   - version: Schema 版本号，用于 Schema 演进
+//   - field_schema: 字段定义列表
+//   - tag_keys: 所有标签的键名
+//   - next_sid: 下一个待分配的 Series ID
+//
+// 内部使用：
+//
+//	用户不直接操作此结构，由数据库内部管理。
+//	可以通过元数据 API 查询这些信息。
+message MeasurementMeta {
+  // Schema 版本号
+  int64 version = 1;
+
+  // 字段 Schema 定义
+  repeated FieldDef field_schema = 2;
+
+  // 所有标签的键名
+  repeated string tag_keys = 3;
+
+  // 下一个待分配的 Series ID
+  int64 next_sid = 4;
+}
+
+// 内存表配置
+//
+// 内存表（MemTable）是写入缓冲区，数据先写入 MemTable，
+// 当满足任一条件时刷新到 SSTable。
+//
+// 刷新条件（满足任一即触发）：
+//
+//   - max_size: 内存占用（估算）达到上限
+//   - max_count: 条目数达到上限
+//   - idle_duration_nanos: 超过空闲时间没有新数据写入（纳秒）
+//
+// 性能调优建议：
+//
+//	增加 max_size 可以减少刷盘频率，但会增加内存占用和恢复时间。
+//	减少 idle_duration 可以更快释放内存，但会增加小文件数量。
+//	max_count 主要作为后备保护。
+//
+// 默认值：
+//
+//   - max_size: 64MB
+//   - max_count: 3000
+//   - idle_duration_nanos: 60秒（60000000000纳秒）
+message MemTableConfig {
+  // 最大内存大小（字节），默认 64MB
+  int64 max_size = 1;
+
+  // 最大条目数，默认 3000
+  int32 max_count = 2;
+
+  // 空闲时间阈值（纳秒），默认 60秒
+  int64 idle_duration_nanos = 3;
+}
+
+// 引擎配置
+//
+// Config 是数据库的完整配置结构。
+// 这是存储引擎使用的配置，包含数据目录、分片时长和内存表配置。
+//
+// 字段说明：
+//
+//   - data_dir: 数据存储目录路径
+//   - shard_duration_nanos: Shard 时间窗口（纳秒），最小 1 小时
+//   - mem_table_cfg: 内存表配置
+//
+// ShardDuration 说明：
+//
+//	ShardDuration 控制数据在磁盘上的分片大小。
+//	较小的值会产生更多小文件，利于过期数据快速清理。
+//	较大的值减少文件数量，提高大时间范围查询效率。
+//	建议值：1小时(3600000000000) - 7天(604800000000000)。
+message Config {
+  // 数据目录
+  string data_dir = 1;
+
+  // Shard 时间窗口（纳秒）
+  int64 shard_duration_nanos = 2;
+
+  // 内存表配置
+  MemTableConfig mem_table_cfg = 3;
+}
+
+// ===================================
+// gRPC 服务定义
+// ===================================
+
+// MicroTS 时序数据库服务
+//
+// 提供完整的时序数据库远程访问接口，包括：
+//
+//   - 数据写入：单点写入、批量写入
+//   - 数据查询：范围查询、分页支持
+//   - 元数据管理：数据库和 Measurement 的增删改查
+//   - 健康检查：服务状态查询
+//
+// 并发安全：
+//
+//	所有 RPC 方法都可以从多个 goroutine 并发调用。
+//	gRPC 框架保证每个请求在独立的 goroutine 中处理。
 service MicroTS {
-    // 数据写入
+  // 单点写入
+  //
+  // 将单个数据点写入时序数据库。
+  // 数据首先写入 WAL，然后写入 MemTable。
   rpc Write(WriteRequest) returns (WriteResponse);
+
+  // 批量写入
+  //
+  // 批量写入多个数据点，吞吐量通常比单点写入高。
+  // 批量写入不是原子操作，部分失败不会回滚已写入的点。
   rpc WriteBatch(WriteBatchRequest) returns (WriteBatchResponse);
 
-    // 数据查询
+  // 范围查询
+  //
+  // 查询指定时间范围内的数据，支持字段过滤、标签过滤和分页。
+  // 数据按时间戳升序返回。
   rpc QueryRange(QueryRangeRequest) returns (QueryRangeResponse);
 
-    // Measurement 管理
+  // 列出 Measurement
+  //
+  // 返回指定数据库中的所有 Measurement 名称。
+  // 如果数据库不存在，返回空列表。
   rpc ListMeasurements(ListMeasurementsRequest) returns (ListMeasurementsResponse);
+
+  // 创建 Measurement
+  //
+  // 在指定数据库中创建一个新的 Measurement。
+  // 如果数据库不存在，会自动创建。
+  // 如果 Measurement 已存在，不会返回错误。
   rpc CreateMeasurement(CreateMeasurementRequest) returns (CreateMeasurementResponse);
+
+  // 删除 Measurement
+  //
+  // 删除指定的 Measurement 及其所有元数据。
+  // 注意：磁盘上的数据文件不会被立即删除。
   rpc DropMeasurement(DropMeasurementRequest) returns (DropMeasurementResponse);
 
-    // 数据库管理
+  // 列出数据库
+  //
+  // 返回所有数据库名称列表。
   rpc ListDatabases(ListDatabasesRequest) returns (ListDatabasesResponse);
+
+  // 创建数据库
+  //
+  // 创建一个新的数据库。
+  // 如果数据库已存在，不会返回错误。
   rpc CreateDatabase(CreateDatabaseRequest) returns (CreateDatabaseResponse);
+
+  // 删除数据库
+  //
+  // 删除指定的数据库及其所有 Measurement。
+  // 警告：此操作会永久删除元数据，且不可恢复。
   rpc DropDatabase(DropDatabaseRequest) returns (DropDatabaseResponse);
 
-    // 健康检查
+  // 健康检查
+  //
+  // 返回服务的健康状态，用于负载均衡器健康检查和监控。
   rpc Health(HealthRequest) returns (HealthResponse);
 }

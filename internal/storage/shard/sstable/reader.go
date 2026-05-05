@@ -199,7 +199,7 @@ func (r *Reader) ReadAll(fields []string) ([]types.PointRow, error) {
 		row := types.PointRow{
 			Timestamp: ts,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    make(map[string]any),
+			Fields:    make(map[string]*types.FieldValue),
 		}
 
 		for _, name := range fields {
@@ -229,7 +229,12 @@ func (r *Reader) computeFieldOffsets(name string, data []byte, rowCount int) []i
 	pos := 0
 	for i := 0; i < rowCount; i++ {
 		offsets[i] = pos
-		pos += r.fieldSize(data[pos:], fieldType)
+		if pos >= len(data) {
+			// 如果数据已经用完，剩余行的偏移量都指向末尾
+			continue
+		}
+		size := r.fieldSize(data[pos:], fieldType)
+		pos += size
 	}
 	return offsets
 }
@@ -341,7 +346,7 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
 			row := types.PointRow{
 				Timestamp: ts,
 				Tags:      map[string]string{"host": "server1"},
-				Fields:    make(map[string]any),
+				Fields:    make(map[string]*types.FieldValue),
 			}
 
 			for _, name := range fields {
@@ -356,44 +361,44 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
 }
 
 // decodeFieldValue 解码字段值
-func (r *Reader) decodeFieldValue(data []byte, offset int, fieldName string) any {
+func (r *Reader) decodeFieldValue(data []byte, offset int, fieldName string) *types.FieldValue {
 	fieldType := r.schema.Fields[fieldName]
 
 	switch fieldType {
 	case FieldTypeFloat64:
 		if offset+8 > len(data) {
-			return float64(0)
+			return types.NewFieldValue(float64(0))
 		}
 		bits := binary.BigEndian.Uint64(data[offset : offset+8])
-		return math.Float64frombits(bits)
+		return types.NewFieldValue(math.Float64frombits(bits))
 	case FieldTypeInt64:
 		if offset+8 > len(data) {
-			return int64(0)
+			return types.NewFieldValue(int64(0))
 		}
 		bits := binary.BigEndian.Uint64(data[offset : offset+8])
-		return int64(bits)
+		return types.NewFieldValue(int64(bits))
 	case FieldTypeString:
 		if offset+4 > len(data) {
-			return ""
+			return types.NewFieldValue("")
 		}
 		strLen := binary.BigEndian.Uint32(data[offset : offset+4])
 		start := offset + 4
 		end := start + int(strLen)
 		if end > len(data) {
-			return string(data[start:])
+			return types.NewFieldValue(string(data[start:]))
 		}
-		return string(data[start:end])
+		return types.NewFieldValue(string(data[start:end]))
 	case FieldTypeBool:
 		if offset >= len(data) {
-			return false
+			return types.NewFieldValue(false)
 		}
-		return data[offset] != 0
+		return types.NewFieldValue(data[offset] != 0)
 	default:
 		// 未知类型，尝试作为 float64 或 int64 解码
 		if offset+8 > len(data) {
-			return nil
+			return types.NewFieldValue(nil)
 		}
 		bits := binary.BigEndian.Uint64(data[offset : offset+8])
-		return bits
+		return types.NewFieldValue(bits)
 	}
 }
