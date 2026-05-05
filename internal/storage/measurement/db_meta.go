@@ -85,3 +85,49 @@ func (d *DatabaseMetaStore) Close() error {
 	d.measurements = nil
 	return nil
 }
+
+// ListMeasurements 列出所有 Measurement 名称。
+//
+// 返回：
+//   - []string: Measurement 名称列表
+//
+// 说明：
+//
+//	遍历 measurements map 的 keys，返回所有名称。
+//	返回的列表按字母序排序。
+func (d *DatabaseMetaStore) ListMeasurements() []string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	names := make([]string, 0, len(d.measurements))
+	for name := range d.measurements {
+		names = append(names, name)
+	}
+	return names
+}
+
+// DropMeasurement 删除指定的 Measurement。
+//
+// 参数：
+//   - name: Measurement 名称
+//
+// 返回：
+//   - bool: 是否成功删除（false 表示不存在）
+//
+// 说明：
+//
+//	删除 measurement 元数据并关闭其 MetaStore。
+//	错误被忽略，确保删除操作尽可能成功。
+func (d *DatabaseMetaStore) DropMeasurement(name string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	m, ok := d.measurements[name]
+	if !ok {
+		return false
+	}
+
+	_ = m.Close()
+	delete(d.measurements, name)
+	return true
+}
