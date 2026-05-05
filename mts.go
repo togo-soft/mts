@@ -566,6 +566,10 @@ func (db *DB) Close() error {
 	if db.engine == nil {
 		return nil
 	}
+
+	// 先刷盘，确保所有内存数据持久化
+	_ = db.engine.Flush()
+
 	return db.engine.Close()
 }
 

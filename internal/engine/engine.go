@@ -109,8 +109,7 @@ func New(cfg *Config) (*Engine, error) {
 //
 // 注意：
 //
-//	关闭引擎会清空 MetaStore 缓存，但不会执行刷盘操作。
-//	刷盘应在调用 Close 前显式完成，以确保数据持久化。
+//	关闭引擎会清空 MetaStore 缓存。
 //	关闭后引擎实例不可再使用。
 func (e *Engine) Close() error {
 	e.mu.Lock()
@@ -120,6 +119,19 @@ func (e *Engine) Close() error {
 	}
 	e.dbMetaStores = nil
 	return nil
+}
+
+// Flush 将所有 MemTable 数据刷写到 SSTable。
+//
+// 返回：
+//   - error: 刷盘失败时返回错误
+//
+// 使用场景：
+//
+//	通常在关闭前调用以确保数据持久化。
+//	也可用于手动触发刷盘（如备份前）。
+func (e *Engine) Flush() error {
+	return e.shardManager.FlushAll()
 }
 
 // Write 写入单个数据点到存储引擎。
