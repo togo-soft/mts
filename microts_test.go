@@ -2,7 +2,6 @@
 package microts
 
 import (
-	"context"
 	"testing"
 
 	"micro-ts/types"
@@ -59,7 +58,7 @@ func TestDB_Write(t *testing.T) {
 		Fields:      map[string]any{"field1": float64(1.0)},
 	}
 
-	err = db.Write(context.Background(), point)
+	err = db.Write(t.Context(), point)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -95,7 +94,7 @@ func TestDB_WriteBatch(t *testing.T) {
 		},
 	}
 
-	err = db.WriteBatch(context.Background(), points)
+	err = db.WriteBatch(t.Context(), points)
 	if err != nil {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}
@@ -125,7 +124,7 @@ func TestDB_QueryRange(t *testing.T) {
 		Limit:       100,
 	}
 
-	resp, err := db.QueryRange(context.Background(), req)
+	resp, err := db.QueryRange(t.Context(), req)
 	if err != nil {
 		t.Fatalf("QueryRange failed: %v", err)
 	}
@@ -148,7 +147,7 @@ func TestDB_ListMeasurements(t *testing.T) {
 		_ = db.Close()
 	}()
 
-	measurements, err := db.ListMeasurements(context.Background(), "testdb")
+	measurements, err := db.ListMeasurements(t.Context(), "testdb")
 	if err != nil {
 		t.Fatalf("ListMeasurements failed: %v", err)
 	}

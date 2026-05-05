@@ -2,7 +2,6 @@
 package engine
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -116,7 +115,7 @@ func TestEngine_Query(t *testing.T) {
 		EndTime:     now + 2e9,
 	}
 
-	resp, err := engine.Query(context.Background(), req)
+	resp, err := engine.Query(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -204,7 +203,7 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 		Fields:      []string{"usage", "count"}, // 字段过滤
 	}
 
-	resp, err := engine.Query(context.Background(), req)
+	resp, err := engine.Query(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -274,7 +273,7 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 		Tags:        map[string]string{"host": "server1"}, // Tag 过滤
 	}
 
-	resp, err := engine.Query(context.Background(), req)
+	resp, err := engine.Query(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -326,7 +325,7 @@ func TestEngine_Query_Concurrent(t *testing.T) {
 		Limit:       50,
 	}
 
-	resp, err := engine.Query(context.Background(), req)
+	resp, err := engine.Query(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -378,7 +377,7 @@ func TestEngine_Query_Pagination(t *testing.T) {
 		Limit:       10,
 	}
 
-	resp, err := engine.Query(context.Background(), req)
+	resp, err := engine.Query(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
@@ -398,7 +397,7 @@ func TestEngine_Query_Pagination(t *testing.T) {
 
 	// 查询第 20-30 条 (offset=20, limit=10)
 	req.Offset = 20
-	resp, err = engine.Query(context.Background(), req)
+	resp, err = engine.Query(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}

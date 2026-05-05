@@ -10,11 +10,11 @@ import (
 // MicroTSService gRPC 服务实现
 type MicroTSService struct {
 	pb.UnimplementedMicroTSServer
-	engine interface{}
+	engine any
 }
 
 // New 创建服务
-func New(engine interface{}) *MicroTSService {
+func New(engine any) *MicroTSService {
 	return &MicroTSService{
 		engine: engine,
 	}

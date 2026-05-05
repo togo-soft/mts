@@ -2,7 +2,6 @@
 package measurement
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,12 +21,12 @@ func TestMemoryMetaStore_SetAndGetMeta(t *testing.T) {
 		NextSID: 1,
 	}
 
-	err := store.SetMeta(context.Background(), meta)
+	err := store.SetMeta(t.Context(), meta)
 	if err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
 	}
 
-	got, err := store.GetMeta(context.Background())
+	got, err := store.GetMeta(t.Context())
 	if err != nil {
 		t.Fatalf("GetMeta failed: %v", err)
 	}
@@ -45,12 +44,12 @@ func TestMemoryMetaStore_Series(t *testing.T) {
 
 	tags := []byte{0x02, 0x04, 'h', 'o', 's', 't', 0x07, 's', 'e', 'r', 'v', 'e', 'r', '1'}
 
-	err := store.SetSeries(context.Background(), 1, tags)
+	err := store.SetSeries(t.Context(), 1, tags)
 	if err != nil {
 		t.Fatalf("SetSeries failed: %v", err)
 	}
 
-	got, err := store.GetSeries(context.Background(), 1)
+	got, err := store.GetSeries(t.Context(), 1)
 	if err != nil {
 		t.Fatalf("GetSeries failed: %v", err)
 	}
@@ -63,12 +62,12 @@ func TestMemoryMetaStore_Series(t *testing.T) {
 func TestMemoryMetaStore_TagIndex(t *testing.T) {
 	store := NewMemoryMetaStore()
 
-	err := store.AddTagIndex(context.Background(), "host", "server1", 1)
+	err := store.AddTagIndex(t.Context(), "host", "server1", 1)
 	if err != nil {
 		t.Fatalf("AddTagIndex failed: %v", err)
 	}
 
-	sids, err := store.GetSidsByTag(context.Background(), "host", "server1")
+	sids, err := store.GetSidsByTag(t.Context(), "host", "server1")
 	if err != nil {
 		t.Fatalf("GetSidsByTag failed: %v", err)
 	}
@@ -96,13 +95,13 @@ func TestMemoryMetaStore_NextSID(t *testing.T) {
 		NextSID:     1,
 	}
 
-	err := store.SetMeta(context.Background(), meta)
+	err := store.SetMeta(t.Context(), meta)
 	if err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
 	}
 
 	// 获取当前 sid
-	m, _ := store.GetMeta(context.Background())
+	m, _ := store.GetMeta(t.Context())
 	if m.NextSID != 1 {
 		t.Errorf("expected NextSID 1, got %d", m.NextSID)
 	}
@@ -110,11 +109,11 @@ func TestMemoryMetaStore_NextSID(t *testing.T) {
 	// 分配新 sid
 	newSID := m.NextSID
 	m.NextSID++
-	if err := store.SetMeta(context.Background(), m); err != nil {
+	if err := store.SetMeta(t.Context(), m); err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
 	}
 
-	m, _ = store.GetMeta(context.Background())
+	m, _ = store.GetMeta(t.Context())
 	if m.NextSID != newSID+1 {
 		t.Errorf("expected NextSID %d, got %d", newSID+1, m.NextSID)
 	}
@@ -137,31 +136,31 @@ func TestMemoryMetaStore_PersistAndLoad(t *testing.T) {
 		TagKeys: []string{"host", "region"},
 		NextSID: 100,
 	}
-	if err := store.SetMeta(context.Background(), meta); err != nil {
+	if err := store.SetMeta(t.Context(), meta); err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
 	}
 
 	// 添加 series
-	if err := store.SetSeries(context.Background(), 1, []byte(`{"host":"server1"}`)); err != nil {
+	if err := store.SetSeries(t.Context(), 1, []byte(`{"host":"server1"}`)); err != nil {
 		t.Fatalf("SetSeries failed: %v", err)
 	}
-	if err := store.SetSeries(context.Background(), 2, []byte(`{"host":"server2"}`)); err != nil {
+	if err := store.SetSeries(t.Context(), 2, []byte(`{"host":"server2"}`)); err != nil {
 		t.Fatalf("SetSeries failed: %v", err)
 	}
 
 	// 添加 tag index
-	if err := store.AddTagIndex(context.Background(), "host", "server1", 1); err != nil {
+	if err := store.AddTagIndex(t.Context(), "host", "server1", 1); err != nil {
 		t.Fatalf("AddTagIndex failed: %v", err)
 	}
-	if err := store.AddTagIndex(context.Background(), "host", "server2", 2); err != nil {
+	if err := store.AddTagIndex(t.Context(), "host", "server2", 2); err != nil {
 		t.Fatalf("AddTagIndex failed: %v", err)
 	}
-	if err := store.AddTagIndex(context.Background(), "region", "us-west", 1); err != nil {
+	if err := store.AddTagIndex(t.Context(), "region", "us-west", 1); err != nil {
 		t.Fatalf("AddTagIndex failed: %v", err)
 	}
 
 	// Persist
-	if err := store.Persist(context.Background(), metaPath); err != nil {
+	if err := store.Persist(t.Context(), metaPath); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
 
@@ -172,12 +171,12 @@ func TestMemoryMetaStore_PersistAndLoad(t *testing.T) {
 
 	// 创建新 store 并 Load
 	store2 := NewMemoryMetaStore()
-	if err := store2.Load(context.Background(), metaPath); err != nil {
+	if err := store2.Load(t.Context(), metaPath); err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
 
 	// 验证 meta
-	loadedMeta, err := store2.GetMeta(context.Background())
+	loadedMeta, err := store2.GetMeta(t.Context())
 	if err != nil {
 		t.Fatalf("GetMeta failed: %v", err)
 	}
@@ -195,7 +194,7 @@ func TestMemoryMetaStore_PersistAndLoad(t *testing.T) {
 	}
 
 	// 验证 series
-	series, err := store2.GetAllSeries(context.Background())
+	series, err := store2.GetAllSeries(t.Context())
 	if err != nil {
 		t.Fatalf("GetAllSeries failed: %v", err)
 	}
@@ -204,7 +203,7 @@ func TestMemoryMetaStore_PersistAndLoad(t *testing.T) {
 	}
 
 	// 验证 tag index
-	sids, err := store2.GetSidsByTag(context.Background(), "host", "server1")
+	sids, err := store2.GetSidsByTag(t.Context(), "host", "server1")
 	if err != nil {
 		t.Fatalf("GetSidsByTag failed: %v", err)
 	}
@@ -212,7 +211,7 @@ func TestMemoryMetaStore_PersistAndLoad(t *testing.T) {
 		t.Errorf("GetSidsByTag host:server1 mismatch: expected [1], got %v", sids)
 	}
 
-	sids, err = store2.GetSidsByTag(context.Background(), "region", "us-west")
+	sids, err = store2.GetSidsByTag(t.Context(), "region", "us-west")
 	if err != nil {
 		t.Fatalf("GetSidsByTag failed: %v", err)
 	}
@@ -226,7 +225,7 @@ func TestMemoryMetaStore_Load_FileNotFound(t *testing.T) {
 	metaPath := filepath.Join(tmpDir, "nonexistent.bin")
 
 	store := NewMemoryMetaStore()
-	err := store.Load(context.Background(), metaPath)
+	err := store.Load(t.Context(), metaPath)
 	if err == nil {
 		t.Errorf("expected error for nonexistent file, got nil")
 	}
@@ -242,7 +241,7 @@ func TestMemoryMetaStore_Load_InvalidFile(t *testing.T) {
 	}
 
 	store := NewMemoryMetaStore()
-	err := store.Load(context.Background(), metaPath)
+	err := store.Load(t.Context(), metaPath)
 	if err == nil {
 		t.Errorf("expected error for invalid file, got nil")
 	}

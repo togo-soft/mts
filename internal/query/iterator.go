@@ -10,7 +10,6 @@ import (
 
 // QueryIterator 流式查询迭代器
 type QueryIterator struct {
-	ctx context.Context
 	req *types.QueryRangeRequest
 
 	// Min-heap 用于多 Shard 归并排序
@@ -58,7 +57,6 @@ func (h *shardHeap) Pop() any {
 // NewQueryIterator 创建流式查询迭代器
 func NewQueryIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRangeRequest) *QueryIterator {
 	q := &QueryIterator{
-		ctx: ctx,
 		req: req,
 	}
 
@@ -141,14 +139,14 @@ func (q *QueryIterator) projectFields(row *types.PointRow) *types.PointRow {
 }
 
 // Next 移动到下一个点
-func (q *QueryIterator) Next() bool {
+func (q *QueryIterator) Next(ctx context.Context) bool {
 	if q.closed {
 		return false
 	}
 	for {
 		// 检查 context 取消
 		select {
-		case <-q.ctx.Done():
+		case <-ctx.Done():
 			return false
 		default:
 		}

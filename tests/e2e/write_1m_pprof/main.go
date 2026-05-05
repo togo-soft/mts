@@ -10,7 +10,7 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"micro-ts"
+	microts "micro-ts"
 	"micro-ts/tests/e2e/pkg/data_gen"
 	"micro-ts/tests/e2e/pkg/metrics"
 )
@@ -29,7 +29,7 @@ func main() {
 	defer os.RemoveAll(tmpDir)
 
 	cfg := microts.Config{
-		DataDir:        tmpDir,
+		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: microts.MemTableConfig{
 			MaxSize:      64 * 1024 * 1024,
