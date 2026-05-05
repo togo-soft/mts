@@ -1,4 +1,12 @@
-// internal/storage/shard/sstable/reader.go
+// Package sstable 实现 SSTable 读取功能。
+//
+// 支持全表读取、范围查询和流式迭代。
+//
+// 性能优化：
+//
+//	- Block 索引加速范围查询
+//	- 延迟加载字段数据
+//	- 预计算偏移量优化随机访问
 package sstable
 
 import (
@@ -12,14 +20,48 @@ import (
 	"micro-ts/types"
 )
 
-// Reader SSTable 读取器
+// Reader 是 SSTable 的读取器，支持索引查询和范围查询。
+//
+// 功能：
+//
+//   - 加载 Schema 和 BlockIndex
+//   - 支持全表读取
+//   - 支持时间范围查询（如果索引存在）
+//
+// 字段说明：
+//
+//   - dataDir:    SSTable 数据目录
+//   - schema:     字段类型定义
+//   - blockIndex: 数据块索引
+//
+// 索引优化：
+//
+//	如果存在 BlockIndex，可以使用索引快速定位数据块。
+//	没有索引时回退到全表扫描。
 type Reader struct {
 	dataDir    string
 	schema     Schema
 	blockIndex *BlockIndex
 }
 
-// NewReader 创建 Reader
+// NewReader 创建 SSTable 读取器。
+//
+// 参数：
+//   - dataDir: SSTable 数据目录（包含 schema.json, _timestamps.bin 等）
+//
+// 返回：
+//   - *Reader: 读取器实例
+//   - error:   创建失败时返回错误
+//
+// Schema 处理：
+//
+//	尝试加载 schema.json，如果失败则使用空的 Schema。
+//	这允许读取没有 schema 元数据的旧格式文件。
+//
+// 索引处理：
+//
+//	尝试加载 _index.bin，如果失败则 blockIndex 设为 nil。
+//	查询会回退到全表扫描模式。
 func NewReader(dataDir string) (*Reader, error) {
 	r := &Reader{dataDir: dataDir}
 	if err := r.readSchema(); err != nil {
@@ -52,22 +94,57 @@ func (r *Reader) readSchema() error {
 	return json.Unmarshal(data, &r.schema)
 }
 
-// Close 关闭
+// Close 关闭读取器，释放资源。
+//
+// 返回：
+//   - error: 关闭失败时返回错误（当前总是返回 nil）
+//
+// 说明：
+//
+//	Reader 本身不持有文件句柄，Close 仅为接口兼容。
+//	实际文件句柄在读操作时创建并在使用后立即关闭。
 func (r *Reader) Close() error {
 	return nil
 }
 
-// HasBlockIndex 返回是否有有效的 block 索引
+// HasBlockIndex 返回是否有可用的 BlockIndex。
+//
+// 返回：
+//   - bool: true 表示有索引可以加速查询
+//
+// 应用场景：
+//
+//	在构建查询计划时，可以检查此标志决定是否使用索引优化。
 func (r *Reader) HasBlockIndex() bool {
 	return r.blockIndex != nil && r.blockIndex.Len() > 0
 }
 
-// GetBlockIndex 返回 block 索引
+// GetBlockIndex 返回 BlockIndex。
+//
+// 返回：
+//   - *BlockIndex: 索引对象，可能为 nil
+//
+// 注意：
+//
+//	使用前应先检查 HasBlockIndex。
+//	返回的指针是内部的引用，不应修改。
 func (r *Reader) GetBlockIndex() *BlockIndex {
 	return r.blockIndex
 }
 
-// ReadAll 读取所有数据
+// ReadAll 读取 SSTable 中的所有数据。
+//
+// 参数：
+//   - fields: 要读取的字段列表，为空表示读取所有字段
+//
+// 返回：
+//   - []types.PointRow: 所有数据点，按时间排序
+//   - error:            读取失败时返回错误
+//
+// 性能：
+//
+//	对于大文件，此方法会消耗大量内存。
+//	建议使用 Iterator 进行流式读取。
 func (r *Reader) ReadAll(fields []string) ([]types.PointRow, error) {
 	dataDir := r.dataDir
 
@@ -189,7 +266,20 @@ func (r *Reader) readTimestamps(f *os.File) ([]int64, error) {
 	return timestamps, nil
 }
 
-// ReadRange 读取时间范围内的数据
+// ReadRange 读取指定时间范围内的数据。
+//
+// 参数：
+//   - startTime: 起始时间（包含），纳秒
+//   - endTime:   结束时间（不包含），纳秒，<=0 表示不限制
+//
+// 返回：
+//   - []types.PointRow: 匹配的数据点
+//   - error:            读取失败时返回错误
+//
+// 性能考虑：
+//
+//	当前实现是全表扫描，即使指定了时间范围。
+//	未来可以结合 BlockIndex 实现索引加速。
 func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
 	dataDir := r.dataDir
 

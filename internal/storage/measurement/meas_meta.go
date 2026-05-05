@@ -1,3 +1,20 @@
+// Package measurement 实现测量元数据管理。
+//
+// 提供 Measurement 级别的 Series 管理，包括标签分配、SID 分配和标签索引。
+//
+// Series 管理：
+//
+//	每个唯一标签组合对应一个 Series，分配唯一的 Series ID（SID）。
+//	通过标签哈希实现快速查找和去重。
+//
+// 索引优化：
+//
+//	标签倒排索引支持按标签值快速定位 Series。
+//	适合标签过滤查询场景。
+//
+// 并发安全：
+//
+//	所有操作都使用读写锁保护，线程安全。
 package measurement
 
 import (
@@ -66,7 +83,28 @@ func copyTags(tags map[string]string) map[string]string {
 	return result
 }
 
-// MeasurementMetaStore Measurement 级元数据
+// MeasurementMetaStore 是 Measurement 级别的元数据管理器。
+//
+// 管理一个 Measurement 内所有的 Series：
+//
+//   - 存储每个 Series 的标签（tags）
+//   - 维护标签到 Series 的倒排索引
+//   - 分配和管理 Series IDs（SID）
+//
+// Series 模型：
+//
+//	每个唯一的标签键值组合定义一个 Series。
+//	例如 {host="A"} 和 {host="B"} 是两个不同的 Series。
+//
+// 索引结构：
+//
+//   - series:   map[SID] → tags
+//   - tagIndex: map[tagKey+tagValue] → []SID
+//
+// 使用场景：
+//
+//	写入数据时调用 AllocateSID 获取/创建 Series。
+//	查询时调用 GetSidsByTag 进行标签过滤。
 type MeasurementMetaStore struct {
 	mu       sync.RWMutex
 	series   map[uint64]map[string]string // sid → tags
@@ -75,7 +113,16 @@ type MeasurementMetaStore struct {
 	dirty    bool
 }
 
-// NewMeasurementMetaStore 创建 MeasurementMetaStore
+// NewMeasurementMetaStore 创建 MeasurementMetaStore。
+//
+// 返回：
+//   - *MeasurementMetaStore: 初始化的实例，初始 SID 为 0
+//
+// 初始化内容：
+//
+//   - series:   空 map，存储 sid → tags 的映射
+//   - tagIndex: 空 map，存储 tagKey\x00tagValue → sids 的映射
+//   - nextSID:  0，下一个待分配的 Series ID
 func NewMeasurementMetaStore() *MeasurementMetaStore {
 	return &MeasurementMetaStore{
 		series:   make(map[uint64]map[string]string),
@@ -84,7 +131,23 @@ func NewMeasurementMetaStore() *MeasurementMetaStore {
 	}
 }
 
-// AllocateSID 分配或查找 SID
+// AllocateSID 为指定的标签组合分配或查找 Series ID。
+//
+// 参数：
+//   - tags: 标签键值对，用于唯一标识一个 Series
+//
+// 返回：
+//   - uint64: 分配的或已存在的 SID
+//
+// 语义：
+//
+//	如果 tags 已存在（与现有 Series 完全匹配），返回现有 SID。
+//	如果不存在，分配新的 SID，存储 tags，更新 tagIndex。
+//	新 SID 从 nextSID 自增获取。
+//
+// 并发安全：
+//
+//	内部加锁，线程安全。
 func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -111,7 +174,18 @@ func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) uint64 {
 	return sid
 }
 
-// GetTagsBySID 根据 SID 获取 tags
+// GetTagsBySID 根据 Series ID 获取标签。
+//
+// 参数：
+//   - sid: Series ID
+//
+// 返回：
+//   - map[string]string: 标签的副本（不会受修改影响）
+//   - bool:              true 表示找到，false 表示未找到
+//
+// 注意：
+//
+//	返回的标签是副本，修改它不会影响存储的数据。
 func (m *MeasurementMetaStore) GetTagsBySID(sid uint64) (map[string]string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -122,7 +196,19 @@ func (m *MeasurementMetaStore) GetTagsBySID(sid uint64) (map[string]string, bool
 	return copyTags(tags), true
 }
 
-// GetSidsByTag 根据 tag 条件获取 sids
+// GetSidsByTag 根据标签键值查找所有匹配的 Series IDs。
+//
+// 参数：
+//   - tagKey:   标签键
+//   - tagValue: 标签值
+//
+// 返回：
+//   - []uint64: 匹配的 SID 列表（是内部的副本，可安全修改）
+//
+// 用途：
+//
+//	用于标签过滤查询，快速定位满足条件的 Series。
+//	配合 GetTagsBySID 可以获取 Series 的完整信息。
 func (m *MeasurementMetaStore) GetSidsByTag(tagKey, tagValue string) []uint64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -132,7 +218,14 @@ func (m *MeasurementMetaStore) GetSidsByTag(tagKey, tagValue string) []uint64 {
 	return result
 }
 
-// Close 关闭
+// Close 关闭 MetaStore，释放资源。
+//
+// 返回：
+//   - error: 关闭失败时返回错误（当前总是返回 nil）
+//
+// 说明：
+//
+//	清空 series 和 tagIndex 的 map 引用，帮助垃圾回收。
 func (m *MeasurementMetaStore) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

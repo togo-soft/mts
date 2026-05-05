@@ -1,4 +1,14 @@
-// internal/engine/engine.go
+// Package engine 实现微时序数据库的存储引擎。
+//
+// Engine 是数据库的核心组件，负责协调写入和查询操作。
+// 它管理 Shard 的创建和回收，以及元数据的访问。
+//
+// 架构说明：
+//
+//	Engine → ShardManager → Shards → MemTable/SSTable
+//	Engine → MetaStores (测量元数据)
+//
+// Engine 是并发安全的，所有公共方法都可以从多个 goroutine 调用。
 package engine
 
 import (
@@ -14,14 +24,47 @@ import (
 	"micro-ts/types"
 )
 
-// Config 存储引擎配置
+// Config 定义存储引擎的配置。
+//
+// 配置包含数据目录、Shard 时长和 MemTable 配置。
+//
+// 字段说明：
+//
+//   - DataDir:       数据存储目录
+//   - ShardDuration: 每个 Shard 的时间窗口
+//   - MemTableCfg:   MemTable 配置
+//
+// 默认值：
+//
+//	New 函数会为 MemTableCfg 提供默认值（如果 MaxSize 为 0）。
+//	ShartDuration 应从外部传入。
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
 	MemTableCfg   shard.MemTableConfig
 }
 
-// Engine 存储引擎
+// Engine 是微时序数据库的存储引擎。
+//
+// Engine 协调数据写入和查询，管理 Shard 生命周期和元数据访问。
+//
+// 字段说明：
+//
+//   - cfg:          引擎配置
+//   - shardManager: Shard 管理器，负责创建、回收 Shard
+//   - metaStores:   测量元数据缓存
+//   - mu:           保护 metaStores 的读写锁
+//
+// 并发安全：
+//
+//	Engine 的所有公共方法都是并发安全的。
+//	写入操作通过 ShardManager 路由到对应的 Shard。
+//	元数据操作通过读写锁保护。
+//
+// 生命周期：
+//
+//	使用 New 创建，使用 Close 关闭。
+//	关闭后不可再使用。
 type Engine struct {
 	cfg          *Config
 	shardManager *shard.ShardManager
@@ -29,7 +72,23 @@ type Engine struct {
 	mu           sync.RWMutex
 }
 
-// New 创建引擎
+// New 创建新的存储引擎实例。
+//
+// 参数：
+//   - cfg: 引擎配置
+//
+// 返回：
+//   - *Engine: 引擎实例
+//   - error: 创建失败时返回错误
+//
+// 配置处理：
+//
+//	如果 MemTableCfg.MaxSize 为 0，使用 shard.DefaultMemTableConfig()。
+//	这样可以支持零值配置的便捷使用。
+//
+// 错误情况：
+//
+//	目前不会返回错误，但保留错误返回值以便未来扩展。
 func New(cfg *Config) (*Engine, error) {
 	// 默认 MemTable 配置
 	memTableCfg := cfg.MemTableCfg
@@ -43,7 +102,16 @@ func New(cfg *Config) (*Engine, error) {
 	}, nil
 }
 
-// Close 关闭引擎
+// Close 关闭引擎，释放所有资源。
+//
+// 返回：
+//   - error: 关闭失败时返回错误
+//
+// 注意：
+//
+//	关闭引擎会清空 MetaStore 缓存，但不会执行刷盘操作。
+//	刷盘应在调用 Close 前显式完成，以确保数据持久化。
+//	关闭后引擎实例不可再使用。
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -51,7 +119,25 @@ func (e *Engine) Close() error {
 	return nil
 }
 
-// Write 写入单个点
+// Write 写入单个数据点到存储引擎。
+//
+// 写入流程：
+//
+//  1. 根据时间戳确定或创建目标 Shard
+//  2. 将数据写入对应的 Shard
+//  3. Shard 内部先写 WAL，再写 MemTable
+//  4. 检查 MemTable 是否需要刷盘
+//
+// 参数：
+//   - point: 要写入的数据点
+//
+// 返回：
+//   - error: 写入失败时返回错误，错误信息包含失败阶段
+//
+// 并发安全：
+//
+//	并发写入会分别路由到不同的 Shard（如果时间窗口不同），
+//	同一 Shard 的并发写入由 Shard 内部的锁保护。
 func (e *Engine) Write(point *types.Point) error {
 	// 获取或创建 Shard
 	s, err := e.shardManager.GetShard(point.Database, point.Measurement, point.Timestamp)
@@ -66,7 +152,21 @@ func (e *Engine) Write(point *types.Point) error {
 	return nil
 }
 
-// WriteBatch 批量写入
+// WriteBatch 批量写入数据点。
+//
+// 内部为每个点调用 Write，不保证原子性。
+// 批量写入的吞吐量通常比单独写入高。
+//
+// 参数：
+//   - points: 要写入的数据点切片
+//
+// 返回：
+//   - error: 任一数据点写入失败时返回错误，包含失败点的时间戳
+//
+// 部分失败：
+//
+//	如果部分点写入失败，返回错误。
+//	已经成功写入的点不会被回滚。
 func (e *Engine) WriteBatch(points []*types.Point) error {
 	for _, p := range points {
 		if err := e.Write(p); err != nil {
@@ -76,7 +176,23 @@ func (e *Engine) WriteBatch(points []*types.Point) error {
 	return nil
 }
 
-// Query 范围查询（使用流式迭代器避免加载所有数据到内存）
+// Query 执行范围查询。
+//
+// 查询会自动合并多个 Shard 的结果，返回按时间排序的数据。
+// 当结果集较大时，建议使用 QueryIterator 进行流式处理。
+//
+// 参数：
+//   - ctx: 上下文
+//   - req: 查询请求
+//
+// 返回：
+//   - *types.QueryRangeResponse: 查询结果
+//   - error: 查询失败时返回错误
+//
+// 分页语义：
+//
+//	支持 Offset/Limit 分页。HasMore 表示结果集中还有更多数据。
+//	流式语义下，TotalCount 只反映当前页数量（当 HasMore=true 时）。
 func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
 	// 获取相交的 Shard
 	shards := e.shardManager.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
@@ -164,7 +280,22 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	}, nil
 }
 
-// QueryIterator 创建流式查询迭代器
+// QueryIterator 创建流式查询迭代器。
+//
+// 相比 Query，迭代器按需加载数据，适合处理超过内存容量的大查询。
+//
+// 参数：
+//   - ctx: 上下文，用于取消查询
+//   - req: 查询请求
+//
+// 返回：
+//   - *query.QueryIterator: 流式迭代器
+//   - error: 没有匹配的 shard 时返回错误
+//
+// 时间处理：
+//
+//	接受纳秒级 Unix 时间戳，内部计算需要访问的 Shard 列表。
+//	如果没有匹配的 Shard，返回错误。
 func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {
 	// 使用原始时间（假设为纳秒）
 	startTimeNs := req.StartTime

@@ -1,4 +1,6 @@
-// internal/storage/shard/sstable/iterator.go
+// Package sstable 实现 SSTable 流式迭代器。
+//
+// Iterator 支持 Block 级别的按需加载，适合大数据集遍历。
 package sstable
 
 import (
@@ -12,7 +14,35 @@ import (
 	"micro-ts/types"
 )
 
-// Iterator SSTable 流式迭代器
+// Iterator 是 SSTable 的流式迭代器。
+//
+// 支持两种读取模式：
+//
+//   - 索引模式：如果有 BlockIndex，按 Block 加载数据
+//   - 回退模式：如果没有索引，一次性加载所有数据
+//
+// 字段说明：
+//
+//   - reader:        基于 Schema 解码字段
+//   - dataDir:       数据文件目录
+//   - blockIndex:    Block 索引数组
+//   - currentBlock:  当前 Block 索引
+//   - blockTimestamps: 当前 Block 的时间戳
+//   - fieldBufs:     当前 Block 的字段数据
+//   - fallbackMode:  无索引时的回退模式
+//
+// 使用模式：
+//
+//	it, _ := reader.NewIterator()
+//	for it.Next() {
+//	    row := it.Point()
+//	    // 处理 row
+//	}
+//
+// 性能：
+//
+//	索引模式下按 Block 按需加载内存效率高。
+//	回退模式会一次性加载所有数据到内存
 type Iterator struct {
 	reader  *Reader
 	dataDir string
@@ -34,7 +64,16 @@ type Iterator struct {
 	fallbackPos        int
 }
 
-// NewIterator 创建流式迭代器
+// NewIterator 创建新的流式迭代器。
+//
+// 返回：
+//   - *Iterator: 迭代器
+//   - error:     创建失败时返回错误
+//
+// 模式选择：
+//
+//	如果 Reader 有 BlockIndex，使用索引模式。
+//	如果没有索引，加载所有数据到内存（回退模式）。
 func (r *Reader) NewIterator() (*Iterator, error) {
 	it := &Iterator{
 		reader:       r,
@@ -139,7 +178,18 @@ func (it *Iterator) decodeFieldValueFromData(name string, data []byte, pos int) 
 	return it.decodeString(data, pos)
 }
 
-// SeekToTime 定位到指定时间的 block
+// SeekToTime 定位到指定时间的 Block。
+//
+// 参数：
+//   - target: 目标时间戳
+//
+// 返回：
+//   - error: 定位失败时返回错误
+//
+// 行为：
+//
+//	使用二分查找定位第一个 LastTimestamp >= target 的 Block。
+//	如果未找到或查找失败，currentBlock 设置为末尾位置。
 func (it *Iterator) SeekToTime(target int64) error {
 	if len(it.blockIndex) == 0 {
 		return nil
@@ -262,7 +312,19 @@ func (it *Iterator) readFieldBlock(path string, offset, size int) ([]byte, error
 	return data[:n], nil
 }
 
-// Next 移动到下一个点
+// Next 移动到下一个数据点。
+//
+// 返回：
+//   - bool: true 表示有有效数据，可通过 Point() 获取
+//
+// 索引模式：
+//
+//	当前 Block 耗尽后自动加载下一个 Block。
+//	所有 Block 处理完后返回 false。
+//
+// 回退模式：
+//
+//	简单地推进到下一个位置。
 func (it *Iterator) Next() bool {
 	// 回退模式
 	if it.fallbackMode {
@@ -296,7 +358,14 @@ func (it *Iterator) Next() bool {
 	return it.pos < it.blockRowCount
 }
 
-// Point 返回当前点的数据
+// Point 返回当前迭代位置的数据点。
+//
+// 返回：
+//   - *types.PointRow: 当前数据
+//
+// 调用前检查：
+//
+//	必须在 Next() 返回 true 后才能调用，否则返回 nil。
 func (it *Iterator) Point() *types.PointRow {
 	// 回退模式
 	if it.fallbackMode {
@@ -426,7 +495,10 @@ func (it *Iterator) zeroValue(t FieldType) any {
 	}
 }
 
-// CurrentBlockFirstTimestamp 返回当前 block 的起始时间
+// CurrentBlockFirstTimestamp 返回当前 Block 的起始时间。
+//
+// 返回：
+//   - int64: 当前 Block 的第一个时间戳，0 表示无效
 func (it *Iterator) CurrentBlockFirstTimestamp() int64 {
 	if it.currentBlock < 0 || it.currentBlock >= len(it.blockIndex) {
 		return 0
@@ -434,7 +506,10 @@ func (it *Iterator) CurrentBlockFirstTimestamp() int64 {
 	return it.blockIndex[it.currentBlock].FirstTimestamp
 }
 
-// CurrentBlockLastTimestamp 返回当前 block 的结束时间
+// CurrentBlockLastTimestamp 返回当前 Block 的结束时间。
+//
+// 返回：
+//   - int64: 当前 Block 的最后一个时间戳，0 表示无效
 func (it *Iterator) CurrentBlockLastTimestamp() int64 {
 	if it.currentBlock < 0 || it.currentBlock >= len(it.blockIndex) {
 		return 0
@@ -442,7 +517,10 @@ func (it *Iterator) CurrentBlockLastTimestamp() int64 {
 	return it.blockIndex[it.currentBlock].LastTimestamp
 }
 
-// Done 返回是否已经遍历完所有数据
+// Done 返回是否已经遍历完所有数据。
+//
+// 返回：
+//   - bool: true 表示已完成，false 表示还有数据
 func (it *Iterator) Done() bool {
 	return it.currentBlock >= len(it.blockIndex)
 }
