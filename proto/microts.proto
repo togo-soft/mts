@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package microts.v1;
 
-option go_package = "microts/internal/api/pb";
+option go_package = "codeberg.org/micro-ts/mts/internal/api/pb";
 
 // 字段值
 message FieldValue {
@@ -81,6 +81,61 @@ message ListMeasurementsResponse {
     repeated string measurements = 1;
 }
 
+// 创建 Measurement 请求
+message CreateMeasurementRequest {
+    string database = 1;
+    string measurement = 2;
+}
+
+// 创建 Measurement 响应
+message CreateMeasurementResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+// 删除 Measurement 请求
+message DropMeasurementRequest {
+    string database = 1;
+    string measurement = 2;
+}
+
+// 删除 Measurement 响应
+message DropMeasurementResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+// 列出数据库请求
+message ListDatabasesRequest {
+}
+
+// 列出数据库响应
+message ListDatabasesResponse {
+    repeated string databases = 1;
+}
+
+// 创建数据库请求
+message CreateDatabaseRequest {
+    string database = 1;
+}
+
+// 创建数据库响应
+message CreateDatabaseResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+// 删除数据库请求
+message DropDatabaseRequest {
+    string database = 1;
+}
+
+// 删除数据库响应
+message DropDatabaseResponse {
+    bool success = 1;
+    string error = 2;
+}
+
 // 健康检查请求
 message HealthRequest {
 }
@@ -93,9 +148,23 @@ message HealthResponse {
 
 // gRPC 服务
 service MicroTS {
+    // 数据写入
     rpc Write(WriteRequest) returns (WriteResponse);
     rpc WriteBatch(WriteBatchRequest) returns (WriteBatchResponse);
+
+    // 数据查询
     rpc QueryRange(QueryRangeRequest) returns (QueryRangeResponse);
+
+    // Measurement 管理
     rpc ListMeasurements(ListMeasurementsRequest) returns (ListMeasurementsResponse);
+    rpc CreateMeasurement(CreateMeasurementRequest) returns (CreateMeasurementResponse);
+    rpc DropMeasurement(DropMeasurementRequest) returns (DropMeasurementResponse);
+
+    // 数据库管理
+    rpc ListDatabases(ListDatabasesRequest) returns (ListDatabasesResponse);
+    rpc CreateDatabase(CreateDatabaseRequest) returns (CreateDatabaseResponse);
+    rpc DropDatabase(DropDatabaseRequest) returns (DropDatabaseResponse);
+
+    // 健康检查
     rpc Health(HealthRequest) returns (HealthResponse);
 }

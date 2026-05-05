@@ -8,6 +8,11 @@
 //	WriteBatch:        批量写入
 //	QueryRange:        范围查询
 //	ListMeasurements:  枚举 Measurement
+//	CreateMeasurement: 创建 Measurement
+//	DropMeasurement:   删除 Measurement
+//	ListDatabases:     枚举数据库
+//	CreateDatabase:    创建数据库
+//	DropDatabase:      删除数据库
 //	Health:            健康检查
 //
 // 状态码：
@@ -170,6 +175,106 @@ func (s *MicroTSService) QueryRange(ctx context.Context, req *pb.QueryRangeReque
 func (s *MicroTSService) ListMeasurements(ctx context.Context, req *pb.ListMeasurementsRequest) (*pb.ListMeasurementsResponse, error) {
 	return &pb.ListMeasurementsResponse{
 		Measurements: []string{},
+	}, nil
+}
+
+// CreateMeasurement 处理创建 Measurement 请求。
+//
+// 参数：
+//   - ctx: gRPC 上下文
+//   - req: 创建请求，包含数据库和 Measurement 名称
+//
+// 返回：
+//   - *pb.CreateMeasurementResponse: 创建结果
+//   - error: 创建失败时返回 gRPC 错误
+//
+// 注意：
+//
+//	当前为桩实现，总是返回 Success=true。
+//	完整实现需要调用引擎创建 Measurement 元数据。
+func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *pb.CreateMeasurementRequest) (*pb.CreateMeasurementResponse, error) {
+	return &pb.CreateMeasurementResponse{
+		Success: true,
+	}, nil
+}
+
+// DropMeasurement 处理删除 Measurement 请求。
+//
+// 参数：
+//   - ctx: gRPC 上下文
+//   - req: 删除请求，包含数据库和 Measurement 名称
+//
+// 返回：
+//   - *pb.DropMeasurementResponse: 删除结果
+//   - error: 删除失败时返回 gRPC 错误
+//
+// 注意：
+//
+//	当前为桩实现，总是返回 Success=true。
+//	完整实现需要调用引擎删除 Measurement 元数据。
+func (s *MicroTSService) DropMeasurement(ctx context.Context, req *pb.DropMeasurementRequest) (*pb.DropMeasurementResponse, error) {
+	return &pb.DropMeasurementResponse{
+		Success: true,
+	}, nil
+}
+
+// ListDatabases 处理列出数据库请求。
+//
+// 参数：
+//   - ctx: gRPC 上下文
+//   - req: 列表请求（当前为空）
+//
+// 返回：
+//   - *pb.ListDatabasesResponse: 数据库列表
+//   - error: 查询失败时返回 gRPC 错误
+//
+// 注意：
+//
+//	当前为桩实现，返回空列表。
+//	完整实现需要从元数据存储中读取数据库列表。
+func (s *MicroTSService) ListDatabases(ctx context.Context, req *pb.ListDatabasesRequest) (*pb.ListDatabasesResponse, error) {
+	return &pb.ListDatabasesResponse{
+		Databases: []string{},
+	}, nil
+}
+
+// CreateDatabase 处理创建数据库请求。
+//
+// 参数：
+//   - ctx: gRPC 上下文
+//   - req: 创建请求，包含数据库名称
+//
+// 返回：
+//   - *pb.CreateDatabaseResponse: 创建结果
+//   - error: 创建失败时返回 gRPC 错误
+//
+// 注意：
+//
+//	当前为桩实现，总是返回 Success=true。
+//	完整实现需要调用引擎创建数据库元数据。
+func (s *MicroTSService) CreateDatabase(ctx context.Context, req *pb.CreateDatabaseRequest) (*pb.CreateDatabaseResponse, error) {
+	return &pb.CreateDatabaseResponse{
+		Success: true,
+	}, nil
+}
+
+// DropDatabase 处理删除数据库请求。
+//
+// 参数：
+//   - ctx: gRPC 上下文
+//   - req: 删除请求，包含数据库名称
+//
+// 返回：
+//   - *pb.DropDatabaseResponse: 删除结果
+//   - error: 删除失败时返回 gRPC 错误
+//
+// 注意：
+//
+//	当前为桩实现，总是返回 Success=true。
+//	完整实现需要调用引擎删除数据库元数据。
+func (s *MicroTSService) DropDatabase(ctx context.Context, req *pb.DropDatabaseRequest) (*pb.DropDatabaseResponse, error) {
+	return &pb.DropDatabaseResponse{
+		Success: true,
 	}, nil
 }
 
