@@ -92,4 +92,7 @@ func main() {
 	fmt.Printf("  BuckHashSys: %d MB\n", mstats.BuckHashSys/1024/1024)
 	fmt.Printf("  GCSys: %d MB\n", mstats.GCSys/1024/1024)
 	fmt.Printf("  OtherSys: %d MB\n", mstats.OtherSys/1024/1024)
+
+	// 统计存储
+	fmt.Printf("\n%s\n", metrics.FormatStorageReport(filepath.Join(tmpDir, "db1", "cpu"), count, 80))
 }
