@@ -59,7 +59,7 @@ func TestEngine_Write(t *testing.T) {
 		Measurement: "cpu",
 		Tags:        map[string]string{"host": "server1"},
 		Timestamp:   time.Now().UnixNano(),
-		Fields:      map[string]any{"usage": 85.5},
+		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
 
 	err = engine.Write(t.Context(), point)
@@ -91,14 +91,14 @@ func TestEngine_Query(t *testing.T) {
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server1"},
 			Timestamp:   now,
-			Fields:      map[string]any{"usage": 85.5},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 		},
 		{
 			Database:    "db1",
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server1"},
 			Timestamp:   now + 1e9,
-			Fields:      map[string]any{"usage": 90.0},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)},
 		},
 	}
 
@@ -145,14 +145,14 @@ func TestEngine_WriteBatch(t *testing.T) {
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server1"},
 			Timestamp:   time.Now().UnixNano(),
-			Fields:      map[string]any{"usage": 85.5},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 		},
 		{
 			Database:    "db1",
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server2"},
 			Timestamp:   time.Now().UnixNano() + 1e9,
-			Fields:      map[string]any{"usage": 90.0},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)},
 		},
 	}
 
@@ -185,7 +185,11 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server1"},
 			Timestamp:   now,
-			Fields:      map[string]any{"usage": 85.5, "count": int64(100), "temperature": 65.0},
+			Fields: map[string]*types.FieldValue{
+				"usage":       types.NewFieldValue(85.5),
+				"count":       types.NewFieldValue(int64(100)),
+				"temperature": types.NewFieldValue(65.0),
+			},
 		},
 	}
 
@@ -248,14 +252,14 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server1"},
 			Timestamp:   now,
-			Fields:      map[string]any{"usage": 85.5},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 		},
 		{
 			Database:    "db1",
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server2"},
 			Timestamp:   now + 1e9,
-			Fields:      map[string]any{"usage": 90.0},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)},
 		},
 	}
 
@@ -309,7 +313,7 @@ func TestEngine_Query_Concurrent(t *testing.T) {
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server1"},
 			Timestamp:   baseTime + int64(i)*int64(time.Hour), // 每小时一个 shard
-			Fields:      map[string]any{"usage": float64(i)},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
 		if err := engine.Write(t.Context(), p); err != nil {
 			t.Fatalf("Write failed: %v", err)
@@ -359,7 +363,7 @@ func TestEngine_Query_Pagination(t *testing.T) {
 			Measurement: "cpu",
 			Tags:        map[string]string{"host": "server1"},
 			Timestamp:   now + int64(i)*1e9,
-			Fields:      map[string]any{"usage": float64(i)},
+			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
 	}
 	err = engine.WriteBatch(t.Context(), points)

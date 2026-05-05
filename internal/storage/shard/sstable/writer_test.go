@@ -20,12 +20,12 @@ func TestWriter_WritePoints(t *testing.T) {
 		{
 			Timestamp: 1000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 85.5, "count": int64(100)},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5), "count": types.NewFieldValue(int64(100))},
 		},
 		{
 			Timestamp: 2000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 90.0, "count": int64(200)},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0), "count": types.NewFieldValue(int64(200))},
 		},
 	}
 

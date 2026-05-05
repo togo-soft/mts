@@ -58,7 +58,7 @@ func TestIterator_SingleRecord(t *testing.T) {
 		{
 			Timestamp: 1000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 85.5},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 		},
 	}
 
@@ -115,17 +115,17 @@ func TestIterator_MultipleRecords(t *testing.T) {
 		{
 			Timestamp: 1000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 85.5},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 		},
 		{
 			Timestamp: 2000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 90.0},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)},
 		},
 		{
 			Timestamp: 3000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 95.5},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(95.5)},
 		},
 	}
 
@@ -184,7 +184,7 @@ func TestIterator_NextBeyondRange(t *testing.T) {
 		{
 			Timestamp: 1000,
 			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]any{"usage": 85.5},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 		},
 	}
 

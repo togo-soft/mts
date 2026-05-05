@@ -9,40 +9,17 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// MemTableConfig MemTable 配置。
+// MemTableConfig 是 types.MemTableConfig 的别名，用于 shard 包。
 //
-// 配置项：
-//
-//   - MaxSize:      估算的最大内存占用（字节）
-//   - MaxCount:     最大条目数
-//   - IdleDuration: 空闲时间，超过此时间没有写入则触发刷盘
-//
-// 刷盘触发条件：
-//
-//	满足以下任一条件即触发刷盘：
-//	- 估算大小 >= MaxSize
-//	- 条目数 >= MaxCount
-//	- 空闲时间 >= IdleDuration 且至少有数据
-//
-// 性能影响：
-//
-//	较大的 MaxSize 减少刷盘频率但增加内存使用和恢复时间。
-//	较小的 IdleDuration 更快释放内存但产生更多小文件。
-type MemTableConfig struct {
-	// MaxSize 最大内存大小（字节），默认 64MB
-	MaxSize int64
-	// MaxCount 最大条目数，默认 3000
-	MaxCount int
-	// IdleDuration 空闲时间阈值，数据持续该时间没有写入则触发 flush
-	IdleDuration time.Duration
-}
+// 为了保持兼容性，我们保留此别名，但内部统一使用 types.MemTableConfig。
+type MemTableConfig = types.MemTableConfig
 
 // DefaultMemTableConfig 返回默认配置
 func DefaultMemTableConfig() MemTableConfig {
 	return MemTableConfig{
-		MaxSize:      64 * 1024 * 1024, // 64MB
-		MaxCount:     3000,
-		IdleDuration: time.Minute,
+		MaxSize:           64 * 1024 * 1024, // 64MB
+		MaxCount:          3000,
+		IdleDurationNanos: int64(time.Minute),
 	}
 }
 
@@ -91,24 +68,12 @@ type MemTable struct {
 }
 
 // NewMemTable 创建新的 MemTable 实例。
-//
-// 参数：
-//   - cfg: MemTable 配置
-//
-// 返回：
-//   - *MemTable: 初始化后的 MemTable
-//
-// 初始化状态：
-//
-//   - entries: 预分配 1024 容量的切片
-//   - lastWrite: 当前时间
-//   - count: 0
 func NewMemTable(cfg MemTableConfig) *MemTable {
 	return &MemTable{
 		entries:     make([]*entry, 0, 1024),
 		maxSize:     cfg.MaxSize,
-		maxCount:    cfg.MaxCount,
-		idleTimeout: cfg.IdleDuration,
+		maxCount:    int(cfg.MaxCount),
+		idleTimeout: time.Duration(cfg.IdleDurationNanos),
 		lastWrite:   time.Now(),
 	}
 }
@@ -141,8 +106,10 @@ func (m *MemTable) Write(p *types.Point) error {
 		tags[k] = v
 	}
 
-	fields := make(map[string]any, len(p.Fields))
+	fields := make(map[string]*types.FieldValue, len(p.Fields))
 	for k, v := range p.Fields {
+		// v 已经是 *types.FieldValue，直接复制指针
+		// FieldValue 是不可变的，共享指针是安全的
 		fields[k] = v
 	}
 

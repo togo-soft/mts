@@ -14,7 +14,7 @@ func TestMemTable_Write(t *testing.T) {
 		Measurement: "cpu",
 		Timestamp:   time.Now().UnixNano(),
 		Tags:        map[string]string{"host": "server1"},
-		Fields:      map[string]any{"usage": 85.5},
+		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
 
 	if err := m.Write(p); err != nil {
@@ -57,14 +57,14 @@ func TestMemTable_SortKey(t *testing.T) {
 }
 
 func TestMemTable_ShouldFlush(t *testing.T) {
-	cfg := MemTableConfig{MaxSize: 100, MaxCount: 0, IdleDuration: 0}
+	cfg := MemTableConfig{MaxSize: 100, MaxCount: 0, IdleDurationNanos: 0}
 	m := NewMemTable(cfg)
 
 	p := &types.Point{
 		Measurement: "cpu",
 		Timestamp:   time.Now().UnixNano(),
 		Tags:        map[string]string{"host": "server1"},
-		Fields:      map[string]any{"usage": 85.5},
+		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
 
 	// 写入一些数据直到应该 flush

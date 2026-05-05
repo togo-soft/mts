@@ -18,11 +18,11 @@ func createBenchPoint() *types.Point {
 			"env":    "prod",
 		},
 		Timestamp: 1234567890000000000,
-		Fields: map[string]any{
-			"usage":       float64(85.5),
-			"temperature": int64(65),
-			"status":      "active",
-			"flag":        true,
+		Fields: map[string]*types.FieldValue{
+			"usage":       types.NewFieldValue(float64(85.5)),
+			"temperature": types.NewFieldValue(int64(65)),
+			"status":      types.NewFieldValue("active"),
+			"flag":        types.NewFieldValue(true),
 		},
 	}
 }

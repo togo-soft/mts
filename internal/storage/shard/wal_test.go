@@ -126,7 +126,7 @@ func TestWAL_Replay(t *testing.T) {
 	p := &types.Point{
 		Timestamp: 1000,
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]any{"usage": 85.5},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
 
 	data, err := serializePoint(p)
@@ -156,10 +156,7 @@ func TestWAL_Replay(t *testing.T) {
 		t.Errorf("expected timestamp 1000, got %d", points[0].Timestamp)
 	}
 
-	usage, ok := points[0].Fields["usage"].(float64)
-	if !ok {
-		t.Errorf("expected usage field to be float64")
-	}
+	usage := points[0].Fields["usage"].GetFloatValue()
 	if usage != 85.5 {
 		t.Errorf("expected usage 85.5, got %f", usage)
 	}
@@ -183,7 +180,7 @@ func TestWAL_StartPeriodicSync(t *testing.T) {
 	p := &types.Point{
 		Timestamp: 1000,
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]any{"usage": 85.5},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
 
 	data, err := serializePoint(p)

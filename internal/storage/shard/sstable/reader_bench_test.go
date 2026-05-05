@@ -26,8 +26,8 @@ func BenchmarkNewReader(b *testing.B) {
 		points[i] = &types.Point{
 			Timestamp: int64(1234567890000000000 + i*1e9),
 			Tags:      map[string]string{"host": "server1"},
-			Fields: map[string]any{
-				"usage": float64(i),
+			Fields: map[string]*types.FieldValue{
+				"usage": types.NewFieldValue(float64(i)),
 			},
 		}
 	}

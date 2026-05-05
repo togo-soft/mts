@@ -441,7 +441,7 @@ func TestToProtoPointRow(t *testing.T) {
 	row := &types.PointRow{
 		Timestamp: 1234567890,
 		Tags:      map[string]string{"tag1": "value1"},
-		Fields:    map[string]any{"field1": float64(1.0)},
+		Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(float64(1.0))},
 	}
 
 	protoRow := ToProtoPointRow(row)

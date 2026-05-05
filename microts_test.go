@@ -55,7 +55,7 @@ func TestDB_Write(t *testing.T) {
 		Measurement: "testmeas",
 		Tags:        map[string]string{"tag1": "value1"},
 		Timestamp:   1234567890,
-		Fields:      map[string]any{"field1": float64(1.0)},
+		Fields:      map[string]*types.FieldValue{"field1": types.NewFieldValue(float64(1.0))},
 	}
 
 	err = db.Write(t.Context(), point)
@@ -83,14 +83,14 @@ func TestDB_WriteBatch(t *testing.T) {
 			Measurement: "testmeas",
 			Tags:        map[string]string{"tag1": "value1"},
 			Timestamp:   1234567890,
-			Fields:      map[string]any{"field1": float64(1.0)},
+			Fields:      map[string]*types.FieldValue{"field1": types.NewFieldValue(float64(1.0))},
 		},
 		{
 			Database:    "testdb",
 			Measurement: "testmeas",
 			Tags:        map[string]string{"tag1": "value2"},
 			Timestamp:   1234567891,
-			Fields:      map[string]any{"field1": float64(2.0)},
+			Fields:      map[string]*types.FieldValue{"field1": types.NewFieldValue(float64(2.0))},
 		},
 	}
 

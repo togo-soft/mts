@@ -115,21 +115,12 @@ func anyToFieldValue(v any) (*types.FieldValue, error) {
 
 // writeRequestToPoint 将 types.WriteRequest 转换为 types.Point。
 func writeRequestToPoint(req *types.WriteRequest) (*types.Point, error) {
-	fields := make(map[string]any, len(req.Fields))
-	for name, fv := range req.Fields {
-		val, err := fieldValueToAny(fv)
-		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", name, err)
-		}
-		fields[name] = val
-	}
-
 	return &types.Point{
 		Database:    req.Database,
 		Measurement: req.Measurement,
 		Tags:        req.Tags,
 		Timestamp:   req.Timestamp,
-		Fields:      fields,
+		Fields:      req.Fields,
 	}, nil
 }
 

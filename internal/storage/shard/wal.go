@@ -293,12 +293,12 @@ func estimateSerializedSize(p *types.Point) int {
 	// fields: [4 bytes: key_len][N bytes: key][1 byte: type][N bytes: value]
 	for k, v := range p.Fields {
 		size += 4 + len(k) + 1 // key_len + key + type
-		switch v.(type) {
-		case float64, int64:
+		switch v.GetValue().(type) {
+		case *types.FieldValue_FloatValue, *types.FieldValue_IntValue:
 			size += 8
-		case string:
-			size += 4 + len(v.(string))
-		case bool:
+		case *types.FieldValue_StringValue:
+			size += 4 + len(v.GetValue().(*types.FieldValue_StringValue).StringValue)
+		case *types.FieldValue_BoolValue:
 			size += 1
 		}
 	}
@@ -347,26 +347,26 @@ func serializePoint(p *types.Point) ([]byte, error) {
 		buf = append(buf, k...)
 
 		// value: [1 byte: type][N bytes: value]
-		switch val := v.(type) {
-		case float64:
+		switch val := v.GetValue().(type) {
+		case *types.FieldValue_FloatValue:
 			buf = append(buf, 0)
 			var vb [8]byte
-			binary.BigEndian.PutUint64(vb[:], math.Float64bits(val))
+			binary.BigEndian.PutUint64(vb[:], math.Float64bits(val.FloatValue))
 			buf = append(buf, vb[:]...)
-		case int64:
+		case *types.FieldValue_IntValue:
 			buf = append(buf, 1)
 			var vb [8]byte
-			binary.BigEndian.PutUint64(vb[:], uint64(val))
+			binary.BigEndian.PutUint64(vb[:], uint64(val.IntValue))
 			buf = append(buf, vb[:]...)
-		case string:
+		case *types.FieldValue_StringValue:
 			buf = append(buf, 2)
 			var vl [4]byte
-			binary.BigEndian.PutUint32(vl[:], uint32(len(val)))
+			binary.BigEndian.PutUint32(vl[:], uint32(len(val.StringValue)))
 			buf = append(buf, vl[:]...)
-			buf = append(buf, val...)
-		case bool:
+			buf = append(buf, val.StringValue...)
+		case *types.FieldValue_BoolValue:
 			buf = append(buf, 3)
-			if val {
+			if val.BoolValue {
 				buf = append(buf, 1)
 			} else {
 				buf = append(buf, 0)
@@ -431,7 +431,7 @@ func deserializePoint(data []byte) (*types.Point, error) {
 	fieldCount := int(binary.BigEndian.Uint32(data[pos : pos+4]))
 	pos += 4
 
-	fields := make(map[string]any, fieldCount)
+	fields := make(map[string]*types.FieldValue, fieldCount)
 
 	for i := 0; i < fieldCount; i++ {
 		if pos+4 > len(data) {
@@ -456,14 +456,14 @@ func deserializePoint(data []byte) (*types.Point, error) {
 			}
 			val := math.Float64frombits(binary.BigEndian.Uint64(data[pos : pos+8]))
 			pos += 8
-			fields[key] = val
+			fields[key] = types.NewFieldValue(val)
 		case 1: // int64
 			if pos+8 > len(data) {
 				return nil, fmt.Errorf("data too short for int64 value")
 			}
 			val := int64(binary.BigEndian.Uint64(data[pos : pos+8]))
 			pos += 8
-			fields[key] = val
+			fields[key] = types.NewFieldValue(val)
 		case 2: // string
 			if pos+4 > len(data) {
 				return nil, fmt.Errorf("data too short for string length")
@@ -475,14 +475,14 @@ func deserializePoint(data []byte) (*types.Point, error) {
 			}
 			val := string(data[pos : pos+valLen])
 			pos += valLen
-			fields[key] = val
+			fields[key] = types.NewFieldValue(val)
 		case 3: // bool
 			if pos+1 > len(data) {
 				return nil, fmt.Errorf("data too short for bool value")
 			}
 			val := data[pos] == 1
 			pos++
-			fields[key] = val
+			fields[key] = types.NewFieldValue(val)
 		default:
 			return nil, fmt.Errorf("unknown field type: %d", typ)
 		}

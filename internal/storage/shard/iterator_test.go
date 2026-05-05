@@ -26,9 +26,9 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 
 	// 写入 MemTable 数据
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]any{"field1": int64(300)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
 	}
 
 	for _, p := range points {
@@ -229,8 +229,8 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 
 	// 写入 MemTable 数据 (MemTable: 1000, 3000)
 	memPoints := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]any{"field1": int64(300)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
 	}
 	for _, p := range memPoints {
 		if err := shard.memTable.Write(p); err != nil {
@@ -337,8 +337,8 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 
 	// 写入 MemTable 数据 (MemTable: 1000, 2000) - 1000 与 SSTable 相同
 	memPoints := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
 	}
 	for _, p := range memPoints {
 		if err := shard.memTable.Write(p); err != nil {
@@ -397,8 +397,8 @@ func TestShardIterator_Current(t *testing.T) {
 
 	// 写入 MemTable 数据
 	points := []*types.Point{
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]any{"field1": int64(100)}},
-		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]any{"field1": int64(200)}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
 	}
 	for _, p := range points {
 		if err := shard.memTable.Write(p); err != nil {

@@ -22,9 +22,9 @@ func main() {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: microts.MemTableConfig{
-			MaxSize:      64 * 1024 * 1024,
-			MaxCount:     3000,
-			IdleDuration: 10 * time.Second,
+			MaxSize:           64 * 1024 * 1024,
+			MaxCount:          3000,
+			IdleDurationNanos: int64(10 * time.Second),
 		},
 	}
 
