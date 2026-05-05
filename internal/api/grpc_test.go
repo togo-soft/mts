@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"micro-ts/internal/api/pb"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/api/pb"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestMicroTSService_Health(t *testing.T) {

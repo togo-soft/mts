@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // BenchmarkNewReader 测试 SSTable Reader 创建性能

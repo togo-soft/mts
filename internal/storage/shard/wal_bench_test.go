@@ -4,7 +4,7 @@ package shard
 import (
 	"testing"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // 创建典型的时间序列数据点

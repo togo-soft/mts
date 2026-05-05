@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // MemTableConfig MemTable 配置。

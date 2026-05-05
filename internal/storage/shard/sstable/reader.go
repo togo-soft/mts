@@ -17,7 +17,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // Reader 是 SSTable 的读取器，支持索引查询和范围查询。

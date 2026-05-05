@@ -54,7 +54,7 @@ protoc --version
 ### 克隆仓库
 
 ```bash
-git clone https://github.com/yourusername/micro-ts.git
+git clone https://codeberg.org/micro-ts/mts.git
 cd micro-ts
 ```
 

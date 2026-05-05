@@ -8,8 +8,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"micro-ts/internal/api"
-	pb "micro-ts/internal/api/pb"
+	"codeberg.org/micro-ts/mts/internal/api"
+	pb "codeberg.org/micro-ts/mts/internal/api/pb"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 	s := grpc.NewServer()
 	pb.RegisterMicroTSServer(s, api.New(nil))
 
-	logger.Info("micro-ts server listening", slog.String("addr", ":50051"))
+	logger.Info("codeberg.org/micro-ts/mts server listening", slog.String("addr", ":50051"))
 	if err := s.Serve(lis); err != nil {
 		logger.Error("failed to serve", slog.Any("error", err))
 		os.Exit(1)

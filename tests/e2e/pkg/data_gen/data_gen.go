@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // DataGenerator 数据生成器

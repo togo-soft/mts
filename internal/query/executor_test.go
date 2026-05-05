@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestQueryExecutor_Execute(t *testing.T) {

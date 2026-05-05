@@ -28,9 +28,9 @@ import (
 	"sync"
 	"time"
 
-	"micro-ts/internal/storage/measurement"
-	"micro-ts/internal/storage/shard/sstable"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // ShardConfig 定义 Shard 的配置。

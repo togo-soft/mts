@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestEngine_Open(t *testing.T) {

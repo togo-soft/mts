@@ -12,8 +12,8 @@ import (
 	"container/heap"
 	"context"
 
-	"micro-ts/internal/storage/shard"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // QueryIterator 是流式查询迭代器，支持多 Shard 归并排序和过滤。

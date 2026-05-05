@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestShardIterator_MemTableOnly(t *testing.T) {

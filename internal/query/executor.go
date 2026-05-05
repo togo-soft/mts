@@ -15,7 +15,7 @@ package query
 import (
 	"context"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // Executor 是查询执行器。

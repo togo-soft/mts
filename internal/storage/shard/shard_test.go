@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/internal/storage/measurement"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestShard_TimeRange(t *testing.T) {

@@ -35,8 +35,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"micro-ts/internal/storage"
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/internal/storage"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // FieldType 字段类型

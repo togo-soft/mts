@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/types"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestMemoryMetaStore_SetAndGetMeta(t *testing.T) {
