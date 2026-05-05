@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestMemTable_Write(t *testing.T) {

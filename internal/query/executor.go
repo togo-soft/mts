@@ -4,7 +4,7 @@ package query
 import (
 	"context"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // Executor 查询执行器

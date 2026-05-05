@@ -10,7 +10,7 @@ import (
 	"micro-ts/internal/query"
 	"micro-ts/internal/storage/measurement"
 	"micro-ts/internal/storage/shard"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // Config 存储引擎配置

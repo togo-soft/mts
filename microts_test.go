@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestDB_Open(t *testing.T) {

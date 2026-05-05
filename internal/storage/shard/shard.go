@@ -11,7 +11,7 @@ import (
 
 	"micro-ts/internal/storage/measurement"
 	"micro-ts/internal/storage/shard/sstable"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // Shard 单个 Shard

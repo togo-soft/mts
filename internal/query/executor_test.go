@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestQueryExecutor_Execute(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // MemTableConfig MemTable 配置

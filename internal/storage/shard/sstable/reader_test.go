@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestReader_ReadAll(t *testing.T) {

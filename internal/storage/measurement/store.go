@@ -4,7 +4,7 @@ package measurement
 import (
 	"context"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // MetaStore 元数据存储接口

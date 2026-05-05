@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"micro-ts/internal/storage"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // WAL Write-Ahead Log

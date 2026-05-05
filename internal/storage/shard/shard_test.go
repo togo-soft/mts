@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"micro-ts/internal/storage/measurement"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestShard_TimeRange(t *testing.T) {

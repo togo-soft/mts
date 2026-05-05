@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestMemoryMetaStore_SetAndGetMeta(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // ErrInvalidMetaFile 无效的 meta 文件

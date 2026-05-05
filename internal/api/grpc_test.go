@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"micro-ts/internal/api/pb"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 func TestMicroTSService_Health(t *testing.T) {

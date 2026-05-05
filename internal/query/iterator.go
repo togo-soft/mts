@@ -5,7 +5,7 @@ import (
 	"context"
 
 	"micro-ts/internal/storage/shard"
-	"micro-ts/internal/types"
+	"micro-ts/types"
 )
 
 // QueryIterator 流式查询迭代器

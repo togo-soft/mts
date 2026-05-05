@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"micro-ts"
-	"micro-ts/internal/storage/shard"
 	"micro-ts/tests/e2e/pkg/data_gen"
 )
 
@@ -21,7 +20,7 @@ func main() {
 	cfg := microts.Config{
 		DataDir:        tmpDir,
 		ShardDuration: time.Hour,
-		MemTableCfg: shard.MemTableConfig{
+		MemTableCfg: microts.MemTableConfig{
 			MaxSize:      64 * 1024 * 1024,
 			MaxCount:     3000,
 			IdleDuration: 10 * time.Second,
