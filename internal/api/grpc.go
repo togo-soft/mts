@@ -34,9 +34,13 @@ package api
 
 import (
 	"context"
+	"fmt"
 
 	"codeberg.org/micro-ts/mts/internal/api/pb"
+	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // MicroTSService 实现 gRPC MicroTS 服务。
@@ -46,7 +50,7 @@ import (
 // 字段说明：
 //
 //   - UnimplementedMicroTSServer: 嵌入 gRPC 生成的未实现桩，确保向前兼容
-//   - engine:                     存储引擎实例，any 类型以适应接口演进
+//   - engine:                     存储引擎实例
 //
 // 并发安全：
 //
@@ -55,8 +59,8 @@ import (
 //
 // 使用示例：
 //
-//	engine, _ := engine.New(&engine.Config{...})
-//	service := api.New(engine)
+//	eng, _ := engine.New(&engine.Config{...})
+//	service := api.New(eng)
 //
 //	grpcServer := grpc.NewServer()
 //	pb.RegisterMicroTSServer(grpcServer, service)
@@ -64,25 +68,94 @@ import (
 //	grpcServer.Serve(listener)
 type MicroTSService struct {
 	pb.UnimplementedMicroTSServer
-	engine any
+	engine *engine.Engine
 }
 
 // New 创建 gRPC 服务实例。
 //
 // 参数：
-//   - engine: 存储引擎实例，类型为 engine.Engine（使用 any 以减轻耦合）
+//   - eng: 存储引擎实例
 //
 // 返回：
 //   - *MicroTSService: 服务实例
-//
-// 说明：
-//
-//	当前 engine 使用 any 类型注入，实际运行时需要断言为 *engine.Engine。
-//	这种设计允许服务层和引擎层独立演进。
-func New(engine any) *MicroTSService {
+func New(eng *engine.Engine) *MicroTSService {
 	return &MicroTSService{
-		engine: engine,
+		engine: eng,
 	}
+}
+
+// fieldValueToAny 将 pb.FieldValue 转换为 interface{}。
+func fieldValueToAny(fv *pb.FieldValue) (any, error) {
+	switch v := fv.Value.(type) {
+	case *pb.FieldValue_IntValue:
+		return v.IntValue, nil
+	case *pb.FieldValue_FloatValue:
+		return v.FloatValue, nil
+	case *pb.FieldValue_StringValue:
+		return v.StringValue, nil
+	case *pb.FieldValue_BoolValue:
+		return v.BoolValue, nil
+	default:
+		return nil, fmt.Errorf("unknown field value type")
+	}
+}
+
+// anyToFieldValue 将 interface{} 转换为 pb.FieldValue。
+func anyToFieldValue(v any) (*pb.FieldValue, error) {
+	switch val := v.(type) {
+	case int64:
+		return &pb.FieldValue{Value: &pb.FieldValue_IntValue{IntValue: val}}, nil
+	case float64:
+		return &pb.FieldValue{Value: &pb.FieldValue_FloatValue{FloatValue: val}}, nil
+	case string:
+		return &pb.FieldValue{Value: &pb.FieldValue_StringValue{StringValue: val}}, nil
+	case bool:
+		return &pb.FieldValue{Value: &pb.FieldValue_BoolValue{BoolValue: val}}, nil
+	default:
+		return nil, fmt.Errorf("unsupported field type: %T", v)
+	}
+}
+
+// writeRequestToPoint 将 pb.WriteRequest 转换为 types.Point。
+func writeRequestToPoint(req *pb.WriteRequest) (*types.Point, error) {
+	fields := make(map[string]any, len(req.Fields))
+	for name, fv := range req.Fields {
+		val, err := fieldValueToAny(fv)
+		if err != nil {
+			return nil, fmt.Errorf("field %s: %w", name, err)
+		}
+		fields[name] = val
+	}
+
+	return &types.Point{
+		Database:    req.Database,
+		Measurement: req.Measurement,
+		Tags:        req.Tags,
+		Timestamp:   req.Timestamp,
+		Fields:      fields,
+	}, nil
+}
+
+// pointRowToProto 将 types.PointRow 转换为 pb.Row。
+func pointRowToProto(row *types.PointRow) (*pb.Row, error) {
+	if row == nil {
+		return nil, nil
+	}
+
+	fields := make(map[string]*pb.FieldValue, len(row.Fields))
+	for name, v := range row.Fields {
+		fv, err := anyToFieldValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("field %s: %w", name, err)
+		}
+		fields[name] = fv
+	}
+
+	return &pb.Row{
+		Timestamp: row.Timestamp,
+		Tags:      row.Tags,
+		Fields:    fields,
+	}, nil
 }
 
 // Write 处理单点写入请求。
@@ -94,12 +167,22 @@ func New(engine any) *MicroTSService {
 // 返回：
 //   - *pb.WriteResponse: 写入响应，Success=true 表示成功
 //   - error: 处理失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，总是返回 Success=true。
-//	完整实现需要将 pb.WriteRequest 转换为 *types.Point 并调用引擎。
 func (s *MicroTSService) Write(ctx context.Context, req *pb.WriteRequest) (*pb.WriteResponse, error) {
+	point, err := writeRequestToPoint(req)
+	if err != nil {
+		return &pb.WriteResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	if err := s.engine.Write(ctx, point); err != nil {
+		return &pb.WriteResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
 	return &pb.WriteResponse{
 		Success: true,
 	}, nil
@@ -114,20 +197,29 @@ func (s *MicroTSService) Write(ctx context.Context, req *pb.WriteRequest) (*pb.W
 // 返回：
 //   - *pb.WriteBatchResponse: 批量写入响应
 //   - error: 处理失败时返回 gRPC 错误
-//
-// 响应字段：
-//
-//   - Success: 是否全部成功
-//   - Count:   实际处理的点数
-//
-// 注意：
-//
-//	当前为桩实现，返回 Success=true 和点数统计。
-//	完整实现需要批量转换并调用 engine.WriteBatch。
 func (s *MicroTSService) WriteBatch(ctx context.Context, req *pb.WriteBatchRequest) (*pb.WriteBatchResponse, error) {
+	points := make([]*types.Point, 0, len(req.Points))
+	for i, p := range req.Points {
+		point, err := writeRequestToPoint(p)
+		if err != nil {
+			return &pb.WriteBatchResponse{
+				Success: false,
+				Error:   fmt.Sprintf("point %d: %v", i, err),
+			}, nil
+		}
+		points = append(points, point)
+	}
+
+	if err := s.engine.WriteBatch(ctx, points); err != nil {
+		return &pb.WriteBatchResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
 	return &pb.WriteBatchResponse{
 		Success: true,
-		Count:   int32(len(req.Points)),
+		Count:   int32(len(points)),
 	}, nil
 }
 
@@ -140,21 +232,40 @@ func (s *MicroTSService) WriteBatch(ctx context.Context, req *pb.WriteBatchReque
 // 返回：
 //   - *pb.QueryRangeResponse: 查询结果
 //   - error: 查询失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，返回空结果。
-//	完整实现需要将请求转换为 QueryRangeRequest，
-//	调用引擎查询，并将结果转换为 pb.Row 列表。
 func (s *MicroTSService) QueryRange(ctx context.Context, req *pb.QueryRangeRequest) (*pb.QueryRangeResponse, error) {
-	return &pb.QueryRangeResponse{
+	queryReq := &types.QueryRangeRequest{
 		Database:    req.Database,
 		Measurement: req.Measurement,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
-		TotalCount:  0,
-		HasMore:     false,
-		Rows:        []*pb.Row{},
+		Fields:      req.Fields,
+		Tags:        req.Tags,
+		Offset:      req.Offset,
+		Limit:       req.Limit,
+	}
+
+	resp, err := s.engine.Query(ctx, queryReq)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "query failed: %v", err)
+	}
+
+	rows := make([]*pb.Row, 0, len(resp.Rows))
+	for i := range resp.Rows {
+		row, err := pointRowToProto(&resp.Rows[i])
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "convert row %d: %v", i, err)
+		}
+		rows = append(rows, row)
+	}
+
+	return &pb.QueryRangeResponse{
+		Database:    resp.Database,
+		Measurement: resp.Measurement,
+		StartTime:   resp.StartTime,
+		EndTime:     resp.EndTime,
+		TotalCount:  resp.TotalCount,
+		HasMore:     resp.HasMore,
+		Rows:        rows,
 	}, nil
 }
 
@@ -167,14 +278,15 @@ func (s *MicroTSService) QueryRange(ctx context.Context, req *pb.QueryRangeReque
 // 返回：
 //   - *pb.ListMeasurementsResponse: Measurement 列表
 //   - error: 查询失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，返回空列表。
-//	完整实现需要从元数据存储中读取 Measurement 列表。
 func (s *MicroTSService) ListMeasurements(ctx context.Context, req *pb.ListMeasurementsRequest) (*pb.ListMeasurementsResponse, error) {
+	measurements, found := s.engine.ListMeasurements(req.Database)
+	if !found {
+		return &pb.ListMeasurementsResponse{
+			Measurements: []string{},
+		}, nil
+	}
 	return &pb.ListMeasurementsResponse{
-		Measurements: []string{},
+		Measurements: measurements,
 	}, nil
 }
 
@@ -187,12 +299,14 @@ func (s *MicroTSService) ListMeasurements(ctx context.Context, req *pb.ListMeasu
 // 返回：
 //   - *pb.CreateMeasurementResponse: 创建结果
 //   - error: 创建失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，总是返回 Success=true。
-//	完整实现需要调用引擎创建 Measurement 元数据。
 func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *pb.CreateMeasurementRequest) (*pb.CreateMeasurementResponse, error) {
+	_, err := s.engine.CreateMeasurement(req.Database, req.Measurement)
+	if err != nil {
+		return &pb.CreateMeasurementResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
 	return &pb.CreateMeasurementResponse{
 		Success: true,
 	}, nil
@@ -207,12 +321,20 @@ func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *pb.CreateMe
 // 返回：
 //   - *pb.DropMeasurementResponse: 删除结果
 //   - error: 删除失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，总是返回 Success=true。
-//	完整实现需要调用引擎删除 Measurement 元数据。
 func (s *MicroTSService) DropMeasurement(ctx context.Context, req *pb.DropMeasurementRequest) (*pb.DropMeasurementResponse, error) {
+	found, err := s.engine.DropMeasurement(req.Database, req.Measurement)
+	if err != nil {
+		return &pb.DropMeasurementResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+	if !found {
+		return &pb.DropMeasurementResponse{
+			Success: false,
+			Error:   fmt.Sprintf("measurement not found: %s/%s", req.Database, req.Measurement),
+		}, nil
+	}
 	return &pb.DropMeasurementResponse{
 		Success: true,
 	}, nil
@@ -227,14 +349,10 @@ func (s *MicroTSService) DropMeasurement(ctx context.Context, req *pb.DropMeasur
 // 返回：
 //   - *pb.ListDatabasesResponse: 数据库列表
 //   - error: 查询失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，返回空列表。
-//	完整实现需要从元数据存储中读取数据库列表。
 func (s *MicroTSService) ListDatabases(ctx context.Context, req *pb.ListDatabasesRequest) (*pb.ListDatabasesResponse, error) {
+	databases := s.engine.ListDatabases()
 	return &pb.ListDatabasesResponse{
-		Databases: []string{},
+		Databases: databases,
 	}, nil
 }
 
@@ -247,12 +365,8 @@ func (s *MicroTSService) ListDatabases(ctx context.Context, req *pb.ListDatabase
 // 返回：
 //   - *pb.CreateDatabaseResponse: 创建结果
 //   - error: 创建失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，总是返回 Success=true。
-//	完整实现需要调用引擎创建数据库元数据。
 func (s *MicroTSService) CreateDatabase(ctx context.Context, req *pb.CreateDatabaseRequest) (*pb.CreateDatabaseResponse, error) {
+	_ = s.engine.CreateDatabase(req.Database)
 	return &pb.CreateDatabaseResponse{
 		Success: true,
 	}, nil
@@ -267,12 +381,14 @@ func (s *MicroTSService) CreateDatabase(ctx context.Context, req *pb.CreateDatab
 // 返回：
 //   - *pb.DropDatabaseResponse: 删除结果
 //   - error: 删除失败时返回 gRPC 错误
-//
-// 注意：
-//
-//	当前为桩实现，总是返回 Success=true。
-//	完整实现需要调用引擎删除数据库元数据。
 func (s *MicroTSService) DropDatabase(ctx context.Context, req *pb.DropDatabaseRequest) (*pb.DropDatabaseResponse, error) {
+	found := s.engine.DropDatabase(req.Database)
+	if !found {
+		return &pb.DropDatabaseResponse{
+			Success: false,
+			Error:   fmt.Sprintf("database not found: %s", req.Database),
+		}, nil
+	}
 	return &pb.DropDatabaseResponse{
 		Success: true,
 	}, nil
