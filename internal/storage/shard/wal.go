@@ -4,6 +4,7 @@ package shard
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -16,16 +17,22 @@ import (
 
 // WAL Write-Ahead Log
 type WAL struct {
-	dir  string
-	seq  uint64
-	file *os.File
-	mu   sync.Mutex
-	buf  []byte
-	pos  int
+	dir    string
+	seq    uint64
+	file   *os.File
+	mu     sync.Mutex
+	buf    []byte
+	pos    int
+	logger *slog.Logger
 }
 
 // NewWAL 创建 WAL
 func NewWAL(dir string, seq uint64) (*WAL, error) {
+	return NewWALWithLogger(dir, seq, slog.Default())
+}
+
+// NewWALWithLogger 创建 WAL 并指定 logger
+func NewWALWithLogger(dir string, seq uint64, logger *slog.Logger) (*WAL, error) {
 	if err := storage.SafeMkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
@@ -37,10 +44,11 @@ func NewWAL(dir string, seq uint64) (*WAL, error) {
 	}
 
 	return &WAL{
-		dir:  dir,
-		seq:  seq,
-		file: f,
-		buf:  make([]byte, 4096),
+		dir:    dir,
+		seq:    seq,
+		file:   f,
+		buf:    make([]byte, 4096),
+		logger: logger,
 	}, nil
 }
 
@@ -111,8 +119,7 @@ func (w *WAL) StartPeriodicSync(interval time.Duration, done <-chan struct{}) {
 			select {
 			case <-ticker.C:
 				if err := w.Sync(); err != nil {
-					// log error but don't stop
-					fmt.Printf("WAL Sync error: %v\n", err)
+					w.logger.Error("wal sync failed", slog.Any("error", err))
 				}
 			case <-done:
 				return

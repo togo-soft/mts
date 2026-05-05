@@ -14,7 +14,15 @@ func TestShard_TimeRange(t *testing.T) {
 	start := time.Now().UnixNano()
 	end := start + int64(time.Hour)
 
-	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   start,
+		EndTime:     end,
+		Dir:         t.TempDir(),
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
 
 	if s.StartTime() != start {
 		t.Errorf("expected start %d, got %d", start, s.StartTime())
@@ -28,7 +36,15 @@ func TestShard_ContainsTime(t *testing.T) {
 	start := time.Now().UnixNano()
 	end := start + int64(time.Hour)
 
-	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   start,
+		EndTime:     end,
+		Dir:         t.TempDir(),
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
 
 	if !s.ContainsTime(start) {
 		t.Errorf("shard should contain time %d", start)
@@ -45,7 +61,15 @@ func TestShard_Duration(t *testing.T) {
 	start := time.Now().UnixNano()
 	end := start + int64(time.Hour)
 
-	s := NewShard("db1", "cpu", start, end, t.TempDir(), measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   start,
+		EndTime:     end,
+		Dir:         t.TempDir(),
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
 
 	if s.Duration() != time.Hour {
 		t.Errorf("expected duration 1h, got %v", s.Duration())
@@ -55,7 +79,15 @@ func TestShard_Duration(t *testing.T) {
 func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s := NewShard("db1", "cpu", 0, time.Hour.Nanoseconds(), tmpDir, measurement.NewMeasurementMetaStore(), DefaultMemTableConfig())
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
 
 	// 写入数据到 MemTable
 	for i := 0; i < 10; i++ {
@@ -109,7 +141,15 @@ func TestShard_WriteWithWAL(t *testing.T) {
 	// 创建 mock MetaStore
 	metaStore := measurement.NewMeasurementMetaStore()
 
-	s := NewShard("db1", "cpu", 0, time.Hour.Nanoseconds(), tmpDir, metaStore, DefaultMemTableConfig())
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   metaStore,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
 
 	// 写入数据
 	p := &types.Point{

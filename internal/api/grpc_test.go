@@ -14,9 +14,9 @@ func TestMicroTSService_Health(t *testing.T) {
 	_ = srv // srv is always non-nil when created with struct literal
 }
 
-func TestNewMicroTSService(t *testing.T) {
+func TestNew(t *testing.T) {
 	engine := "test-engine"
-	srv := NewMicroTSService(engine)
+	srv := New(engine)
 
 	if srv == nil {
 		t.Fatal("expected non-nil service")
@@ -31,7 +31,7 @@ func TestNewMicroTSService(t *testing.T) {
 }
 
 func TestMicroTSService_Health_CheckResponse(t *testing.T) {
-	srv := NewMicroTSService(nil)
+	srv := New(nil)
 	ctx := context.Background()
 
 	resp, err := srv.Health(ctx, &pb.HealthRequest{})
@@ -53,7 +53,7 @@ func TestMicroTSService_Health_CheckResponse(t *testing.T) {
 }
 
 func TestMicroTSService_Write(t *testing.T) {
-	srv := NewMicroTSService(nil)
+	srv := New(nil)
 	ctx := context.Background()
 
 	req := &pb.WriteRequest{
@@ -79,7 +79,7 @@ func TestMicroTSService_Write(t *testing.T) {
 }
 
 func TestMicroTSService_WriteBatch(t *testing.T) {
-	srv := NewMicroTSService(nil)
+	srv := New(nil)
 	ctx := context.Background()
 
 	req := &pb.WriteBatchRequest{
@@ -118,7 +118,7 @@ func TestMicroTSService_WriteBatch(t *testing.T) {
 }
 
 func TestMicroTSService_QueryRange(t *testing.T) {
-	srv := NewMicroTSService(nil)
+	srv := New(nil)
 	ctx := context.Background()
 
 	req := &pb.QueryRangeRequest{
@@ -155,7 +155,7 @@ func TestMicroTSService_QueryRange(t *testing.T) {
 }
 
 func TestMicroTSService_ListMeasurements(t *testing.T) {
-	srv := NewMicroTSService(nil)
+	srv := New(nil)
 	ctx := context.Background()
 
 	req := &pb.ListMeasurementsRequest{

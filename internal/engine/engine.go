@@ -4,6 +4,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -28,8 +29,8 @@ type Engine struct {
 	mu           sync.RWMutex
 }
 
-// NewEngine 创建引擎
-func NewEngine(cfg *Config) (*Engine, error) {
+// New 创建引擎
+func New(cfg *Config) (*Engine, error) {
 	// 默认 MemTable 配置
 	memTableCfg := cfg.MemTableCfg
 	if memTableCfg.MaxSize == 0 {
@@ -55,25 +56,28 @@ func (e *Engine) Write(point *types.Point) error {
 	// 获取或创建 Shard
 	s, err := e.shardManager.GetShard(point.Database, point.Measurement, point.Timestamp)
 	if err != nil {
-		return err
+		return fmt.Errorf("get shard: %w", err)
 	}
 
 	// 写入 Shard
-	return s.Write(point)
+	if err := s.Write(point); err != nil {
+		return fmt.Errorf("write to shard: %w", err)
+	}
+	return nil
 }
 
 // WriteBatch 批量写入
 func (e *Engine) WriteBatch(points []*types.Point) error {
 	for _, p := range points {
 		if err := e.Write(p); err != nil {
-			return err
+			return fmt.Errorf("write point (timestamp=%d): %w", p.Timestamp, err)
 		}
 	}
 	return nil
 }
 
 // Query 范围查询（使用流式迭代器避免加载所有数据到内存）
-func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
+func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
 	// 获取相交的 Shard
 	shards := e.shardManager.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
 
@@ -89,10 +93,9 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 	}
 
 	// 创建流式查询迭代器
-	ctx := context.Background()
 	qit, err := e.QueryIterator(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create query iterator: %w", err)
 	}
 	defer qit.Close()
 
@@ -160,7 +163,6 @@ func (e *Engine) Query(req *types.QueryRangeRequest) (*types.QueryRangeResponse,
 		Rows:        rows,
 	}, nil
 }
-
 
 // QueryIterator 创建流式查询迭代器
 func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {

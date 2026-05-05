@@ -14,8 +14,8 @@ import (
 
 // Iterator SSTable 流式迭代器
 type Iterator struct {
-	reader   *Reader
-	dataDir  string
+	reader  *Reader
+	dataDir string
 
 	// block index
 	blockIndex   []BlockIndexEntry
@@ -37,12 +37,12 @@ type Iterator struct {
 // NewIterator 创建流式迭代器
 func (r *Reader) NewIterator() (*Iterator, error) {
 	it := &Iterator{
-		reader:        r,
-		dataDir:       r.dataDir,
+		reader:       r,
+		dataDir:      r.dataDir,
 		currentBlock: -1,
 		pos:          -1, // 初始时没有有效位置，Next() 后变为 0
 		fallbackPos:  -1, // 回退模式初始位置，Next() 后变为 0
-		fieldBufs:     make(map[string][]byte),
+		fieldBufs:    make(map[string][]byte),
 	}
 
 	// 获取 block index

@@ -13,8 +13,8 @@ type MicroTSService struct {
 	engine interface{}
 }
 
-// NewMicroTSService 创建服务
-func NewMicroTSService(engine interface{}) *MicroTSService {
+// New 创建服务
+func New(engine interface{}) *MicroTSService {
 	return &MicroTSService{
 		engine: engine,
 	}

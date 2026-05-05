@@ -2,9 +2,9 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"log/slog"
 	"net"
+	"os"
 
 	"google.golang.org/grpc"
 
@@ -13,16 +13,20 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Error("failed to listen", slog.Any("error", err))
+		os.Exit(1)
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterMicroTSServer(s, api.NewMicroTSService(nil))
+	pb.RegisterMicroTSServer(s, api.New(nil))
 
-	fmt.Println("micro-ts server listening on :50051")
+	logger.Info("micro-ts server listening", slog.String("addr", ":50051"))
 	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+		logger.Error("failed to serve", slog.Any("error", err))
+		os.Exit(1)
 	}
 }
