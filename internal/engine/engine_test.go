@@ -3,6 +3,8 @@ package engine
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -785,6 +787,224 @@ func TestEngine_WriteContextCancel(t *testing.T) {
 	err = engine.Write(ctx, point)
 	if err != context.Canceled {
 		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestEngine_Write_EmptyDatabase(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	point := &types.Point{
+		Database:    "",
+		Measurement: "cpu",
+		Tags:        map[string]string{"host": "server1"},
+		Timestamp:   time.Now().UnixNano(),
+		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
+	}
+	err = engine.Write(t.Context(), point)
+	if err != ErrEmptyDatabase {
+		t.Errorf("expected ErrEmptyDatabase, got %v", err)
+	}
+}
+
+func TestEngine_Write_EmptyMeasurement(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	point := &types.Point{
+		Database:    "db1",
+		Measurement: "",
+		Tags:        map[string]string{"host": "server1"},
+		Timestamp:   time.Now().UnixNano(),
+		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
+	}
+	err = engine.Write(t.Context(), point)
+	if err != ErrEmptyMeasurement {
+		t.Errorf("expected ErrEmptyMeasurement, got %v", err)
+	}
+}
+
+func TestEngine_Write_NegativeTimestamp(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	point := &types.Point{
+		Database:    "db1",
+		Measurement: "cpu",
+		Tags:        map[string]string{"host": "server1"},
+		Timestamp:   -1,
+		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
+	}
+	err = engine.Write(t.Context(), point)
+	if err != ErrInvalidTimestamp {
+		t.Errorf("expected ErrInvalidTimestamp, got %v", err)
+	}
+}
+
+func TestEngine_Write_NilPoint(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	err = engine.Write(t.Context(), nil)
+	if err != ErrNilPoint {
+		t.Errorf("expected ErrNilPoint, got %v", err)
+	}
+}
+
+func TestEngine_CreateMeasurement_EmptyDatabase(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	_, err = engine.CreateMeasurement("", "cpu")
+	if err != ErrEmptyDatabase {
+		t.Errorf("expected ErrEmptyDatabase, got %v", err)
+	}
+}
+
+func TestEngine_CreateMeasurement_EmptyMeasurement(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	_, err = engine.CreateMeasurement("db1", "")
+	if err != ErrEmptyMeasurement {
+		t.Errorf("expected ErrEmptyMeasurement, got %v", err)
+	}
+}
+
+func TestEngine_Query_EmptyDatabase(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	req := &types.QueryRangeRequest{
+		Database:    "",
+		Measurement: "cpu",
+		StartTime:   time.Now().UnixNano(),
+		EndTime:     time.Now().UnixNano() + int64(time.Hour),
+	}
+	_, err = engine.Query(t.Context(), req)
+	if err != nil {
+		t.Errorf("expected no error for empty database in query, got %v", err)
+	}
+}
+
+func TestEngine_Query_NonExistent(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	req := &types.QueryRangeRequest{
+		Database:    "non_existent_db",
+		Measurement: "non_existent_measurement",
+		StartTime:   time.Now().UnixNano(),
+		EndTime:     time.Now().UnixNano() + int64(time.Hour),
+	}
+	resp, err := engine.Query(t.Context(), req)
+	if err != nil {
+		t.Errorf("query should not error for non-existent db/measurement, got %v", err)
+	}
+	if resp.TotalCount != 0 {
+		t.Errorf("expected 0 rows for non-existent db/measurement, got %d", resp.TotalCount)
+	}
+}
+
+func TestEngine_Write_Concurrent(t *testing.T) {
+	cfg := &Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	}
+	engine, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer func() { _ = engine.Close() }()
+
+	const goroutines = 10
+	const pointsPerGoroutine = 100
+	baseTime := time.Now().UnixNano()
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, goroutines*pointsPerGoroutine)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			for j := 0; j < pointsPerGoroutine; j++ {
+				point := &types.Point{
+					Database:    "db1",
+					Measurement: "cpu",
+					Tags:        map[string]string{"host": fmt.Sprintf("server%d", idx)},
+					Timestamp:   baseTime + int64(j)*int64(time.Millisecond),
+					Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(j))},
+				}
+				if err := engine.Write(t.Context(), point); err != nil {
+					errChan <- fmt.Errorf("concurrent write failed: %w", err)
+					return
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		t.Error(err)
 	}
 }
 
