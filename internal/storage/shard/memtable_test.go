@@ -57,7 +57,7 @@ func TestMemTable_SortKey(t *testing.T) {
 }
 
 func TestMemTable_ShouldFlush(t *testing.T) {
-	cfg := MemTableConfig{MaxSize: 100, MaxCount: 0, IdleDurationNanos: 0}
+	cfg := &MemTableConfig{MaxSize: 100, MaxCount: 0, IdleDurationNanos: 0}
 	m := NewMemTable(cfg)
 
 	p := &types.Point{

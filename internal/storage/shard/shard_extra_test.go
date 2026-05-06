@@ -310,7 +310,7 @@ func TestShard_ReadFromSSTable_Empty(t *testing.T) {
 }
 
 func TestMemTable_WriteOutOfOrder(t *testing.T) {
-	cfg := MemTableConfig{
+	cfg := &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          1000,
 		IdleDurationNanos: int64(time.Minute),
@@ -352,7 +352,7 @@ func TestMemTable_WriteOutOfOrder(t *testing.T) {
 }
 
 func TestMemTable_ShouldFlush_IdleTimeout(t *testing.T) {
-	cfg := MemTableConfig{
+	cfg := &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          1000,
 		IdleDurationNanos: int64(100 * time.Millisecond),
@@ -377,7 +377,7 @@ func TestMemTable_ShouldFlush_IdleTimeout(t *testing.T) {
 }
 
 func TestMemTable_FlushMultipleTimes(t *testing.T) {
-	cfg := MemTableConfig{
+	cfg := &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          1000,
 		IdleDurationNanos: int64(time.Minute),

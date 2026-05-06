@@ -42,7 +42,7 @@ import (
 type ShardManager struct {
 	dir           string
 	shardDuration time.Duration
-	memTableCfg   MemTableConfig
+	memTableCfg   *MemTableConfig
 	shards        map[string]*Shard
 	metaStores    map[string]*measurement.MeasurementMetaStore // measurement -> metaStore
 	mu            sync.RWMutex
@@ -62,7 +62,7 @@ type ShardManager struct {
 //
 //	Shard 的数据目录为：dir/{db}/{measurement}/{startTime}_{endTime}
 //	MetaStore 是惰性的，第一次写入时创建。
-func NewShardManager(dir string, shardDuration time.Duration, memTableCfg MemTableConfig) *ShardManager {
+func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *MemTableConfig) *ShardManager {
 	return &ShardManager{
 		dir:           dir,
 		shardDuration: shardDuration,

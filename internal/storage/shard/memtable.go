@@ -15,8 +15,8 @@ import (
 type MemTableConfig = types.MemTableConfig
 
 // DefaultMemTableConfig 返回默认配置
-func DefaultMemTableConfig() MemTableConfig {
-	return MemTableConfig{
+func DefaultMemTableConfig() *MemTableConfig {
+	return &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024, // 64MB
 		MaxCount:          3000,
 		IdleDurationNanos: int64(time.Minute),
@@ -68,7 +68,7 @@ type MemTable struct {
 }
 
 // NewMemTable 创建新的 MemTable 实例。
-func NewMemTable(cfg MemTableConfig) *MemTable {
+func NewMemTable(cfg *MemTableConfig) *MemTable {
 	return &MemTable{
 		entries:     make([]*entry, 0, 1024),
 		maxSize:     cfg.MaxSize,

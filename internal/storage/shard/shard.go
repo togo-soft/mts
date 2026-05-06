@@ -69,7 +69,7 @@ type ShardConfig struct {
 	EndTime     int64
 	Dir         string
 	MetaStore   *measurement.MeasurementMetaStore
-	MemTableCfg MemTableConfig
+	MemTableCfg *MemTableConfig
 }
 
 // Shard 是数据存储的基本单元，管理一个时间窗口内的所有数据。
