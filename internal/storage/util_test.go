@@ -10,156 +10,345 @@ import (
 )
 
 func TestSafeMkdirAll(t *testing.T) {
-	tmpDir := t.TempDir()
-	testPath := filepath.Join(tmpDir, "test", "nested", "dir")
-
-	err := SafeMkdirAll(testPath, 0700)
-	if err != nil {
-		t.Fatalf("SafeMkdirAll failed: %v", err)
+	tests := []struct {
+		name     string
+		path     string
+		perm     uint32
+		wantErr  bool
+		validate func(*testing.T, string)
+	}{
+		{
+			name:    "simple directory",
+			path:    filepath.Join(t.TempDir(), "simple"),
+			perm:    0700,
+			wantErr: false,
+			validate: func(t *testing.T, path string) {
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatalf("stat failed: %v", err)
+				}
+				if !info.IsDir() {
+					t.Error("expected directory")
+				}
+			},
+		},
+		{
+			name:    "nested directories",
+			path:    filepath.Join(t.TempDir(), "a", "b", "c"),
+			perm:    0700,
+			wantErr: false,
+			validate: func(t *testing.T, path string) {
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatalf("stat failed: %v", err)
+				}
+				if !info.IsDir() {
+					t.Error("expected directory")
+				}
+			},
+		},
+		{
+			name:    "empty string",
+			path:    "",
+			perm:    0700,
+			wantErr: true,
+			validate: func(t *testing.T, path string) {},
+		},
+		{
+			name:    "current dir",
+			path:    ".",
+			perm:    0700,
+			wantErr: true,
+			validate: func(t *testing.T, path string) {},
+		},
 	}
 
-	info, err := os.Stat(testPath)
-	if err != nil {
-		t.Fatalf("stat failed: %v", err)
-	}
-	if !info.IsDir() {
-		t.Errorf("expected directory")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := SafeMkdirAll(tt.path, tt.perm)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SafeMkdirAll() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				tt.validate(t, tt.path)
+			}
+		})
 	}
 }
 
 func TestSafeCreate(t *testing.T) {
-	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "test.txt")
-
-	f, err := SafeCreate(testFile, 0600)
-	if err != nil {
-		t.Fatalf("SafeCreate failed: %v", err)
+	tests := []struct {
+		name     string
+		path     string
+		perm     uint32
+		wantErr  bool
+		validate func(*testing.T, string)
+	}{
+		{
+			name:    "simple file",
+			path:    filepath.Join(t.TempDir(), "test.txt"),
+			perm:    0600,
+			wantErr: false,
+			validate: func(t *testing.T, path string) {
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatalf("stat failed: %v", err)
+				}
+				if info.IsDir() {
+					t.Error("expected file, not directory")
+				}
+				if runtime.GOOS != "windows" {
+					if info.Mode().Perm() != 0600 {
+						t.Errorf("expected 0600, got %o", info.Mode().Perm())
+					}
+				}
+			},
+		},
+		{
+			name:    "nested path",
+			path:    filepath.Join(t.TempDir(), "nested", "path", "test.txt"),
+			perm:    0600,
+			wantErr: false,
+			validate: func(t *testing.T, path string) {
+				if _, err := os.Stat(path); err != nil {
+					t.Fatalf("stat failed: %v", err)
+				}
+			},
+		},
+		{
+			name:    "parent traversal at root",
+			path:    "../escape.txt",
+			perm:    0600,
+			wantErr: true,
+			validate: func(t *testing.T, path string) {},
+		},
 	}
-	_ = f.Close()
 
-	// Permission check skipped on Windows due to ACL differences
-	if runtime.GOOS != "windows" {
-		info, err := os.Stat(testFile)
-		if err != nil {
-			t.Fatalf("stat failed: %v", err)
-		}
-		if info.Mode().Perm() != 0600 {
-			t.Errorf("expected 0600, got %o", info.Mode().Perm())
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := SafeCreate(tt.path, tt.perm)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SafeCreate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if f != nil {
+				if err := f.Close(); err != nil {
+					t.Logf("Close failed: %v", err)
+				}
+			}
+			if !tt.wantErr {
+				tt.validate(t, tt.path)
+			}
+		})
 	}
 }
 
-func TestSafeCreate_NestedDir(t *testing.T) {
-	tmpDir := t.TempDir()
-	// 测试需要创建嵌套父目录的情况
-	testFile := filepath.Join(tmpDir, "nested", "path", "test.txt")
+func TestSafeOpenFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		flag    int
+		perm    uint32
+		wantErr bool
+		verify  func(*testing.T, string)
+	}{
+		{
+			name:    "create mode",
+			flag:    os.O_RDWR | os.O_CREATE,
+			perm:    0600,
+			wantErr: false,
+			verify: func(t *testing.T, path string) {
+				f, err := os.OpenFile(path, os.O_RDWR, 0600)
+				if err != nil {
+					t.Fatalf("open failed: %v", err)
+				}
+				_ = f.Close()
+			},
+		},
+		{
+			name:    "append mode - sequential writes",
+			flag:    os.O_RDWR | os.O_CREATE | os.O_APPEND,
+			perm:    0600,
+			wantErr: false,
+			verify: func(t *testing.T, path string) {
+				// First write
+				f1, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+				if err != nil {
+					t.Fatalf("SafeOpenFile failed: %v", err)
+				}
+				if _, err := f1.Write([]byte("first")); err != nil {
+					_ = f1.Close()
+					t.Fatalf("Write failed: %v", err)
+				}
+				if err := f1.Close(); err != nil {
+					t.Fatalf("Close failed: %v", err)
+				}
 
-	f, err := SafeCreate(testFile, 0600)
-	if err != nil {
-		t.Fatalf("SafeCreate failed: %v", err)
-	}
-	_ = f.Close()
+				// Second write (append)
+				f2, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+				if err != nil {
+					t.Fatalf("SafeOpenFile failed: %v", err)
+				}
+				if _, err := f2.Write([]byte("second")); err != nil {
+					_ = f2.Close()
+					t.Fatalf("Write failed: %v", err)
+				}
+				if err := f2.Close(); err != nil {
+					t.Fatalf("Close failed: %v", err)
+				}
 
-	// 验证文件存在
-	info, err := os.Stat(testFile)
-	if err != nil {
-		t.Fatalf("stat failed: %v", err)
-	}
-	if info.IsDir() {
-		t.Error("expected file, not directory")
-	}
-}
+				// Verify content
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("ReadFile failed: %v", err)
+				}
+				if string(data) != "firstsecond" {
+					t.Errorf("expected 'firstsecond', got %s", string(data))
+				}
+			},
+		},
+		{
+			name:    "truncate mode",
+			flag:    os.O_RDWR | os.O_CREATE | os.O_TRUNC,
+			perm:    0600,
+			wantErr: false,
+			verify: func(t *testing.T, path string) {
+				// Write some data
+				f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+				if err != nil {
+					t.Fatalf("SafeOpenFile failed: %v", err)
+				}
+				if _, err := f.Write([]byte("hello")); err != nil {
+					_ = f.Close()
+					t.Fatalf("Write failed: %v", err)
+				}
+				_ = f.Close()
 
-func TestSafeOpenFile_AppendMode(t *testing.T) {
-	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "append.txt")
+				// Truncate by opening with O_TRUNC
+				f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+				if err != nil {
+					t.Fatalf("SafeOpenFile failed: %v", err)
+				}
+				_ = f.Close()
 
-	// 第一次创建并写入
-	f, err := SafeOpenFile(testFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-	if err != nil {
-		t.Fatalf("SafeOpenFile failed: %v", err)
-	}
-	if _, err := f.Write([]byte("first")); err != nil {
-		_ = f.Close()
-		t.Fatalf("Write failed: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	// 第二次以追加模式打开并写入
-	f, err = SafeOpenFile(testFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-	if err != nil {
-		t.Fatalf("SafeOpenFile failed: %v", err)
-	}
-	if _, err := f.Write([]byte("second")); err != nil {
-		_ = f.Close()
-		t.Fatalf("Write failed: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
+				// Verify truncated
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("ReadFile failed: %v", err)
+				}
+				if len(data) != 0 {
+					t.Errorf("expected empty file after truncate, got %d bytes", len(data))
+				}
+			},
+		},
 	}
 
-	// 验证内容
-	data, err := os.ReadFile(testFile)
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-	if string(data) != "firstsecond" {
-		t.Errorf("expected 'firstsecond', got %s", string(data))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), tt.name+".txt")
+			f, err := SafeOpenFile(path, tt.flag, tt.perm)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SafeOpenFile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if f != nil {
+				if err := f.Close(); err != nil {
+					t.Logf("Close failed: %v", err)
+				}
+			}
+			if !tt.wantErr {
+				tt.verify(t, path)
+			}
+		})
 	}
 }
 
 func TestPathError(t *testing.T) {
-	underlyingErr := errors.New("permission denied")
-	err := &PathError{
-		Op:   "open",
-		Path: "/test/path",
-		Err:  underlyingErr,
+	tests := []struct {
+		name     string
+		op       string
+		path     string
+		errMsg   string
+		unwraps  bool
+	}{
+		{
+			name:    "open operation",
+			op:      "open",
+			path:    "/test/path",
+			errMsg:  "invalid path: /test/path: permission denied",
+			unwraps: true,
+		},
+		{
+			name:    "create operation",
+			op:      "create",
+			path:    "/another/path",
+			errMsg:  "invalid path: /another/path: permission denied",
+			unwraps: true,
+		},
 	}
 
-	if err.Error() != "invalid path: /test/path: permission denied" {
-		t.Errorf("unexpected error message: %s", err.Error())
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			underlyingErr := errors.New("permission denied")
+			err := &PathError{
+				Op:   tt.op,
+				Path: tt.path,
+				Err:  underlyingErr,
+			}
 
-	unwrapped := err.Unwrap()
-	if unwrapped != underlyingErr {
-		t.Errorf("Unwrap should return the underlying error")
+			if err.Error() != tt.errMsg {
+				t.Errorf("Error() = %q, want %q", err.Error(), tt.errMsg)
+			}
+
+			unwrapped := err.Unwrap()
+			if tt.unwraps && unwrapped != underlyingErr {
+				t.Errorf("Unwrap() = %v, want %v", unwrapped, underlyingErr)
+			}
+		})
 	}
 }
 
 func TestErrInvalidPath(t *testing.T) {
-	if ErrInvalidPath.Error() != "path contains invalid components (../ or absolute path)" {
-		t.Errorf("unexpected error message: %s", ErrInvalidPath.Error())
+	tests := []struct {
+		name string
+		msg  string
+	}{
+		{
+			name: "default message",
+			msg:  "path contains invalid components (../ or absolute path)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if ErrInvalidPath.Error() != tt.msg {
+				t.Errorf("ErrInvalidPath.Error() = %q, want %q", ErrInvalidPath.Error(), tt.msg)
+			}
+		})
 	}
 }
 
 func TestIsPathSafe(t *testing.T) {
-	// 有效路径
-	validPaths := []string{
-		"relative/path",
-		"another/path/here",
-		"single",
-		"path/./with/dots", // filepath.Clean 后变成 "path/with/dots"
+	tests := []struct {
+		name  string
+		path  string
+		safe  bool
+	}{
+		{name: "simple relative", path: "relative/path", safe: true},
+		{name: "another relative", path: "another/path/here", safe: true},
+		{name: "single", path: "single", safe: true},
+		{name: "cleaned dots", path: "path/./with/dots", safe: true},
+		{name: "parent traversal", path: "../parent", safe: false},
+		{name: "deep parent traversal", path: "path/../../escaped", safe: false},
+		{name: "empty", path: "", safe: false},
+		{name: "current dir", path: ".", safe: false},
 	}
 
-	for _, p := range validPaths {
-		if !isPathSafe(p) {
-			t.Errorf("expected %q to be safe", p)
-		}
-	}
-
-	// 无效路径 - 包含 ..
-	invalidPaths := []string{
-		"../parent",
-		"path/../../escaped",
-		"",
-		".",
-	}
-
-	for _, p := range invalidPaths {
-		if isPathSafe(p) {
-			t.Errorf("expected %q to be unsafe", p)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isPathSafe(tt.path); got != tt.safe {
+				t.Errorf("isPathSafe(%q) = %v, want %v", tt.path, got, tt.safe)
+			}
+		})
 	}
 }
