@@ -15,10 +15,10 @@
 //	DropDatabase:      删除数据库
 //	Health:            健康检查
 //
-// 状态码：
+// 错误处理：
 //
-//	成功返回时 Success=true/Healthy=true
-//	失败返回包含具体错误信息
+//	所有方法在失败时返回 gRPC 错误，使用 status.Errorf 设置适当的错误码。
+//	成功时返回带 Success=true 的响应。
 //
 // 使用方法：
 //
@@ -35,6 +35,10 @@ package api
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/types"
@@ -158,17 +162,11 @@ func pointRowToProto(row *types.PointRow) (*types.Row, error) {
 func (s *MicroTSService) Write(ctx context.Context, req *types.WriteRequest) (*types.WriteResponse, error) {
 	point, err := writeRequestToPoint(req)
 	if err != nil {
-		return &types.WriteResponse{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+		return nil, status.Errorf(codes.InvalidArgument, "invalid request: %v", err)
 	}
 
 	if err := s.engine.Write(ctx, point); err != nil {
-		return &types.WriteResponse{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+		return nil, status.Errorf(codes.Internal, "write failed: %v", err)
 	}
 
 	return &types.WriteResponse{
@@ -190,19 +188,13 @@ func (s *MicroTSService) WriteBatch(ctx context.Context, req *types.WriteBatchRe
 	for i, p := range req.Points {
 		point, err := writeRequestToPoint(p)
 		if err != nil {
-			return &types.WriteBatchResponse{
-				Success: false,
-				Error:   fmt.Sprintf("point %d: %v", i, err),
-			}, nil
+			return nil, status.Errorf(codes.InvalidArgument, "point %d: %v", i, err)
 		}
 		points = append(points, point)
 	}
 
 	if err := s.engine.WriteBatch(ctx, points); err != nil {
-		return &types.WriteBatchResponse{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+		return nil, status.Errorf(codes.Internal, "write batch failed: %v", err)
 	}
 
 	return &types.WriteBatchResponse{
@@ -257,10 +249,7 @@ func (s *MicroTSService) ListMeasurements(ctx context.Context, req *types.ListMe
 func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *types.CreateMeasurementRequest) (*types.CreateMeasurementResponse, error) {
 	_, err := s.engine.CreateMeasurement(req.Database, req.Measurement)
 	if err != nil {
-		return &types.CreateMeasurementResponse{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+		return nil, status.Errorf(codes.Internal, "create measurement failed: %v", err)
 	}
 	return &types.CreateMeasurementResponse{
 		Success: true,
@@ -279,16 +268,13 @@ func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *types.Creat
 func (s *MicroTSService) DropMeasurement(ctx context.Context, req *types.DropMeasurementRequest) (*types.DropMeasurementResponse, error) {
 	found, err := s.engine.DropMeasurement(req.Database, req.Measurement)
 	if err != nil {
-		return &types.DropMeasurementResponse{
-			Success: false,
-			Error:   err.Error(),
-		}, nil
+		if strings.Contains(err.Error(), "not found") {
+			return nil, status.Errorf(codes.NotFound, "measurement not found: %s/%s", req.Database, req.Measurement)
+		}
+		return nil, status.Errorf(codes.Internal, "drop measurement failed: %v", err)
 	}
 	if !found {
-		return &types.DropMeasurementResponse{
-			Success: false,
-			Error:   fmt.Sprintf("measurement not found: %s/%s", req.Database, req.Measurement),
-		}, nil
+		return nil, status.Errorf(codes.NotFound, "measurement not found: %s/%s", req.Database, req.Measurement)
 	}
 	return &types.DropMeasurementResponse{
 		Success: true,
@@ -339,10 +325,7 @@ func (s *MicroTSService) CreateDatabase(ctx context.Context, req *types.CreateDa
 func (s *MicroTSService) DropDatabase(ctx context.Context, req *types.DropDatabaseRequest) (*types.DropDatabaseResponse, error) {
 	found := s.engine.DropDatabase(req.Database)
 	if !found {
-		return &types.DropDatabaseResponse{
-			Success: false,
-			Error:   fmt.Sprintf("database not found: %s", req.Database),
-		}, nil
+		return nil, status.Errorf(codes.NotFound, "database not found: %s", req.Database)
 	}
 	return &types.DropDatabaseResponse{
 		Success: true,

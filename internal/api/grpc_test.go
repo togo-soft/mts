@@ -4,6 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -518,15 +521,19 @@ func TestMicroTSService_DropMeasurement_NotFound(t *testing.T) {
 	ctx := t.Context()
 
 	// 删除不存在的 measurement
-	resp, err := srv.DropMeasurement(ctx, &types.DropMeasurementRequest{
+	_, err := srv.DropMeasurement(ctx, &types.DropMeasurementRequest{
 		Database:    "nonexistent",
 		Measurement: "nonexistent",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for nonexistent measurement")
 	}
-	if resp.Success {
-		t.Error("expected failure for nonexistent measurement")
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got: %v", err)
+	}
+	if st.Code() != codes.NotFound {
+		t.Errorf("expected NotFound, got: %v", st.Code())
 	}
 }
 
@@ -539,14 +546,18 @@ func TestMicroTSService_DropDatabase_NotFound(t *testing.T) {
 	ctx := t.Context()
 
 	// 删除不存在的 database
-	resp, err := srv.DropDatabase(ctx, &types.DropDatabaseRequest{
+	_, err := srv.DropDatabase(ctx, &types.DropDatabaseRequest{
 		Database: "nonexistent",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for nonexistent database")
 	}
-	if resp.Success {
-		t.Error("expected failure for nonexistent database")
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got: %v", err)
+	}
+	if st.Code() != codes.NotFound {
+		t.Errorf("expected NotFound, got: %v", st.Code())
 	}
 }
 

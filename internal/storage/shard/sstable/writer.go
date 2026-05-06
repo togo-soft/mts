@@ -33,7 +33,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage"
 	"codeberg.org/micro-ts/mts/types"
@@ -404,9 +403,8 @@ func (w *Writer) flushBlock() error {
 	// 记录 block 索引
 	// 当前 block 的行数 = bufPos / 8 (每个 timestamp 8 字节)
 	blockRowCount := uint32(w.bufPos / 8)
-	// 假设时间戳间隔为 1 秒 (time.Second = 1e9 纳秒)
-	// 注意：这里硬编码了时间间隔，假设写入数据的时间戳间隔为 1 秒
-	lastTs := w.firstTs + int64(blockRowCount-1)*int64(time.Second)
+	// 从 buffer 中提取最后一个 timestamp（位于 bufPos - 8 位置）
+	lastTs := int64(binary.BigEndian.Uint64(w.buf[w.bufPos-8:]))
 	w.blockIndex.Add(w.firstTs, lastTs, offset, blockRowCount)
 
 	// 重置
