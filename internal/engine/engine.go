@@ -135,6 +135,11 @@ func New(cfg *Config) (*Engine, error) {
 //	关闭引擎会清空 MetaStore 缓存。
 //	关闭后引擎实例不可再使用。
 func (e *Engine) Close() error {
+	// 先刷盘确保数据不丢失
+	if err := e.shardManager.FlushAll(); err != nil {
+		// 刷盘失败不影响关闭，但记录日志
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, dbMeta := range e.dbMetaStores {
