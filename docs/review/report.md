@@ -62,18 +62,23 @@ gRPC API → Engine → ShardManager → MemTable/WAL → SSTable
 
 ---
 
-### 3.2 SSTable ReadRange 未使用索引 ⚠️ 待优化
+### 3.2 SSTable ReadRange 未使用索引 ✅ 已优化
 
-**文件**: `internal/storage/shard/sstable/reader.go:322`
+**文件**: `internal/storage/shard/sstable/reader.go`
 
-```go
-// ReadRange 读取指定时间范围内的数据
-// 性能考虑：
-//     当前实现是全表扫描，即使指定了时间范围。
-//     未来可以结合 BlockIndex 实现索引加速。
-func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) {
-    // ... 全表扫描 ...
-}
+**修复方案**:
+- 新增 `readTimestampRange` 和 `readSidsRange` 方法支持部分读取
+- 实现 `readRangeOptimized` 使用 BlockIndex 定位相关 Block
+- 使用二分查找 FindBlock 找到起始 Block
+- 只读取重叠 Block 的 timestamps 和 sids 数据
+- 索引不可用时回退到全表扫描
+
+**优化效果**:
+- 查询时间范围数据时，只读取相关 Block 的 timestamps/sids
+- 减少 I/O 数据量（尤其是在数据时间分布稀疏时）
+- 字段数据仍需全读（因变长字段无法块级索引）
+
+---
 ```
 
 **影响**: 查询性能差，BlockIndex 形同虚设
@@ -257,7 +262,7 @@ estimatedSize := int64(len(m.entries)) * 1024  // 假设 1KB/entry
 | 级别 | 已修复 | 待处理 |
 |------|--------|--------|
 | P0 (严重) | 3 | 0 |
-| P1 (设计缺陷) | 2 | 3 |
+| P1 (设计缺陷) | 3 | 2 |
 | P2 (逻辑问题) | 3 | 0 |
 | P3 (性能优化) | 2 | 0 |
 | P4 (并发安全) | 1 | 0 |

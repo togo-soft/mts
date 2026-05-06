@@ -12,6 +12,7 @@ package sstable
 import (
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -272,12 +273,35 @@ func (r *Reader) readTimestamps(f *os.File) ([]int64, error) {
 		return nil, err
 	}
 
+	return decodeTimestampBatch(data), nil
+}
+
+// readTimestampRange reads timestamps from a specific byte range.
+// This is used with BlockIndex to read only relevant blocks.
+func (r *Reader) readTimestampRange(f *os.File, offset uint32, numRows uint32) ([]int64, error) {
+	// Seek to the block position
+	if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
+		return nil, err
+	}
+
+	// Read only the bytes for this block
+	bytesNeeded := int(numRows) * 8
+	data := make([]byte, bytesNeeded)
+	if _, err := io.ReadFull(f, data); err != nil {
+		return nil, err
+	}
+
+	return decodeTimestampBatch(data), nil
+}
+
+// decodeTimestampBatch decodes a batch of timestamps from byte data.
+func decodeTimestampBatch(data []byte) []int64 {
 	timestamps := make([]int64, 0, len(data)/8)
 	for i := 0; i+8 <= len(data); i += 8 {
 		ts := int64(binary.BigEndian.Uint64(data[i : i+8]))
 		timestamps = append(timestamps, ts)
 	}
-	return timestamps, nil
+	return timestamps
 }
 
 // readSids 读取 Sid 列表
@@ -297,12 +321,41 @@ func (r *Reader) readSids(dataDir string, expectedCount int) ([]uint64, error) {
 		return nil, err
 	}
 
+	return decodeSidBatch(data), nil
+}
+
+// readSidsRange reads sids from a specific byte range.
+func (r *Reader) readSidsRange(dataDir string, offset uint32, numRows uint32) ([]uint64, error) {
+	sidFile, err := os.Open(filepath.Join(dataDir, "_sids.bin"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make([]uint64, 0), nil
+		}
+		return nil, err
+	}
+	defer func() { _ = sidFile.Close() }()
+
+	if _, err := sidFile.Seek(int64(offset), io.SeekStart); err != nil {
+		return nil, err
+	}
+
+	bytesNeeded := int(numRows) * 8
+	data := make([]byte, bytesNeeded)
+	if _, err := io.ReadFull(sidFile, data); err != nil {
+		return nil, err
+	}
+
+	return decodeSidBatch(data), nil
+}
+
+// decodeSidBatch decodes a batch of sids from byte data.
+func decodeSidBatch(data []byte) []uint64 {
 	sids := make([]uint64, 0, len(data)/8)
 	for i := 0; i+8 <= len(data); i += 8 {
 		sid := binary.BigEndian.Uint64(data[i : i+8])
 		sids = append(sids, sid)
 	}
-	return sids, nil
+	return sids
 }
 
 // ReadRange 读取指定时间范围内的数据。
@@ -315,10 +368,11 @@ func (r *Reader) readSids(dataDir string, expectedCount int) ([]uint64, error) {
 //   - []*types.PointRow: 匹配的数据点
 //   - error:            读取失败时返回错误
 //
-// 性能考虑：
+// 优化说明：
 //
-//	当前实现是全表扫描，即使指定了时间范围。
-//	未来可以结合 BlockIndex 实现索引加速。
+//	优先使用 BlockIndex 加速查询。
+//	通过索引找到重叠的 Block，只读取相关数据。
+//	如果索引不可用，回退到全表扫描。
 func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) {
 	dataDir := r.dataDir
 
@@ -327,6 +381,148 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) 
 		return nil, nil
 	}
 
+	// 尝试使用 BlockIndex 优化
+	if r.blockIndex != nil && r.blockIndex.Len() > 0 {
+		return r.readRangeOptimized(dataDir, startTime, endTime)
+	}
+
+	// 回退到全表扫描
+	return r.readRangeFullScan(dataDir, startTime, endTime)
+}
+
+// readRangeOptimized 使用 BlockIndex 优化读取
+func (r *Reader) readRangeOptimized(dataDir string, startTime, endTime int64) ([]*types.PointRow, error) {
+	// 打开 timestamps 文件
+	tsFile, err := os.Open(filepath.Join(dataDir, "_timestamps.bin"))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tsFile.Close() }()
+
+	// 找到第一个可能重叠的 block
+	startBlock := r.blockIndex.FindBlock(startTime)
+	if startBlock >= r.blockIndex.Len() {
+		return nil, nil // 所有 block 都在查询范围之前
+	}
+
+	// 收集需要读取的 block 信息
+	type blockInfo struct {
+		blockIdx   int
+		offset     uint32
+		rowCount   uint32
+		firstTs    int64
+		lastTs     int64
+	}
+
+	var blocks []blockInfo
+	for i := startBlock; i < r.blockIndex.Len(); i++ {
+		entry := r.blockIndex.Entry(i)
+		// block 在查询范围之后，停止
+		if entry.FirstTimestamp >= endTime && endTime > 0 {
+			break
+		}
+		// block 完全在查询范围之前，跳过
+		if entry.LastTimestamp < startTime {
+			continue
+		}
+		blocks = append(blocks, blockInfo{
+			blockIdx: i,
+			offset:   entry.Offset,
+			rowCount: entry.RowCount,
+			firstTs:  entry.FirstTimestamp,
+			lastTs:   entry.LastTimestamp,
+		})
+	}
+
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+
+	// 读取 timestamps 和 sids（只读相关 block）
+	var allTimestamps []int64
+	var allSids []uint64
+
+	for _, b := range blocks {
+		ts, err := r.readTimestampRange(tsFile, b.offset, b.rowCount)
+		if err != nil {
+			return nil, fmt.Errorf("read timestamps block %d: %w", b.blockIdx, err)
+		}
+
+		sids, err := r.readSidsRange(dataDir, b.offset, b.rowCount)
+		if err != nil {
+			return nil, fmt.Errorf("read sids block %d: %w", b.blockIdx, err)
+		}
+
+		allTimestamps = append(allTimestamps, ts...)
+		allSids = append(allSids, sids...)
+	}
+
+	// 找出精确匹配的时间戳索引
+	var matchingIndices []int
+	for i, ts := range allTimestamps {
+		if ts >= startTime && (endTime <= 0 || ts < endTime) {
+			matchingIndices = append(matchingIndices, i)
+		}
+	}
+
+	if len(matchingIndices) == 0 {
+		return nil, nil
+	}
+
+	// 读取所有字段文件
+	entries, err := os.ReadDir(filepath.Join(dataDir, "fields"))
+	if err != nil {
+		return nil, err
+	}
+
+	fields := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			fields = append(fields, e.Name()[:len(e.Name())-4])
+		}
+	}
+
+	fieldData := make(map[string][]byte)
+	for _, name := range fields {
+		f, err := os.Open(filepath.Join(dataDir, "fields", name+".bin"))
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(f)
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, closeErr
+		}
+		if err != nil {
+			return nil, err
+		}
+		fieldData[name] = data
+	}
+
+	// 计算匹配行的偏移量
+	offsets := r.computeOffsets(fields, fieldData, len(allTimestamps))
+
+	// 构建结果
+	rows := make([]*types.PointRow, 0, len(matchingIndices))
+	for _, idx := range matchingIndices {
+		row := &types.PointRow{
+			Sid:       allSids[idx],
+			Timestamp: allTimestamps[idx],
+			Tags:      nil,
+			Fields:    make(map[string]*types.FieldValue),
+		}
+
+		for _, name := range fields {
+			row.Fields[name] = r.decodeFieldValue(fieldData[name], offsets[name][idx], name)
+		}
+
+		rows = append(rows, row)
+	}
+
+	return rows, nil
+}
+
+// readRangeFullScan 回退的全表扫描实现
+func (r *Reader) readRangeFullScan(dataDir string, startTime, endTime int64) ([]*types.PointRow, error) {
 	// 读取 timestamps
 	tsFile, err := os.Open(filepath.Join(dataDir, "_timestamps.bin"))
 	if err != nil {
@@ -355,11 +551,10 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) 
 	fields := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if !e.IsDir() {
-			fields = append(fields, e.Name()[:len(e.Name())-4]) // 去掉 .bin
+			fields = append(fields, e.Name()[:len(e.Name())-4])
 		}
 	}
 
-	// 读取各字段数据
 	fieldData := make(map[string][]byte)
 	for _, name := range fields {
 		f, err := os.Open(filepath.Join(dataDir, "fields", name+".bin"))
@@ -386,7 +581,7 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) 
 			row := &types.PointRow{
 				Sid:       sids[i],
 				Timestamp: ts,
-				Tags:      nil, // Tags 由调用者通过 Sid 从 metaStore 获取
+				Tags:      nil,
 				Fields:    make(map[string]*types.FieldValue),
 			}
 
