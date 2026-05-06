@@ -20,7 +20,7 @@ func main() {
 	cfg := microts.Config{
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
-		MemTableCfg: microts.MemTableConfig{
+		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           64 * 1024 * 1024,
 			MaxCount:          3000,
 			IdleDurationNanos: int64(5 * time.Second),

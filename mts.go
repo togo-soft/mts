@@ -114,11 +114,11 @@ type (
 //
 // DataDir 指定数据存储目录，必须可写。
 // ShardDuration 定义每个 shard 的时间窗口，最小 1 小时，默认 7 天。
-// MemTableCfg 配置内存表行为，使用零值时将采用 DefaultMemTableConfig() 的默认值。
+// MemTableCfg 配置内存表行为，使用 nil 时将采用 DefaultMemTableConfig() 的默认值。
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
-	MemTableCfg   types.MemTableConfig
+	MemTableCfg   *types.MemTableConfig
 }
 
 // DefaultMemTableConfig 返回默认的 MemTable 配置。
@@ -138,8 +138,8 @@ type Config struct {
 //	    DataDir:       "/data",
 //	    MemTableCfg:   microts.DefaultMemTableConfig(),
 //	}
-func DefaultMemTableConfig() types.MemTableConfig {
-	return types.MemTableConfig{
+func DefaultMemTableConfig() *types.MemTableConfig {
+	return &types.MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          3000,
 		IdleDurationNanos: int64(time.Minute),
@@ -191,7 +191,7 @@ func Open(cfg Config) (*DB, error) {
 
 	// 默认 MemTable 配置
 	memTableCfg := cfg.MemTableCfg
-	if memTableCfg.MaxSize == 0 {
+	if memTableCfg == nil || memTableCfg.MaxSize == 0 {
 		memTableCfg = DefaultMemTableConfig()
 	}
 
@@ -205,11 +205,7 @@ func Open(cfg Config) (*DB, error) {
 	eng, err := engine.New(&engine.Config{
 		DataDir:       cfg.DataDir,
 		ShardDuration: shardDuration,
-		MemTableCfg: types.MemTableConfig{
-			MaxSize:           memTableCfg.MaxSize,
-			MaxCount:          int32(memTableCfg.MaxCount),
-			IdleDurationNanos: memTableCfg.IdleDurationNanos,
-		},
+		MemTableCfg:   memTableCfg,
 	})
 	if err != nil {
 		return nil, err
