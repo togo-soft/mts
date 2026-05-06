@@ -109,6 +109,7 @@ type Shard struct {
 	dir         string
 	memTable    *MemTable
 	wal         *WAL
+	walDone     chan struct{} // WAL 定期同步停止信号
 	metaStore   *measurement.MeasurementMetaStore
 	sidCache    map[uint64]map[string]string // sid → tags 缓存
 	tsSidMap    map[int64]uint64             // timestamp → sid 映射
@@ -175,7 +176,8 @@ func NewShard(cfg ShardConfig) *Shard {
 		}
 	}
 
-	return &Shard{
+	// 创建 Shard 实例
+	shard := &Shard{
 		db:          cfg.DB,
 		measurement: cfg.Measurement,
 		startTime:   cfg.StartTime,
@@ -183,10 +185,18 @@ func NewShard(cfg ShardConfig) *Shard {
 		dir:         cfg.Dir,
 		memTable:    memTable,
 		wal:         wal,
+		walDone:     make(chan struct{}),
 		metaStore:   cfg.MetaStore,
 		sidCache:    make(map[uint64]map[string]string),
 		tsSidMap:    make(map[int64]uint64),
 	}
+
+	// 启动 WAL 定期同步（如果 WAL 存在）
+	if wal != nil {
+		go wal.StartPeriodicSync(time.Minute, shard.walDone)
+	}
+
+	return shard
 }
 
 // StartTime 返回 Shard 时间窗口的起始时间。
@@ -553,7 +563,12 @@ func (s *Shard) Close() error {
 		delete(s.tsSidMap, ts)
 	}
 
-	// 3. 关闭 WAL
+	// 3. 停止 WAL 定期同步 goroutine
+	if s.wal != nil && s.walDone != nil {
+		close(s.walDone)
+	}
+
+	// 4. 关闭 WAL
 	if s.wal != nil {
 		if err := s.wal.Close(); err != nil {
 			return fmt.Errorf("close wal: %w", err)

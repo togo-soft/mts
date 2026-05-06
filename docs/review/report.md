@@ -49,29 +49,20 @@ gRPC API → Engine → ShardManager → MemTable/WAL → SSTable
 
 ---
 
-## 三、设计缺陷 (P1) ⚠️ 待处理
+## 三、设计缺陷 (P1) ⚠️ 部分修复
 
-### 3.1 WAL 定期同步未启用 ⚠️
+### 3.1 WAL 定期同步未启用 ✅ 已修复
 
 **文件**: `internal/storage/shard/shard.go`
 
-WAL 有 `StartPeriodicSync` 方法，但创建后从未调用：
-
-```go
-// NewShard 创建新的 Shard 实例
-wal, err := NewWAL(walDir, 0)
-if err != nil {
-    wal = nil  // 只是记录警告，从未启动定期同步
-}
-```
-
-**影响**: 系统崩溃时可能丢失多个同步间隔的数据
-
-**建议**: 在 Shard 创建后启动定期同步 goroutine
+**修复方案**:
+- Shard 结构体添加 `walDone` channel 字段
+- NewShard 中 WAL 创建成功后启动定期同步 goroutine（默认 1 分钟间隔）
+- Close 时通过 walDone channel 停止定期同步
 
 ---
 
-### 3.2 SSTable ReadRange 未使用索引 ⚠️
+### 3.2 SSTable ReadRange 未使用索引 ⚠️ 待优化
 
 **文件**: `internal/storage/shard/sstable/reader.go:322`
 
@@ -89,7 +80,7 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) 
 
 ---
 
-### 3.3 无数据过期 (TTL) 机制 ⚠️
+### 3.3 无数据过期 (TTL) 机制 ⚠️ 待实现
 
 SSTable 文件只增不减，没有任何 compaction 或 TTL 逻辑。
 
@@ -97,44 +88,26 @@ SSTable 文件只增不减，没有任何 compaction 或 TTL 逻辑。
 
 ---
 
-### 3.4 Engine.Close() 未调用 FlushAll ⚠️
+### 3.4 Engine.Close() 未调用 FlushAll ✅ 已修复
 
-**文件**: `internal/engine/engine.go:116`
+**文件**: `internal/engine/engine.go`
 
-```go
-func (e *Engine) Close() error {
-    e.mu.Lock()
-    defer e.mu.Unlock()
-    for _, dbMeta := range e.dbMetaStores {
-        _ = dbMeta.Close()
-    }
-    e.dbMetaStores = nil
-    // ❌ 没有调用 e.shardManager.FlushAll()
-    return nil
-}
-```
-
-而 `DB.Close()` 调用了 Flush：
-
-```go
-// mts.go:566
-func (db *DB) Close() error {
-    _ = db.engine.Flush()  // 这里调用了
-    return db.engine.Close()
-}
-```
-
-**影响**: 如果 Engine.Close() 被直接调用，数据可能丢失
+**修复方案**:
+- Engine.Close() 首先调用 shardManager.FlushAll() 刷盘
+- 刷盘失败不影响关闭流程，但记录日志
 
 ---
 
-### 3.5 MetaStore 持久化未自动触发 ⚠️
+### 3.5 MetaStore 持久化未自动 ⚠️ 待重构
 
-MetaStore 有 `Persist()` 方法，但只在 `measurement` 包内部使用，外部写入路径从未调用。
+MetaStore 有 `Persist()` 方法，但只在测试中使用，外部写入路径从未调用。
 
 **影响**: MetaStore 元数据（Schema、Series）变更不会自动保存到磁盘
 
+**注意**: 需要重新设计 MetaStore 添加路径跟踪，较大改动，待后续处理
+
 ---
+
 
 ## 四、并发安全问题 ✅ 已修复
 
@@ -284,7 +257,7 @@ estimatedSize := int64(len(m.entries)) * 1024  // 假设 1KB/entry
 | 级别 | 已修复 | 待处理 |
 |------|--------|--------|
 | P0 (严重) | 3 | 0 |
-| P1 (设计缺陷) | 0 | 5 |
+| P1 (设计缺陷) | 2 | 3 |
 | P2 (逻辑问题) | 3 | 0 |
 | P3 (性能优化) | 2 | 0 |
 | P4 (并发安全) | 1 | 0 |
