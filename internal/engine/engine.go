@@ -67,6 +67,7 @@ type Config struct {
 	DataDir                string
 	ShardDuration          time.Duration
 	MemTableCfg            *types.MemTableConfig
+	CompactionCfg          *shard.CompactionConfig
 	RetentionPeriod        time.Duration // 数据保留期，0 表示不自动删除
 	RetentionCheckInterval time.Duration // 检查间隔，0 表示默认 1 小时
 }
@@ -142,7 +143,7 @@ func New(cfg *Config) (*Engine, error) {
 
 	engine := &Engine{
 		cfg:          cfg,
-		shardManager: shard.NewShardManager(cfg.DataDir, cfg.ShardDuration, memTableCfg),
+		shardManager: shard.NewShardManager(cfg.DataDir, cfg.ShardDuration, memTableCfg, cfg.CompactionCfg),
 		dbMetaStores: make(map[string]*measurement.DatabaseMetaStore),
 	}
 

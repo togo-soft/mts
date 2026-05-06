@@ -166,7 +166,7 @@ func TestShard_NextSstRow(t *testing.T) {
 
 func TestShardManager_GetShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig())
+	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
 
 	// 获取不存在的 shard（不应该创建新的）
 	shards := sm.GetShards("db1", "cpu", 0, time.Hour.Nanoseconds())
@@ -196,7 +196,7 @@ func TestShardManager_GetShards(t *testing.T) {
 
 func TestShardManager_FlushAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig())
+	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
 
 	// 创建 shard 并写入数据
 	s, err := sm.GetShard("db1", "cpu", time.Hour.Nanoseconds()/2)

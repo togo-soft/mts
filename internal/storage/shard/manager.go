@@ -54,9 +54,10 @@ type ShardManager struct {
 	dir                    string
 	shardDuration          time.Duration
 	memTableCfg            *MemTableConfig
+	compactionCfg          *CompactionConfig
 	shards                 map[string]*Shard
 	metaStores             map[string]*measurement.MeasurementMetaStore // measurement -> metaStore
-	discoveredMeasurements map[string]bool // db/measurement -> 已发现
+	discoveredMeasurements map[string]bool                              // db/measurement -> 已发现
 	mu                     sync.RWMutex
 }
 
@@ -74,11 +75,12 @@ type ShardManager struct {
 //
 //	Shard 的数据目录为：dir/{db}/{measurement}/{startTime}_{endTime}
 //	MetaStore 是惰性的，第一次写入时创建。
-func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *MemTableConfig) *ShardManager {
+func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *MemTableConfig, compactionCfg *CompactionConfig) *ShardManager {
 	return &ShardManager{
 		dir:                    dir,
 		shardDuration:          shardDuration,
 		memTableCfg:            memTableCfg,
+		compactionCfg:          compactionCfg,
 		shards:                 make(map[string]*Shard),
 		metaStores:             make(map[string]*measurement.MeasurementMetaStore),
 		discoveredMeasurements: make(map[string]bool),
@@ -145,13 +147,14 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 	// 创建新 Shard
 	shardDir := filepath.Join(m.dir, db, measurementName, formatTimeRange(startTime, endTime))
 	s = NewShard(ShardConfig{
-		DB:          db,
-		Measurement: measurementName,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		Dir:         shardDir,
-		MetaStore:   metaStore,
-		MemTableCfg: m.memTableCfg,
+		DB:            db,
+		Measurement:   measurementName,
+		StartTime:     startTime,
+		EndTime:       endTime,
+		Dir:           shardDir,
+		MetaStore:     metaStore,
+		MemTableCfg:   m.memTableCfg,
+		CompactionCfg: m.compactionCfg,
 	})
 	m.shards[key] = s
 	return s, nil
@@ -240,12 +243,12 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 //
 // 发现流程：
 //
-//	1. 标记 measurement 为已发现（避免重复扫描）
-//	2. 获取或创建 MetaStore
-//	3. 扫描 measurement 目录，找到所有 shard 子目录
-//	4. 解析目录名获取 startTime 和 endTime
-//	5. 为每个 shard 创建 Shard 实例（加载 WAL replay 数据）
-//	6. 将 shard 加入缓存
+//  1. 标记 measurement 为已发现（避免重复扫描）
+//  2. 获取或创建 MetaStore
+//  3. 扫描 measurement 目录，找到所有 shard 子目录
+//  4. 解析目录名获取 startTime 和 endTime
+//  5. 为每个 shard 创建 Shard 实例（加载 WAL replay 数据）
+//  6. 将 shard 加入缓存
 func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 	metaKey := db + "/" + measurementName
 
@@ -299,13 +302,14 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 		// 创建 Shard 实例（会加载 WAL replay 数据）
 		shardDir := filepath.Join(measurementDir, entry.Name())
 		shard := NewShard(ShardConfig{
-			DB:          db,
-			Measurement: measurementName,
-			StartTime:   startTime,
-			EndTime:     endTime,
-			Dir:         shardDir,
-			MetaStore:   metaStore,
-			MemTableCfg: m.memTableCfg,
+			DB:            db,
+			Measurement:   measurementName,
+			StartTime:     startTime,
+			EndTime:       endTime,
+			Dir:           shardDir,
+			MetaStore:     metaStore,
+			MemTableCfg:   m.memTableCfg,
+			CompactionCfg: m.compactionCfg,
 		})
 		m.shards[key] = shard
 	}
