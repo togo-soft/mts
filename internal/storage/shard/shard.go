@@ -479,6 +479,11 @@ func (s *Shard) Flush() error {
 		return fmt.Errorf("close sstable writer: %w", err)
 	}
 
+	// 清空当前 WAL 文件（数据已持久化到 SSTable，不再需要）
+	if s.wal != nil {
+		_ = s.wal.TruncateCurrent()
+	}
+
 	// 显式清空 points 引用，帮助 GC 回收内存
 	for i := range points {
 		points[i] = nil
@@ -512,6 +517,11 @@ func (s *Shard) flushLocked() error {
 
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("close sstable writer: %w", err)
+	}
+
+	// 清空当前 WAL 文件（数据已持久化到 SSTable，不再需要）
+	if s.wal != nil {
+		_ = s.wal.TruncateCurrent()
 	}
 
 	// 显式清空 points 引用，帮助 GC 回收内存

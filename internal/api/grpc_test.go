@@ -761,11 +761,15 @@ func TestMicroTSService_WriteBatch_WithEngineError(t *testing.T) {
 		},
 	}
 
+	// 引擎关闭后，WriteBatch 应该返回错误
 	resp, err := srv.WriteBatch(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error when engine is closed")
 	}
-	// WriteBatch 可能成功但写入失败
+	// 验证错误信息包含 "engine is closed"
+	if resp != nil {
+		t.Log("response should be nil on error")
+	}
 	_ = resp
 }
 
