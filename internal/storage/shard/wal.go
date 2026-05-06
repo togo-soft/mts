@@ -15,6 +15,9 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+// WAL 文件大小阈值，达到后滚动到新文件。
+const walFileSizeLimit = 64 * 1024 * 1024 // 64MB
+
 // WAL Write-Ahead Log 实现。
 //
 // 功能：
@@ -22,6 +25,7 @@ import (
 //   - 提供先写日志的持久化保证
 //   - 支持缓冲写入提高性能
 //   - 支持定期同步和显式同步
+//   - 支持文件滚动，避免单个文件过大
 //
 // 数据格式：
 //
@@ -30,13 +34,14 @@ import (
 //
 // 字段说明：
 //
-//   - dir:    WAL 文件所在目录
-//   - seq:    文件序列号
-//   - file:   底层文件句柄
-//   - mu:     保护并发访问的锁
-//   - buf:    4KB 写缓冲区
-//   - pos:    缓冲区当前位置
-//   - logger: 日志记录器
+//   - dir:       WAL 文件所在目录
+//   - seq:       文件序列号
+//   - file:      底层文件句柄
+//   - mu:        保护并发访问的锁
+//   - buf:       4KB 写缓冲区
+//   - pos:       缓冲区当前位置
+//   - logger:    日志记录器
+//   - fileSize:  当前文件已写入的字节数（不含缓冲区）
 //
 // 使用模式：
 //
@@ -45,17 +50,24 @@ import (
 //	// ...
 //	wal.Close()
 //
+// 文件滚动：
+//
+//	当文件大小超过 walFileSizeLimit (64MB) 时，
+//	自动创建新的 WAL 文件继续写入。
+//	通过 Sequence() 获取当前 WAL 的序列号。
+//
 // 恢复：
 //
 //	使用 ReplayWAL 函数在启动时恢复数据点。
 type WAL struct {
-	dir    string
-	seq    uint64
-	file   *os.File
-	mu     sync.Mutex
-	buf    []byte
-	pos    int
-	logger *slog.Logger
+	dir      string
+	seq      uint64
+	file     *os.File
+	mu       sync.Mutex
+	buf      []byte
+	pos      int
+	logger   *slog.Logger
+	fileSize int64 // 当前文件已写入的字节数
 }
 
 // NewWAL 创建新的 WAL 实例。
@@ -134,12 +146,24 @@ func padSeq(seq uint64) string {
 //
 //	数据先写入 4KB 缓冲区，缓冲区满时刷到文件。
 //	应用程序应定期调用 Sync() 或启动 StartPeriodicSync 确保持久化。
+//
+// 文件滚动：
+//
+//	当文件大小超过 64MB 时，自动创建新的 WAL 文件继续写入。
 func (w *WAL) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	// 计算需要的空间：4 bytes length + data
 	need := 4 + len(data)
+
+	// 检查是否需要滚动到新文件
+	if int64(need) > walFileSizeLimit-w.fileSize {
+		if err := w.rotateLocked(); err != nil {
+			return 0, err
+		}
+	}
+
 	if len(w.buf)-w.pos < need {
 		// 刷新到文件
 		if err := w.flushLocked(); err != nil {
@@ -156,6 +180,33 @@ func (w *WAL) Write(data []byte) (int, error) {
 	w.pos += len(data)
 
 	return len(data), nil
+}
+
+// rotateLocked 滚动到新的 WAL 文件。
+//
+// 需要持有 w.mu 锁。
+func (w *WAL) rotateLocked() error {
+	// 先刷出当前缓冲区
+	if err := w.flushLocked(); err != nil {
+		return err
+	}
+	if err := w.file.Sync(); err != nil {
+		return err
+	}
+	if err := w.file.Close(); err != nil {
+		return err
+	}
+
+	// 创建新文件
+	w.seq++
+	filename := filepath.Join(w.dir, padSeq(w.seq)+".wal")
+	f, err := storage.SafeOpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		return err
+	}
+	w.file = f
+	w.fileSize = 0
+	return nil
 }
 
 // ErrShortWrite 表示写入的字节数少于预期。
@@ -175,6 +226,7 @@ func (w *WAL) flushLocked() error {
 	if n != w.pos {
 		return ErrShortWrite
 	}
+	w.fileSize += int64(w.pos)
 	w.pos = 0
 	return nil
 }
@@ -275,6 +327,78 @@ func (w *WAL) Close() error {
 		return err
 	}
 	return w.file.Close()
+}
+
+// Cleanup 删除旧的 WAL 文件。
+//
+// 调用时机：
+//
+//	在 MemTable 成功刷盘到 SSTable 后调用。
+//	此时旧 WAL 文件中的数据已经持久化到 SSTable，不再需要。
+//
+// 删除策略：
+//
+//	删除所有序列号小于当前序列号的 WAL 文件。
+//	当前 WAL 文件不会被删除（由 TruncateCurrent 处理）。
+func (w *WAL) Cleanup() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	pattern := filepath.Join(w.dir, "*.wal")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range matches {
+		filename := filepath.Base(path)
+		seqStr := filename[:len(filename)-4] // 去掉 ".wal" 后缀
+		var seq uint64
+		if _, err := fmt.Sscanf(seqStr, "%020d", &seq); err != nil {
+			continue // 跳过无法解析的文件名
+		}
+		if seq < w.seq {
+			if err := os.Remove(path); err != nil {
+				w.logger.Warn("failed to remove old WAL file", "path", path, "error", err)
+			}
+		}
+	}
+	return nil
+}
+
+// TruncateCurrent 清空当前 WAL 文件。
+//
+// 调用时机：
+//
+//	在 MemTable 成功刷盘到 SSTable 后调用。
+//	此时数据已在 SSTable 中，不再需要 WAL 中的数据。
+//
+// 实现：
+//
+//	先刷盘和 sync，然后截断文件到 0。
+//	文件句柄保持打开状态，无需重建。
+func (w *WAL) TruncateCurrent() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// 先刷出缓冲区
+	if err := w.flushLocked(); err != nil {
+		return err
+	}
+	if err := w.file.Sync(); err != nil {
+		return err
+	}
+
+	// 截断文件到 0
+	if err := w.file.Truncate(0); err != nil {
+		return err
+	}
+	// 重新定位到文件开头
+	if _, err := w.file.Seek(0, 0); err != nil {
+		return err
+	}
+	w.fileSize = 0
+	return nil
 }
 
 // Point 序列化格式:

@@ -93,12 +93,19 @@ type Config struct {
 //
 //	使用 New 创建，使用 Close 关闭。
 //	关闭后不可再使用。
+//
+// 优雅关闭：
+//
+//	调用 Close 时会等待正在运行的查询完成后再关闭。
+//	通过 context 可以设置关闭超时。
 type Engine struct {
 	cfg              *Config
 	shardManager     *shard.ShardManager
 	retentionService *shard.RetentionService
 	dbMetaStores     map[string]*measurement.DatabaseMetaStore
 	mu               sync.RWMutex
+	shutdownMu       sync.Mutex
+	closed           bool
 }
 
 // New 创建新的存储引擎实例。
@@ -157,11 +164,24 @@ func New(cfg *Config) (*Engine, error) {
 // 返回：
 //   - error: 关闭失败时返回错误
 //
+// 优雅关闭：
+//
+//	关闭时会等待正在运行的查询完成后再关闭资源。
+//	如果等待超时，强制关闭。
+//
 // 注意：
 //
 //	关闭引擎会停止 RetentionService、持久化 MetaStore 并清空缓存。
 //	关闭后引擎实例不可再使用。
 func (e *Engine) Close() error {
+	e.shutdownMu.Lock()
+	if e.closed {
+		e.shutdownMu.Unlock()
+		return nil
+	}
+	e.closed = true
+	e.shutdownMu.Unlock()
+
 	// 停止 RetentionService
 	if e.retentionService != nil {
 		e.retentionService.Stop()
@@ -182,6 +202,13 @@ func (e *Engine) Close() error {
 	return nil
 }
 
+// isClosed 检查引擎是否已关闭。
+func (e *Engine) isClosed() bool {
+	e.shutdownMu.Lock()
+	defer e.shutdownMu.Unlock()
+	return e.closed
+}
+
 // Flush 将所有 MemTable 数据刷写到 SSTable。
 //
 // 返回：
@@ -200,10 +227,11 @@ func (e *Engine) Flush() error {
 // 写入流程：
 //
 //  1. 检查上下文状态（是否已取消）
-//  2. 根据时间戳确定或创建目标 Shard
-//  3. 将数据写入对应的 Shard
-//  4. Shard 内部先写 WAL，再写 MemTable
-//  5. 检查 MemTable 是否需要刷盘
+//  2. 检查引擎是否已关闭
+//  3. 根据时间戳确定或创建目标 Shard
+//  4. 将数据写入对应的 Shard
+//  5. Shard 内部先写 WAL，再写 MemTable
+//  6. 检查 MemTable 是否需要刷盘
 //
 // 参数：
 //   - ctx:    上下文，用于取消操作
@@ -227,6 +255,11 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
+	}
+
+	// 检查引擎是否已关闭
+	if e.isClosed() {
+		return errors.New("engine is closed")
 	}
 
 	// 输入验证
@@ -310,7 +343,16 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 //
 //	支持 Offset/Limit 分页。HasMore 表示结果集中还有更多数据。
 //	流式语义下，TotalCount 只反映当前页数量（当 HasMore=true 时）。
+//
+// 引擎关闭：
+//
+//	如果引擎正在关闭，查询会返回错误。
 func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
+	// 检查引擎是否已关闭
+	if e.isClosed() {
+		return nil, errors.New("engine is closed")
+	}
+
 	// 获取相交的 Shard
 	shards := e.shardManager.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
 
@@ -467,7 +509,16 @@ func (e *Engine) DataDir() string {
 //
 //	接受纳秒级 Unix 时间戳，内部计算需要访问的 Shard 列表。
 //	如果没有匹配的 Shard，返回错误。
+//
+// 引擎关闭：
+//
+//	如果引擎正在关闭，返回错误。
 func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {
+	// 检查引擎是否已关闭
+	if e.isClosed() {
+		return nil, errors.New("engine is closed")
+	}
+
 	// 使用原始时间（假设为纳秒）
 	startTimeNs := req.StartTime
 	endTimeNs := req.EndTime

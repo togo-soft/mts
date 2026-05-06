@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,28 +27,37 @@ import (
 //
 //   - 为数据点路由到正确的 Shard
 //   - 按需创建新的 Shard
+//   - 查询时按需发现已存在的 Shard（DiscoverShards）
 //   - 维护 MetaStore 缓存
+//
+// Shard 发现机制：
+//
+//	Shard 在写入时按需创建（GetShard）。
+//	Shard 在查询时按需发现（GetShards 触发 DiscoverShards）。
+//	通过 discoveredMeasurements 集合避免重复扫描同一 measurement。
 //
 // 字段说明：
 //
-//   - dir:           数据存储根目录
-//   - shardDuration: 分片时间窗口
-//   - memTableCfg:   传递给新 Shard 的 MemTable 配置
-//   - shards:        已创建的 Shard 缓存
-//   - metaStores:    Measurement 级别的 MetaStore 缓存
-//   - mu:            读写锁保护 shards 和 metaStores
+//   - dir:                  数据存储根目录
+//   - shardDuration:        分片时间窗口
+//   - memTableCfg:          传递给新 Shard 的 MemTable 配置
+//   - shards:              已创建的 Shard 缓存
+//   - metaStores:          Measurement 级别的 MetaStore 缓存
+//   - discoveredMeasurements: 已完成目录扫描的 db/measurement 组合
+//   - mu:                  读写锁保护 shards 和 metaStores
 //
 // 并发安全：
 //
 //	所有公共方法都是线程安全的。
 //	使用双检锁模式优化读性能。
 type ShardManager struct {
-	dir           string
-	shardDuration time.Duration
-	memTableCfg   *MemTableConfig
-	shards        map[string]*Shard
-	metaStores    map[string]*measurement.MeasurementMetaStore // measurement -> metaStore
-	mu            sync.RWMutex
+	dir                    string
+	shardDuration          time.Duration
+	memTableCfg            *MemTableConfig
+	shards                 map[string]*Shard
+	metaStores             map[string]*measurement.MeasurementMetaStore // measurement -> metaStore
+	discoveredMeasurements map[string]bool // db/measurement -> 已发现
+	mu                     sync.RWMutex
 }
 
 // NewShardManager 创建新的 Shard 管理器。
@@ -66,11 +76,12 @@ type ShardManager struct {
 //	MetaStore 是惰性的，第一次写入时创建。
 func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *MemTableConfig) *ShardManager {
 	return &ShardManager{
-		dir:           dir,
-		shardDuration: shardDuration,
-		memTableCfg:   memTableCfg,
-		shards:        make(map[string]*Shard),
-		metaStores:    make(map[string]*measurement.MeasurementMetaStore),
+		dir:                    dir,
+		shardDuration:          shardDuration,
+		memTableCfg:            memTableCfg,
+		shards:                 make(map[string]*Shard),
+		metaStores:             make(map[string]*measurement.MeasurementMetaStore),
+		discoveredMeasurements: make(map[string]bool),
 	}
 }
 
@@ -195,14 +206,23 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 //	如果需要写入，应使用 GetOrCreateShard；
 //	如果只是查询，返回空时通常返回空结果而非错误。
 func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime int64) []*Shard {
+	m.mu.RLock()
+	alreadyDiscovered := m.discoveredMeasurements[db+"/"+measurementName]
+	m.mu.RUnlock()
+
+	// 如果尚未发现过此 measurement，触发按需发现
+	if !alreadyDiscovered {
+		m.discoverShardsLocked(db, measurementName)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	var result []*Shard
 
 	// 计算时间范围内的所有 shard start 时间
 	shardDuration := int64(m.shardDuration)
 	shardStart := (startTime / shardDuration) * shardDuration
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 
 	for ts := shardStart; ts < endTime; ts += shardDuration {
 		key := m.makeKey(db, measurementName, ts)
@@ -212,6 +232,83 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 	}
 
 	return result
+}
+
+// discoverShardsLocked 扫描 db/measurement 目录，发现已存在的 Shard。
+//
+// 调用此方法前必须持有写锁。
+//
+// 发现流程：
+//
+//	1. 标记 measurement 为已发现（避免重复扫描）
+//	2. 获取或创建 MetaStore
+//	3. 扫描 measurement 目录，找到所有 shard 子目录
+//	4. 解析目录名获取 startTime 和 endTime
+//	5. 为每个 shard 创建 Shard 实例（加载 WAL replay 数据）
+//	6. 将 shard 加入缓存
+func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
+	metaKey := db + "/" + measurementName
+
+	// 标记为已发现（即使目录不存在，也要避免重复扫描）
+	m.discoveredMeasurements[metaKey] = true
+
+	measurementDir := filepath.Join(m.dir, db, measurementName)
+	entries, err := os.ReadDir(measurementDir)
+	if err != nil {
+		// 目录不存在或无法读取，说明没有已存在的 shard
+		return
+	}
+
+	// 获取或创建 MetaStore
+	metaStore, ok := m.metaStores[metaKey]
+	if !ok {
+		metaStore = measurement.NewMeasurementMetaStore()
+		// 设置持久化路径: dir/db/measurement/meta.json
+		metaPath := filepath.Join(measurementDir, "meta.json")
+		metaStore.SetPersistPath(metaPath)
+		m.metaStores[metaKey] = metaStore
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		// 解析目录名，格式为 startTime_endTime
+		parts := strings.Split(entry.Name(), "_")
+		if len(parts) != 2 {
+			continue
+		}
+
+		startTime, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		endTime, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			continue
+		}
+
+		key := m.makeKey(db, measurementName, startTime)
+
+		// 跳过已缓存的 shard
+		if _, ok := m.shards[key]; ok {
+			continue
+		}
+
+		// 创建 Shard 实例（会加载 WAL replay 数据）
+		shardDir := filepath.Join(measurementDir, entry.Name())
+		shard := NewShard(ShardConfig{
+			DB:          db,
+			Measurement: measurementName,
+			StartTime:   startTime,
+			EndTime:     endTime,
+			Dir:         shardDir,
+			MetaStore:   metaStore,
+			MemTableCfg: m.memTableCfg,
+		})
+		m.shards[key] = shard
+	}
 }
 
 func (m *ShardManager) calcShardStart(timestamp int64) int64 {
