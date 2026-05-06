@@ -91,9 +91,11 @@ type Engine struct {
 //	目前不会返回错误，但保留错误返回值以便未来扩展。
 func New(cfg *Config) (*Engine, error) {
 	// 默认 MemTable 配置
-	memTableCfg := cfg.MemTableCfg
-	if memTableCfg.MaxSize == 0 {
+	var memTableCfg *types.MemTableConfig
+	if cfg.MemTableCfg.MaxSize == 0 {
 		memTableCfg = shard.DefaultMemTableConfig()
+	} else {
+		memTableCfg = &cfg.MemTableCfg
 	}
 	return &Engine{
 		cfg:          cfg,
