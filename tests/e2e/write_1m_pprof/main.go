@@ -22,11 +22,11 @@ func main() {
 		fmt.Printf("Failed to create profile file: %v\n", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	tmpDir := filepath.Join(os.TempDir(), "microts_write_pprof")
-	os.RemoveAll(tmpDir)
-	defer os.RemoveAll(tmpDir)
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := microts.Config{
 		DataDir:       tmpDir,
@@ -43,7 +43,7 @@ func main() {
 		fmt.Printf("Open failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	gen := data_gen.NewDataGenerator(42)
 	baseTime := time.Now().UnixNano()
@@ -75,7 +75,7 @@ func main() {
 		fmt.Printf("Failed to write heap profile: %v\n", err)
 		os.Exit(1)
 	}
-	f.Close()
+	_ = f.Close()
 
 	fmt.Printf("\nHeap profile saved to: %s\n", filepath.Join(os.TempDir(), "memprofile.prof"))
 	fmt.Printf("To analyze: go tool pprof %s\n", filepath.Join(os.TempDir(), "memprofile.prof"))

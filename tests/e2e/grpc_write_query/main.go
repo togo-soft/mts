@@ -27,8 +27,8 @@ const (
 
 func main() {
 	tmpDir := filepath.Join(os.TempDir(), "microts_grpc_test")
-	os.RemoveAll(tmpDir)
-	defer os.RemoveAll(tmpDir)
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 启动 gRPC 服务端（在后台 goroutine）
 	ctx, cancel := context.WithCancel(context.Background())
@@ -45,7 +45,7 @@ func main() {
 		fmt.Printf("Failed to connect: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := types.NewMicroTSClient(conn)
 
@@ -212,7 +212,7 @@ func startServer(ctx context.Context, dataDir string) {
 		fmt.Printf("Failed to create engine: %v\n", err)
 		os.Exit(1)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	lis, err := net.Listen("tcp", serverAddr)
 	if err != nil {

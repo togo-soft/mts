@@ -6,15 +6,15 @@
 //
 // 类型分类：
 //
-// 	基础类型：Point, PointRow, FieldValue, FieldType
-// 	gRPC 消息：WriteRequest, WriteResponse, QueryRangeRequest, etc.
-// 	配置类型：Config, MemTableConfig
-// 	元数据类型：MeasurementMeta, FieldDef
+//	基础类型：Point, PointRow, FieldValue, FieldType
+//	gRPC 消息：WriteRequest, WriteResponse, QueryRangeRequest, etc.
+//	配置类型：Config, MemTableConfig
+//	元数据类型：MeasurementMeta, FieldDef
 //
 // 时间单位：
 //
-// 	所有时间戳和时间间隔都使用纳秒（int64）。
-// 	转换辅助函数提供帮助从 time.Duration 转换。
+//	所有时间戳和时间间隔都使用纳秒（int64）。
+//	转换辅助函数提供帮助从 time.Duration 转换。
 package types
 
 import "time"

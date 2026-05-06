@@ -13,7 +13,7 @@ import (
 
 func main() {
 	tmpDir := filepath.Join(os.TempDir(), "microts_schema_test")
-	os.RemoveAll(tmpDir)
+	_ = os.RemoveAll(tmpDir)
 
 	cfg := microts.Config{
 		DataDir:       tmpDir,
@@ -44,15 +44,15 @@ func main() {
 			"count": types.NewFieldValue(int64(10)),
 		},
 	}
-	db.Write(context.Background(), p)
+	_ = db.Write(context.Background(), p)
 
 	// 等待 flush
 	time.Sleep(6 * time.Second)
-	db.Close()
+	_ = db.Close()
 
 	// 找 schema 文件并读取
 	dataDir := filepath.Join(tmpDir, "db1", "cpu")
-	filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() && info.Name() == "_schema.json" {
 			fmt.Printf("Schema file: %s\n", path)
 			content, _ := os.ReadFile(path)

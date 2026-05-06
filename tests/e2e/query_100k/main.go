@@ -16,8 +16,8 @@ import (
 
 func main() {
 	tmpDir := filepath.Join(os.TempDir(), "microts_query_100k")
-	os.RemoveAll(tmpDir)
-	defer os.RemoveAll(tmpDir)
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := microts.Config{
 		DataDir:       tmpDir,
@@ -34,7 +34,7 @@ func main() {
 		fmt.Printf("Open failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// 先写入 100K 数据
 	gen := data_gen.NewDataGenerator(42)

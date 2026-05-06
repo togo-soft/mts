@@ -15,8 +15,8 @@ import (
 
 func main() {
 	tmpDir := filepath.Join(os.TempDir(), "microts_write_1k")
-	os.RemoveAll(tmpDir)
-	defer os.RemoveAll(tmpDir)
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := microts.Config{
 		DataDir:       tmpDir,
@@ -33,7 +33,7 @@ func main() {
 		fmt.Printf("Open failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// GC 并记录初始内存
 	metrics.GC()
