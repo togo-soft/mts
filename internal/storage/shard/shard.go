@@ -298,25 +298,25 @@ func (s *Shard) Write(point *types.Point) error {
 //   - endTime:   结束时间（不包含，纳秒）
 //
 // 返回：
-//   - []types.PointRow: 按时间排序的数据点
+//   - []*types.PointRow: 按时间排序的数据点
 //   - error:            读取失败时返回错误
 //
 // 注意：
 //
 //	返回的结果是 MemTable 和 SSTable 的合并，按时间升序排列。
 //	对于大数据集，建议使用迭代器模式避免内存压力。
-func (s *Shard) Read(startTime, endTime int64) ([]types.PointRow, error) {
+func (s *Shard) Read(startTime, endTime int64) ([]*types.PointRow, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var rows []types.PointRow
+	var rows []*types.PointRow
 
 	// 1. 从 MemTable 读取
 	iter := s.memTable.Iterator()
 	for iter.Next() {
 		p := iter.Point()
 		if p.Timestamp >= startTime && p.Timestamp < endTime {
-			rows = append(rows, types.PointRow{
+			rows = append(rows, &types.PointRow{
 				Timestamp: p.Timestamp,
 				Tags:      p.Tags,
 				Fields:    p.Fields,
@@ -340,13 +340,13 @@ func (s *Shard) Read(startTime, endTime int64) ([]types.PointRow, error) {
 }
 
 // readFromSSTable 从 SSTable 读取时间范围内的数据
-func (s *Shard) readFromSSTable(startTime, endTime int64) ([]types.PointRow, error) {
+func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, error) {
 	dataDir := filepath.Join(s.dir, "data")
 	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
 		return nil, nil // 没有 SSTable
 	}
 
-	var allRows []types.PointRow
+	var allRows []*types.PointRow
 
 	// 读取所有 SSTable 子目录 (sst_0, sst_1, ...)
 	entries, err := os.ReadDir(dataDir)

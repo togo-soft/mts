@@ -140,14 +140,14 @@ func (r *Reader) GetBlockIndex() *BlockIndex {
 //   - fields: 要读取的字段列表，为空表示读取所有字段
 //
 // 返回：
-//   - []types.PointRow: 所有数据点，按时间排序
+//   - []*types.PointRow: 所有数据点，按时间排序
 //   - error:            读取失败时返回错误
 //
 // 性能：
 //
 //	对于大文件，此方法会消耗大量内存。
 //	建议使用 Iterator 进行流式读取。
-func (r *Reader) ReadAll(fields []string) ([]types.PointRow, error) {
+func (r *Reader) ReadAll(fields []string) ([]*types.PointRow, error) {
 	dataDir := r.dataDir
 
 	// 读取 timestamps
@@ -202,9 +202,9 @@ func (r *Reader) ReadAll(fields []string) ([]types.PointRow, error) {
 	offsets := r.computeOffsets(fields, fieldData, len(timestamps))
 
 	// 构建结果
-	rows := make([]types.PointRow, len(timestamps))
+	rows := make([]*types.PointRow, len(timestamps))
 	for i, ts := range timestamps {
-		row := types.PointRow{
+		row := &types.PointRow{
 			Sid:       sids[i],
 			Timestamp: ts,
 			Tags:      nil, // Tags 由调用者通过 Sid 从 metaStore 获取
@@ -312,14 +312,14 @@ func (r *Reader) readSids(dataDir string, expectedCount int) ([]uint64, error) {
 //   - endTime:   结束时间（不包含），纳秒，<=0 表示不限制
 //
 // 返回：
-//   - []types.PointRow: 匹配的数据点
+//   - []*types.PointRow: 匹配的数据点
 //   - error:            读取失败时返回错误
 //
 // 性能考虑：
 //
 //	当前实现是全表扫描，即使指定了时间范围。
 //	未来可以结合 BlockIndex 实现索引加速。
-func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
+func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) {
 	dataDir := r.dataDir
 
 	// 检查数据目录是否存在
@@ -380,10 +380,10 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
 	offsets := r.computeOffsets(fields, fieldData, len(timestamps))
 
 	// 构建结果，按时间过滤
-	var rows []types.PointRow
+	var rows []*types.PointRow
 	for i, ts := range timestamps {
 		if ts >= startTime && (endTime <= 0 || ts < endTime) {
-			row := types.PointRow{
+			row := &types.PointRow{
 				Sid:       sids[i],
 				Timestamp: ts,
 				Tags:      nil, // Tags 由调用者通过 Sid 从 metaStore 获取

@@ -31,7 +31,7 @@ type ShardIterator struct {
 	endTime   int64 // 查询结束时间（不包含）
 
 	memIter *MemTableIterator // MemTable 迭代器
-	rows    []types.PointRow  // SSTable 预读取的数据
+	rows    []*types.PointRow  // SSTable 预读取的数据
 	rowIdx  int               // 当前在 rows 中的位置
 	err     error             // 迭代过程中的错误
 
@@ -82,7 +82,7 @@ func NewShardIterator(shard *Shard, startTime, endTime int64) *ShardIterator {
 	if len(rows) > 0 {
 		si.rows = rows
 		si.rowIdx = 0
-		si.sstRow = &si.rows[0]
+		si.sstRow = si.rows[0]
 	}
 
 	return si
@@ -174,7 +174,7 @@ func (si *ShardIterator) nextMemRow() *types.PointRow {
 func (si *ShardIterator) nextSstRow() *types.PointRow {
 	si.rowIdx++
 	if si.rowIdx < len(si.rows) {
-		row := &si.rows[si.rowIdx]
+		row := si.rows[si.rowIdx]
 		if row.Timestamp >= si.startTime && (si.endTime <= 0 || row.Timestamp < si.endTime) {
 			return row
 		}

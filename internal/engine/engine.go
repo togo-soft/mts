@@ -272,8 +272,8 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 }
 
 // collectQueryResults 流式收集查询结果
-func (e *Engine) collectQueryResults(ctx context.Context, qit *query.QueryIterator, req *types.QueryRangeRequest) ([]types.PointRow, int, int, bool, error) {
-	var pointRows []types.PointRow
+func (e *Engine) collectQueryResults(ctx context.Context, qit *query.QueryIterator, req *types.QueryRangeRequest) ([]*types.PointRow, int, int, bool, error) {
+	var pointRows []*types.PointRow
 	targetCount := int(req.Limit) + int(req.Offset)
 	hasExplicitLimit := req.Limit > 0
 
@@ -296,7 +296,7 @@ func (e *Engine) collectQueryResults(ctx context.Context, qit *query.QueryIterat
 			skipped++
 			continue
 		}
-		pointRows = append(pointRows, *row)
+		pointRows = append(pointRows, row)
 		collected++
 		// 已收集足够的行（仅在指定了 limit 时提前停止）
 		if hasLimit && collected >= int(req.Limit) {
@@ -316,7 +316,7 @@ func (e *Engine) collectQueryResults(ctx context.Context, qit *query.QueryIterat
 }
 
 // buildQueryResponse 构建查询响应
-func (e *Engine) buildQueryResponse(req *types.QueryRangeRequest, pointRows []types.PointRow, skipped, collected int, hasMore bool) (*types.QueryRangeResponse, error) {
+func (e *Engine) buildQueryResponse(req *types.QueryRangeRequest, pointRows []*types.PointRow, skipped, collected int, hasMore bool) (*types.QueryRangeResponse, error) {
 	// 计算 totalCount
 	// 流式语义：当 HasMore=true 时，无法知道精确总数
 	// 当 HasMore=false 时，表示已处理完所有数据，可以报告精确总数
