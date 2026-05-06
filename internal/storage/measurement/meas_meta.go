@@ -306,11 +306,11 @@ func (m *MeasurementMetaStore) Persist() error {
 
 	// 序列化数据
 	data := struct {
-		NextSID uint64                  `json:"next_sid"`
-		Series map[uint64][]string      `json:"series"` // 将 tags 转换为 []string 便于 JSON
+		NextSID uint64              `json:"next_sid"`
+		Series  map[uint64][]string `json:"series"` // 将 tags 转换为 []string 便于 JSON
 	}{
 		NextSID: m.nextSID,
-		Series: make(map[uint64][]string),
+		Series:  make(map[uint64][]string),
 	}
 
 	for sid, tags := range m.series {

@@ -14,31 +14,42 @@ import (
 
 // Config 数据库配置选项
 type Config struct {
-	DBName            string
-	MeasurementName    string
-	ShardDuration     time.Duration
-	MaxSize           int64
-	MaxCount          int32
-	IdleDurationNanos int64
+	DBName                 string
+	MeasurementName        string
+	ShardDuration          time.Duration
+	MaxSize                int64
+	MaxCount               int32
+	IdleDurationNanos      int64
+	RetentionPeriod        time.Duration
+	RetentionCheckInterval time.Duration
 }
 
 // DefaultConfig 返回默认配置
 func DefaultConfig(name string) *Config {
 	return &Config{
-		DBName:            "db1",
-		MeasurementName:    "cpu",
-		ShardDuration:     time.Hour,
-		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          3000,
-		IdleDurationNanos: int64(10 * time.Second),
+		DBName:                 "db1",
+		MeasurementName:        "cpu",
+		ShardDuration:          time.Hour,
+		MaxSize:                64 * 1024 * 1024,
+		MaxCount:               3000,
+		IdleDurationNanos:      int64(10 * time.Second),
+		RetentionPeriod:        0,         // 默认不启用 retention
+		RetentionCheckInterval: time.Hour, // 默认检查间隔 1 小时
+	}
+}
+
+// WithShardDuration 设置 shard duration
+func WithShardDuration(d time.Duration) func(*Config) {
+	return func(c *Config) {
+		c.ShardDuration = d
 	}
 }
 
 // TestHarness 测试工具，管理数据库生命周期
 type TestHarness struct {
-	tmpDir   string
-	db       *microts.DB
-	cfg      *Config
+	tmpDir    string
+	db        *microts.DB
+	cfg       *Config
 	startTime int64
 }
 
@@ -61,6 +72,8 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 			MaxCount:          cfg.MaxCount,
 			IdleDurationNanos: cfg.IdleDurationNanos,
 		},
+		RetentionPeriod:        cfg.RetentionPeriod,
+		RetentionCheckInterval: cfg.RetentionCheckInterval,
 	}
 
 	db, err := microts.Open(dbCfg)
@@ -69,9 +82,9 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 	}
 
 	return &TestHarness{
-		tmpDir:   tmpDir,
-		db:       db,
-		cfg:      cfg,
+		tmpDir:    tmpDir,
+		db:        db,
+		cfg:       cfg,
 		startTime: time.Now().UnixNano(),
 	}, nil
 }
@@ -208,5 +221,19 @@ func WithMaxSize(size int64) func(*Config) {
 func WithMaxCount(count int32) func(*Config) {
 	return func(c *Config) {
 		c.MaxCount = count
+	}
+}
+
+// WithRetentionPeriod 设置数据保留期
+func WithRetentionPeriod(d time.Duration) func(*Config) {
+	return func(c *Config) {
+		c.RetentionPeriod = d
+	}
+}
+
+// WithRetentionCheckInterval 设置 retention 检查间隔
+func WithRetentionCheckInterval(d time.Duration) func(*Config) {
+	return func(c *Config) {
+		c.RetentionCheckInterval = d
 	}
 }

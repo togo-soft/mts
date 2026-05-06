@@ -115,10 +115,14 @@ type (
 // DataDir 指定数据存储目录，必须可写。
 // ShardDuration 定义每个 shard 的时间窗口，最小 1 小时，默认 7 天。
 // MemTableCfg 配置内存表行为，使用 nil 时将采用 DefaultMemTableConfig() 的默认值。
+// RetentionPeriod 配置数据保留期，0 表示不自动删除过期数据。
+// RetentionCheckInterval 配置 retention 检查间隔，默认 1 小时。
 type Config struct {
-	DataDir       string
-	ShardDuration time.Duration
-	MemTableCfg   *types.MemTableConfig
+	DataDir                string
+	ShardDuration          time.Duration
+	MemTableCfg            *types.MemTableConfig
+	RetentionPeriod        time.Duration
+	RetentionCheckInterval time.Duration
 }
 
 // DefaultMemTableConfig 返回默认的 MemTable 配置。
@@ -203,9 +207,11 @@ func Open(cfg Config) (*DB, error) {
 	}
 
 	eng, err := engine.New(&engine.Config{
-		DataDir:       cfg.DataDir,
-		ShardDuration: shardDuration,
-		MemTableCfg:   memTableCfg,
+		DataDir:                cfg.DataDir,
+		ShardDuration:          shardDuration,
+		MemTableCfg:            memTableCfg,
+		RetentionPeriod:        cfg.RetentionPeriod,
+		RetentionCheckInterval: cfg.RetentionCheckInterval,
 	})
 	if err != nil {
 		return nil, err

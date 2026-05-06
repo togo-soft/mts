@@ -22,10 +22,10 @@ import (
 //
 //	Start/Stop 可以安全地在多个 goroutine 中调用
 type RetentionService struct {
-	manager      *ShardManager
-	retention    time.Duration
+	manager       *ShardManager
+	retention     time.Duration
 	checkInterval time.Duration
-	done         chan struct{}
+	done          chan struct{}
 }
 
 // NewRetentionService 创建 RetentionService。
@@ -39,10 +39,10 @@ type RetentionService struct {
 //   - *RetentionService: 初始化后的服务
 func NewRetentionService(manager *ShardManager, retention, checkInterval time.Duration) *RetentionService {
 	return &RetentionService{
-		manager:      manager,
-		retention:    retention,
+		manager:       manager,
+		retention:     retention,
 		checkInterval: checkInterval,
-		done:         make(chan struct{}),
+		done:          make(chan struct{}),
 	}
 }
 

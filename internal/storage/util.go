@@ -151,9 +151,9 @@ func SafeOpenFile(name string, flag int, perm uint32) (*os.File, error) {
 
 // PathError 表示路径安全检查失败
 type PathError struct {
-	Op  string
+	Op   string
 	Path string
-	Err error
+	Err  error
 }
 
 func (e *PathError) Error() string {
