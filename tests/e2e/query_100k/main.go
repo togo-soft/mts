@@ -4,41 +4,24 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/framework"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 func main() {
-	tmpDir := filepath.Join(os.TempDir(), "microts_query_100k")
-	_ = os.RemoveAll(tmpDir)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	cfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          3000,
-			IdleDurationNanos: int64(10 * time.Second),
-		},
-	}
-
-	db, err := microts.Open(cfg)
+	h, err := framework.NewTestHarness("query_100k")
 	if err != nil {
-		fmt.Printf("Open failed: %v\n", err)
-		os.Exit(1)
+		fmt.Printf("Setup failed: %v\n", err)
+		return
 	}
-	defer func() { _ = db.Close() }()
+	defer func() { _ = h.Close() }()
 
-	// 先写入 100K 数据
 	gen := data_gen.NewDataGenerator(42)
-	baseTime := time.Now().UnixNano()
+	baseTime := h.StartTime()
 	const count = 100000
 
 	metrics.GC()
@@ -46,10 +29,10 @@ func main() {
 
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
-		p := gen.GeneratePoint("db1", "cpu", ts)
-		if err := db.Write(context.Background(), p); err != nil {
+		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
+		if err := h.DB().Write(context.Background(), p); err != nil {
 			fmt.Printf("Write failed at %d: %v\n", i, err)
-			os.Exit(1)
+			return
 		}
 	}
 
@@ -60,20 +43,18 @@ func main() {
 	fmt.Printf("Write 100K: %d points\n", count)
 	fmt.Printf("After write: %s, Δ: %s\n\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
 
-	// 等待 15 秒确保 idle flush 触发
 	fmt.Printf("Waiting 15s for idle flush to trigger...\n")
 	time.Sleep(15 * time.Second)
 
-	// 查询（使用分页策略：每次查询 2000 条）
 	metrics.GC()
 	memBeforeQuery := metrics.ReadMemStats()
 	fmt.Printf("Before query: %s\n", metrics.FormatMemStats(memBeforeQuery))
 
 	const queryLimit = 2000
 	timer := metrics.NewTimer()
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
-		Database:    "db1",
-		Measurement: "cpu",
+	resp, err := h.DB().QueryRange(context.Background(), &types.QueryRangeRequest{
+		Database:    h.Config().DBName,
+		Measurement: h.Config().MeasurementName,
 		StartTime:   baseTime,
 		EndTime:     baseTime + int64(count)*int64(time.Second),
 		Offset:      0,
@@ -83,7 +64,7 @@ func main() {
 
 	if err != nil {
 		fmt.Printf("Query failed: %v\n", err)
-		os.Exit(1)
+		return
 	}
 
 	metrics.GC()
