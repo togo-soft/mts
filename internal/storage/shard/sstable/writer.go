@@ -69,6 +69,7 @@ type Writer struct {
 	seq        uint64
 	dataDir    string
 	timestamp  *os.File
+	sids       *os.File // Sid 列表文件
 	fields     map[string]*os.File
 	schema     Schema
 	blockIndex *BlockIndex
@@ -78,6 +79,9 @@ type Writer struct {
 	bufPos   int
 	firstTs  int64
 	rowCount uint32
+
+	// Sid 缓冲（用于收集一个 block 的 Sid 数据）
+	sidBuf []uint64
 
 	// 每列的缓冲（用于收集一个 block 的数据）
 	fieldBufs  map[string][]byte
@@ -105,6 +109,7 @@ func NewBlockIndex() *BlockIndex {
 //
 //	shardDir/data/sst_{seq}/
 //	├── _timestamps.bin
+//	├── _sids.bin       # Series IDs
 //	├── fields/
 //	│   ├── {field1}.bin
 //	│   └── {field2}.bin
@@ -127,11 +132,17 @@ func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 		return nil, fmt.Errorf("create timestamp file: %w", err)
 	}
 
+	sidFile, err := storage.SafeCreate(filepath.Join(dataDir, "_sids.bin"), 0600)
+	if err != nil {
+		return nil, fmt.Errorf("create sids file: %w", err)
+	}
+
 	return &Writer{
 		shardDir:   shardDir,
 		seq:        seq,
 		dataDir:    dataDir,
 		timestamp:  tsFile,
+		sids:       sidFile,
 		fields:     make(map[string]*os.File),
 		schema:     Schema{Fields: make(map[string]FieldType)},
 		blockIndex: NewBlockIndex(),
@@ -147,6 +158,7 @@ func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 //
 // 参数：
 //   - points: 要写入的数据点
+//   - tsSidMap: timestamp → sid 映射（用于存储 Sid 信息）
 //
 // 返回：
 //   - error: 写入失败时返回错误
@@ -161,7 +173,7 @@ func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 //
 //	写入失败返回错误，但已写入的数据不会自动回滚。
 //	建议发现错误后删除不完整的数据目录。
-func (w *Writer) WritePoints(points []*types.Point) error {
+func (w *Writer) WritePoints(points []*types.Point, tsSidMap map[int64]uint64) error {
 	// 收集所有字段名并检测类型
 	fieldNames := make(map[string]bool)
 	for _, p := range points {
@@ -190,7 +202,8 @@ func (w *Writer) WritePoints(points []*types.Point) error {
 
 	// 写入 points 到 block buffer
 	for _, p := range points {
-		if err := w.writePoint(p); err != nil {
+		sid := tsSidMap[p.Timestamp]
+		if err := w.writePointWithSid(p, sid); err != nil {
 			return fmt.Errorf("write point (timestamp=%d): %w", p.Timestamp, err)
 		}
 	}
@@ -212,8 +225,8 @@ func (w *Writer) fieldTypeSize(t FieldType) int {
 	}
 }
 
-// writePoint 将单个 point 写入 block buffer
-func (w *Writer) writePoint(p *types.Point) error {
+// writePointWithSid 将单个 point 写入 block buffer，并记录 Sid
+func (w *Writer) writePointWithSid(p *types.Point, sid uint64) error {
 	// 检查是否需要 flush block
 	if w.bufPos >= BlockSize {
 		if err := w.flushBlock(); err != nil {
@@ -241,6 +254,9 @@ func (w *Writer) writePoint(p *types.Point) error {
 		}
 		w.appendFieldValue(name, val)
 	}
+
+	// 收集 Sid
+	w.sidBuf = append(w.sidBuf, sid)
 
 	w.rowCount++
 	return nil
@@ -366,6 +382,16 @@ func (w *Writer) flushBlock() error {
 		return fmt.Errorf("write timestamp block: %w", err)
 	}
 
+	// 写入 Sids block
+	for _, sid := range w.sidBuf {
+		var sidBuf [8]byte
+		binary.BigEndian.PutUint64(sidBuf[:], sid)
+		if _, err := w.sids.Write(sidBuf[:]); err != nil {
+			return fmt.Errorf("write sid block: %w", err)
+		}
+	}
+	w.sidBuf = w.sidBuf[:0] // 清空 Sid buffer
+
 	// 写入各字段 block
 	for name, buf := range w.fieldBufs {
 		if _, err := w.fields[name].Write(buf); err != nil {
@@ -378,6 +404,8 @@ func (w *Writer) flushBlock() error {
 	// 记录 block 索引
 	// 当前 block 的行数 = bufPos / 8 (每个 timestamp 8 字节)
 	blockRowCount := uint32(w.bufPos / 8)
+	// 假设时间戳间隔为 1 秒 (time.Second = 1e9 纳秒)
+	// 注意：这里硬编码了时间间隔，假设写入数据的时间戳间隔为 1 秒
 	lastTs := w.firstTs + int64(blockRowCount-1)*int64(time.Second)
 	w.blockIndex.Add(w.firstTs, lastTs, offset, blockRowCount)
 
@@ -420,6 +448,11 @@ func (w *Writer) Close() error {
 			return fmt.Errorf("close timestamp file: %w", err)
 		}
 	}
+	if w.sids != nil {
+		if err := w.sids.Close(); err != nil {
+			return fmt.Errorf("close sids file: %w", err)
+		}
+	}
 	for name, f := range w.fields {
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close field file %s: %w", name, err)
@@ -440,7 +473,9 @@ func (w *Writer) writeSchema() error {
 	if err != nil {
 		return fmt.Errorf("create schema file: %w", err)
 	}
-	defer schemaFile.Close()
+	defer func() {
+		_ = schemaFile.Close()
+	}()
 
 	data, err := json.Marshal(w.schema)
 	if err != nil {

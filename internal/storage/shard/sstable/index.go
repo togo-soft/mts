@@ -85,7 +85,9 @@ func (idx *BlockIndex) Write(file string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	// 写入 header
 	var header [16]byte
@@ -128,7 +130,9 @@ func (idx *BlockIndex) Read(file string) error {
 	if err != nil {
 		return err
 	}
-	defer data.Close()
+	defer func() {
+		_ = data.Close()
+	}()
 
 	stat, err := data.Stat()
 	if err != nil {

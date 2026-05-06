@@ -255,12 +255,26 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	if err != nil {
 		return nil, fmt.Errorf("create query iterator: %w", err)
 	}
-	defer qit.Close()
+	defer func() {
+		_ = qit.Close()
+	}()
 
-	// 流式收集结果，跳过 offset 行，然后收集 limit 行
+	// 收集结果
+	pointRows, skipped, collected, hasMore, err := e.collectQueryResults(ctx, qit, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// 构建响应
+	return e.buildQueryResponse(req, pointRows, skipped, collected, hasMore)
+}
+
+// collectQueryResults 流式收集查询结果
+func (e *Engine) collectQueryResults(ctx context.Context, qit *query.QueryIterator, req *types.QueryRangeRequest) ([]types.PointRow, int, int, bool, error) {
 	var pointRows []types.PointRow
 	targetCount := int(req.Limit) + int(req.Offset)
 	hasExplicitLimit := req.Limit > 0
+
 	// 如果没有指定 limit，不设置目标数量上限（使用最大 int）
 	if !hasExplicitLimit {
 		targetCount = int(^uint(0) >> 1) // MaxInt
@@ -269,6 +283,7 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	skipped := 0
 	collected := 0
 	hasLimit := req.Limit > 0
+
 	for qit.Next(ctx) {
 		row := qit.Points()
 		if row == nil {
@@ -283,7 +298,6 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 		collected++
 		// 已收集足够的行（仅在指定了 limit 时提前停止）
 		if hasLimit && collected >= int(req.Limit) {
-			// 停止收集，但继续检查是否有更多数据
 			break
 		}
 		// 也检查是否已达到目标数量上限
@@ -294,11 +308,13 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 
 	// 检查是否有更多数据
 	// 流式语义：如果收集满 limit 行，认为可能还有更多数据
-	hasMore := false
-	if hasLimit && collected >= int(req.Limit) {
-		hasMore = true
-	}
+	hasMore := hasLimit && collected >= int(req.Limit)
 
+	return pointRows, skipped, collected, hasMore, nil
+}
+
+// buildQueryResponse 构建查询响应
+func (e *Engine) buildQueryResponse(req *types.QueryRangeRequest, pointRows []types.PointRow, skipped, collected int, hasMore bool) (*types.QueryRangeResponse, error) {
 	// 计算 totalCount
 	// 流式语义：当 HasMore=true 时，无法知道精确总数
 	// 当 HasMore=false 时，表示已处理完所有数据，可以报告精确总数

@@ -227,7 +227,6 @@ func (w *WAL) Sync() error {
 func (w *WAL) StartPeriodicSync(interval time.Duration, done <-chan struct{}) {
 	go func() {
 		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
@@ -235,6 +234,7 @@ func (w *WAL) StartPeriodicSync(interval time.Duration, done <-chan struct{}) {
 					w.logger.Error("wal sync failed", slog.Any("error", err))
 				}
 			case <-done:
+				ticker.Stop()
 				return
 			}
 		}

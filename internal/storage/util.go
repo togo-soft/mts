@@ -26,14 +26,14 @@ import (
 //
 // 行为：
 //
-//	首先确保父目录存在（使用 0755 权限），
+//	首先确保父目录存在（使用 0700 权限），
 //	然后创建目标目录并应用指定的权限。
 //	这是为了兼容父目录可能需要不同的权限策略。
 func SafeMkdirAll(path string, perm uint32) error {
 	// 确保父目录存在
 	parent := filepath.Dir(path)
 	if parent != "" && parent != "." {
-		if err := os.MkdirAll(parent, 0755); err != nil {
+		if err := os.MkdirAll(parent, 0700); err != nil {
 			return err
 		}
 	}

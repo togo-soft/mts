@@ -21,6 +21,7 @@ package shard
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,6 +33,18 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
+
+// copyTags 复制 tags map
+func copyTags(tags map[string]string) map[string]string {
+	if tags == nil {
+		return nil
+	}
+	result := make(map[string]string, len(tags))
+	for k, v := range tags {
+		result[k] = v
+	}
+	return result
+}
 
 // ShardConfig 定义 Shard 的配置。
 //
@@ -84,6 +97,8 @@ type ShardConfig struct {
 //   - memTable: 内存表
 //   - wal: 预写日志
 //   - metaStore: 元数据存储（用于 SID 分配）
+//   - sidCache: Sid→Tags 缓存（用于从 SSTable 恢复 Tags）
+//   - tsSidMap: Timestamp→Sid 映射（用于 flush 时获取 Sid）
 //   - mu: 读写锁
 //   - sstSeq: SSTable 序列号（文件名生成）
 type Shard struct {
@@ -95,6 +110,8 @@ type Shard struct {
 	memTable    *MemTable
 	wal         *WAL
 	metaStore   *measurement.MeasurementMetaStore
+	sidCache    map[uint64]map[string]string // sid → tags 缓存
+	tsSidMap    map[int64]uint64             // timestamp → sid 映射
 	mu          sync.RWMutex
 	sstSeq      uint64 // SSTable序列号，用于生成唯一的文件名
 }
@@ -110,12 +127,15 @@ type Shard struct {
 // 初始化过程：
 //
 //  1. 创建 WAL（如果失败，wal 设为 nil，继续运行）
-//  2. 创建空的 MemTable
+//  2. 从 WAL 恢复数据到 MemTable（如果 WAL 存在）
+//  3. 创建空的 MemTable
 //
 // 错误处理：
 //
 //	WAL 创建失败不会阻止 Shard 创建，数据可能仅保存在内存中。
 //	这种情况下，系统重启后 MemTable 数据会丢失。
+//
+//	WAL 恢复失败会记录日志，但继续启动 Shard（可能丢失部分数据）。
 func NewShard(cfg ShardConfig) *Shard {
 	// 创建 WAL
 	walDir := filepath.Join(cfg.Dir, "wal")
@@ -123,6 +143,36 @@ func NewShard(cfg ShardConfig) *Shard {
 	if err != nil {
 		// 如果 WAL 创建失败，使用 nil wal
 		wal = nil
+		slog.Warn("failed to create WAL, writes will not be durable",
+			"walDir", walDir,
+			"error", err)
+	}
+
+	// 创建空的 MemTable
+	memTable := NewMemTable(cfg.MemTableCfg)
+
+	// 从 WAL 恢复数据到 MemTable
+	if wal != nil {
+		points, err := ReplayWAL(walDir)
+		if err != nil {
+			slog.Error("failed to replay WAL, some data may be lost",
+				"walDir", walDir,
+				"error", err)
+		} else {
+			for _, p := range points {
+				if writeErr := memTable.Write(p); writeErr != nil {
+					slog.Error("failed to replay WAL point, skipping",
+						"walDir", walDir,
+						"timestamp", p.Timestamp,
+						"error", writeErr)
+				}
+			}
+			if len(points) > 0 {
+				slog.Info("replayed WAL data into MemTable",
+					"walDir", walDir,
+					"pointCount", len(points))
+			}
+		}
 	}
 
 	return &Shard{
@@ -131,9 +181,11 @@ func NewShard(cfg ShardConfig) *Shard {
 		startTime:   cfg.StartTime,
 		endTime:     cfg.EndTime,
 		dir:         cfg.Dir,
-		memTable:    NewMemTable(cfg.MemTableCfg),
+		memTable:    memTable,
 		wal:         wal,
 		metaStore:   cfg.MetaStore,
+		sidCache:    make(map[uint64]map[string]string),
+		tsSidMap:    make(map[int64]uint64),
 	}
 }
 
@@ -213,9 +265,10 @@ func (s *Shard) Write(point *types.Point) error {
 		}
 	}
 
-	// 2. 分配 SID
+	// 2. 分配 SID 并更新 sidCache 和 tsSidMap
 	sid := s.metaStore.AllocateSID(point.Tags)
-	_ = sid // SID 目前未使用，后续会用到
+	s.sidCache[sid] = copyTags(point.Tags)
+	s.tsSidMap[point.Timestamp] = sid
 
 	// 3. 写入 MemTable
 	if err := s.memTable.Write(point); err != nil {
@@ -271,7 +324,7 @@ func (s *Shard) Read(startTime, endTime int64) ([]types.PointRow, error) {
 		}
 	}
 
-	// 2. 从 SSTable 读取
+	// 2. 从 SSTable 读取（Tags 已在内部通过 Sid 填充）
 	sstRows, err := s.readFromSSTable(startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("read from sstable: %w", err)
@@ -313,15 +366,36 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]types.PointRow, err
 		sstDir := filepath.Join(dataDir, entry.Name())
 		r, err := sstable.NewReader(sstDir)
 		if err != nil {
-			continue // 跳过无法读取的 SSTable
+			slog.Warn("failed to open SSTable, skipping",
+				"sstDir", sstDir,
+				"error", err)
+			continue
 		}
 
 		rows, err := r.ReadRange(startTime, endTime)
-		r.Close()
+		if closeErr := r.Close(); closeErr != nil {
+			slog.Warn("failed to close SSTable reader",
+				"sstDir", sstDir,
+				"closeError", closeErr)
+		}
 		if err != nil {
+			slog.Error("failed to read SSTable range, skipping",
+				"sstDir", sstDir,
+				"startTime", startTime,
+				"endTime", endTime,
+				"error", err)
 			continue
 		}
 		allRows = append(allRows, rows...)
+	}
+
+	// 为所有 SSTable 行填充 Tags（通过 Sid 从 metaStore 获取）
+	for i := range allRows {
+		if allRows[i].Sid != 0 {
+			if tags, ok := s.metaStore.GetTagsBySID(allRows[i].Sid); ok {
+				allRows[i].Tags = tags
+			}
+		}
 	}
 
 	// 按时间戳排序
@@ -363,14 +437,25 @@ func (s *Shard) Flush() error {
 	}
 	s.sstSeq++
 
-	if err := w.WritePoints(points); err != nil {
+	if err := w.WritePoints(points, s.tsSidMap); err != nil {
 		_ = w.Close()
 		return fmt.Errorf("write points to sstable: %w", err)
+	}
+
+	// 写入完成后清除已刷盘的 timestamp→sid 映射
+	for _, p := range points {
+		delete(s.tsSidMap, p.Timestamp)
 	}
 
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("close sstable writer: %w", err)
 	}
+
+	// 显式清空 points 引用，帮助 GC 回收内存
+	for i := range points {
+		points[i] = nil
+	}
+
 	return nil
 }
 
@@ -387,9 +472,14 @@ func (s *Shard) flushLocked() error {
 	}
 	s.sstSeq++ // 递增序列号，确保下次 flush 使用不同的文件名
 
-	if err := w.WritePoints(points); err != nil {
+	if err := w.WritePoints(points, s.tsSidMap); err != nil {
 		_ = w.Close()
 		return fmt.Errorf("write points to sstable: %w", err)
+	}
+
+	// 写入完成后清除已刷盘的 timestamp→sid 映射
+	for _, p := range points {
+		delete(s.tsSidMap, p.Timestamp)
 	}
 
 	if err := w.Close(); err != nil {
@@ -430,7 +520,7 @@ func (s *Shard) Close() error {
 			return fmt.Errorf("create sstable writer: %w", err)
 		}
 
-		if err := w.WritePoints(points); err != nil {
+		if err := w.WritePoints(points, s.tsSidMap); err != nil {
 			_ = w.Close()
 			return fmt.Errorf("write points to sstable: %w", err)
 		}

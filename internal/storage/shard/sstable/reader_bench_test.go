@@ -32,7 +32,7 @@ func BenchmarkNewReader(b *testing.B) {
 		}
 	}
 
-	if err := writer.WritePoints(points); err != nil {
+	if err := writer.WritePoints(points, nil); err != nil {
 		b.Fatal(err)
 	}
 

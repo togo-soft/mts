@@ -62,7 +62,7 @@ func TestIterator_SingleRecord(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points); err != nil {
+	if err := w.WritePoints(points, nil); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -129,7 +129,7 @@ func TestIterator_MultipleRecords(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points); err != nil {
+	if err := w.WritePoints(points, nil); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -188,7 +188,7 @@ func TestIterator_NextBeyondRange(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points); err != nil {
+	if err := w.WritePoints(points, nil); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {

@@ -4,9 +4,9 @@
 //
 // 性能优化：
 //
-//	- Block 索引加速范围查询
-//	- 延迟加载字段数据
-//	- 预计算偏移量优化随机访问
+//   - Block 索引加速范围查询
+//   - 延迟加载字段数据
+//   - 预计算偏移量优化随机访问
 package sstable
 
 import (
@@ -85,7 +85,9 @@ func (r *Reader) readSchema() error {
 	if err != nil {
 		return err
 	}
-	defer schemaFile.Close()
+	defer func() {
+		_ = schemaFile.Close()
+	}()
 
 	data, err := io.ReadAll(schemaFile)
 	if err != nil {
@@ -161,6 +163,12 @@ func (r *Reader) ReadAll(fields []string) ([]types.PointRow, error) {
 		return nil, err
 	}
 
+	// 读取 Sids
+	sids, err := r.readSids(dataDir, len(timestamps))
+	if err != nil {
+		return nil, err
+	}
+
 	// 如果没有指定字段，读取所有字段文件
 	if len(fields) == 0 {
 		entries, err := os.ReadDir(filepath.Join(dataDir, "fields"))
@@ -197,8 +205,9 @@ func (r *Reader) ReadAll(fields []string) ([]types.PointRow, error) {
 	rows := make([]types.PointRow, len(timestamps))
 	for i, ts := range timestamps {
 		row := types.PointRow{
+			Sid:       sids[i],
 			Timestamp: ts,
-			Tags:      map[string]string{"host": "server1"},
+			Tags:      nil, // Tags 由调用者通过 Sid 从 metaStore 获取
 			Fields:    make(map[string]*types.FieldValue),
 		}
 
@@ -271,6 +280,31 @@ func (r *Reader) readTimestamps(f *os.File) ([]int64, error) {
 	return timestamps, nil
 }
 
+// readSids 读取 Sid 列表
+func (r *Reader) readSids(dataDir string, expectedCount int) ([]uint64, error) {
+	sidFile, err := os.Open(filepath.Join(dataDir, "_sids.bin"))
+	if err != nil {
+		// 如果文件不存在，返回空 Sid 列表（向后兼容）
+		if os.IsNotExist(err) {
+			return make([]uint64, expectedCount), nil
+		}
+		return nil, err
+	}
+	defer func() { _ = sidFile.Close() }()
+
+	data, err := io.ReadAll(sidFile)
+	if err != nil {
+		return nil, err
+	}
+
+	sids := make([]uint64, 0, len(data)/8)
+	for i := 0; i+8 <= len(data); i += 8 {
+		sid := binary.BigEndian.Uint64(data[i : i+8])
+		sids = append(sids, sid)
+	}
+	return sids, nil
+}
+
 // ReadRange 读取指定时间范围内的数据。
 //
 // 参数：
@@ -302,6 +336,12 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
 	if closeErr := tsFile.Close(); closeErr != nil {
 		return nil, closeErr
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 读取 Sids
+	sids, err := r.readSids(dataDir, len(timestamps))
 	if err != nil {
 		return nil, err
 	}
@@ -344,8 +384,9 @@ func (r *Reader) ReadRange(startTime, endTime int64) ([]types.PointRow, error) {
 	for i, ts := range timestamps {
 		if ts >= startTime && (endTime <= 0 || ts < endTime) {
 			row := types.PointRow{
+				Sid:       sids[i],
 				Timestamp: ts,
-				Tags:      map[string]string{"host": "server1"},
+				Tags:      nil, // Tags 由调用者通过 Sid 从 metaStore 获取
 				Fields:    make(map[string]*types.FieldValue),
 			}
 

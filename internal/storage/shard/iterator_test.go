@@ -88,7 +88,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 		buf[6] = byte(ts >> 8)
 		buf[7] = byte(ts)
 		if _, err := tsFile.Write(buf[:]); err != nil {
-			tsFile.Close()
+			_ = tsFile.Close()
 			t.Fatalf("failed to write timestamp: %v", err)
 		}
 	}
@@ -113,7 +113,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 		buf[6] = byte(val >> 8)
 		buf[7] = byte(val)
 		if _, err := fieldFile.Write(buf[:]); err != nil {
-			fieldFile.Close()
+			_ = fieldFile.Close()
 			t.Fatalf("failed to write field: %v", err)
 		}
 	}
@@ -183,7 +183,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		buf[6] = byte(ts >> 8)
 		buf[7] = byte(ts)
 		if _, err := tsFile.Write(buf[:]); err != nil {
-			tsFile.Close()
+			_ = tsFile.Close()
 			t.Fatalf("failed to write timestamp: %v", err)
 		}
 	}
@@ -208,7 +208,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		buf[6] = byte(val >> 8)
 		buf[7] = byte(val)
 		if _, err := fieldFile.Write(buf[:]); err != nil {
-			fieldFile.Close()
+			_ = fieldFile.Close()
 			t.Fatalf("failed to write field: %v", err)
 		}
 	}
@@ -291,7 +291,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		buf[6] = byte(ts >> 8)
 		buf[7] = byte(ts)
 		if _, err := tsFile.Write(buf[:]); err != nil {
-			tsFile.Close()
+			_ = tsFile.Close()
 			t.Fatalf("failed to write timestamp: %v", err)
 		}
 	}
@@ -316,7 +316,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		buf[6] = byte(val >> 8)
 		buf[7] = byte(val)
 		if _, err := fieldFile.Write(buf[:]); err != nil {
-			fieldFile.Close()
+			_ = fieldFile.Close()
 			t.Fatalf("failed to write field: %v", err)
 		}
 	}
