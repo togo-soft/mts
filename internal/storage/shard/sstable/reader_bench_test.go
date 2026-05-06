@@ -15,7 +15,7 @@ func BenchmarkNewReader(b *testing.B) {
 	dataDir := filepath.Join(tmpDir, "data")
 
 	// 创建测试数据
-	writer, err := NewWriter(dataDir, 1)
+	writer, err := NewWriter(dataDir, 1, 0)
 	if err != nil {
 		b.Fatal(err)
 	}

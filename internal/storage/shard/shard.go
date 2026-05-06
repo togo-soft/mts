@@ -434,7 +434,7 @@ func (s *Shard) Flush() error {
 	}
 
 	// 创建 SSTable Writer
-	w, err := sstable.NewWriter(s.dir, s.sstSeq)
+	w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
 	if err != nil {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
@@ -469,7 +469,7 @@ func (s *Shard) flushLocked() error {
 		return nil
 	}
 
-	w, err := sstable.NewWriter(s.dir, s.sstSeq)
+	w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
 	if err != nil {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
@@ -517,7 +517,7 @@ func (s *Shard) Close() error {
 	// 1. 先刷写 MemTable 到 SSTable
 	points := s.memTable.Flush()
 	if len(points) > 0 {
-		w, err := sstable.NewWriter(s.dir, s.sstSeq)
+		w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
 		if err != nil {
 			// 即使 writer 创建失败，也要继续关闭 WAL
 			if s.wal != nil {

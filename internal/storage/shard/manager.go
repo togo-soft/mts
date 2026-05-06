@@ -159,6 +159,35 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 //
 //	查询时调用，获取需要扫描的 Shard 列表。
 //	由于只返回已存在的 Shard，空结果表示该时间范围内没有数据。
+// GetShards 返回指定时间范围内存在的 Shard 列表。
+//
+// 参数：
+//   - db:              数据库名称
+//   - measurementName: Measurement 名称
+//   - startTime:       起始时间（包含）
+//   - endTime:         结束时间（不包含）
+//
+// 返回：
+//   - []*Shard: 在时间范围内存在的 Shard 列表（按时间排序）
+//
+// 说明：
+//
+//	此方法是查找操作，不会创建新的 Shard。
+//	如果指定时间范围内没有已存在的 Shard，返回空切片。
+//
+// 与时间范围的关系：
+//
+//	返回的 Shard 满足：shard.startTime <= startTime < endTime
+//	但不包括完全在范围之外的 Shard。
+//
+// 调用方注意：
+//
+//	返回空切片可能表示：
+//	1. 该 db/measurement 从未创建过 Shard
+//	2. 已创建的 Shard 不覆盖指定的时间范围
+//
+//	如果需要写入，应使用 GetOrCreateShard；
+//	如果只是查询，返回空时通常返回空结果而非错误。
 func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime int64) []*Shard {
 	var result []*Shard
 

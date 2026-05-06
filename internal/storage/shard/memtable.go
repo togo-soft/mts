@@ -45,6 +45,7 @@ type entry struct {
 //   - idleTimeout: 触发刷盘的空闲时间阈值
 //   - lastWrite:   上次写入时间，用于空闲检测
 //   - count:       当前条目数（缓存优化）
+//   - sorted:      标记 entries 是否已排序（避免重复排序）
 //
 // 并发安全：
 //
@@ -65,6 +66,7 @@ type MemTable struct {
 	idleTimeout time.Duration
 	lastWrite   time.Time // 上次写入时间
 	count       int       // 当前条目数
+	sorted      bool      // 标记是否已排序，避免重复排序
 }
 
 // NewMemTable 创建新的 MemTable 实例。
@@ -130,6 +132,9 @@ func (m *MemTable) Write(p *types.Point) error {
 		sort.Slice(m.entries, func(i, j int) bool {
 			return m.entries[i].Point.Timestamp < m.entries[j].Point.Timestamp
 		})
+		m.sorted = true
+	} else {
+		m.sorted = true
 	}
 
 	return nil
@@ -206,6 +211,7 @@ func (m *MemTable) Flush() []*types.Point {
 	result := m.entries
 	m.entries = nil // 彻底清空底层数组
 	m.count = 0
+	m.sorted = false
 	m.mu.Unlock()
 
 	if len(result) == 0 {

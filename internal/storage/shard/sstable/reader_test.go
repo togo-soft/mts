@@ -13,7 +13,7 @@ func TestReader_ReadAll(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 先写入
-	w, err := NewWriter(tmpDir, 0)
+	w, err := NewWriter(tmpDir, 0, 0)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 先创建 writer 并写入数据
-	w, err := NewWriter(tmpDir, 0)
+	w, err := NewWriter(tmpDir, 0, 0)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}

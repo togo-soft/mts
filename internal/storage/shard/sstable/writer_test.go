@@ -11,7 +11,7 @@ import (
 func TestWriter_WritePoints(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0)
+	w, err := NewWriter(tmpDir, 0, 0)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
