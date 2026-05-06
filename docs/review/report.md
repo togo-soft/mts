@@ -2,283 +2,443 @@
 
 **项目**: Micro Time-Series (MTS)
 **检视日期**: 2026-05-06
-**最后更新**: 2026-05-06
 **Go 版本**: 1.26+
+**检视人员**: 资深 Go 工程师 / 时序数据库专家
 
 ---
 
-## 项目概述
+## 一、项目概述
 
-**MTS (Micro Time-Series)** 是一个用 Go 实现的高性能时序数据库，架构如下：
+### 1.1 项目简介
+
+**MTS (Micro Time-Series)** 是一个用 Go 实现的高性能时序数据库，专为微服务环境设计。
+
+**架构图**:
 
 ```
-gRPC API → Engine → ShardManager → MemTable/WAL → SSTable
-                                    ↓
-                              MetaStore (测量元数据)
+┌─────────────────────────────────────────────────────────────┐
+│                      gRPC API Layer                          │
+│                   (internal/api/grpc.go)                     │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                      Engine Layer                            │
+│    Write: WAL → MemTable → (flush) → SSTable              │
+│    Query: ShardManager → Shard → MemTable + SSTable        │
+│                  (internal/engine/engine.go)                │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌───────────────────────┬───────────────────────────────────┐
+│    ShardManager       │           MetaStore                 │
+│  - Shard lifecycle    │  - Series ID allocation            │
+│  - Time-window routing│  - Tag index                       │
+│  - Retention policy   │  - Persistence                     │
+└───────────────────────┴───────────────────────────────────┘
+                              ↓
+┌───────────┬───────────┬───────────┬───────────────────────┐
+│  MemTable │    WAL    │  SSTable  │   RetentionService   │
+│  - SkipList│ - Durable │ - Columnar│  - TTL cleanup       │
+│  - In-memory│ - Append │ - Indexed │                       │
+└───────────┴───────────┴───────────┴───────────────────────┘
 ```
 
-### 核心组件
+### 1.2 核心组件
 
-| 组件 | 描述 |
+| 组件 | 文件位置 | 职责 |
+|------|---------|------|
+| Engine | `internal/engine/engine.go` | 核心协调器，管理写入和查询 |
+| ShardManager | `internal/storage/shard/manager.go` | Shard 生命周期管理 |
+| Shard | `internal/storage/shard/shard.go` | 单个时间窗口数据管理 |
+| MemTable | `internal/storage/shard/memtable.go` | 内存写入缓冲区 |
+| WAL | `internal/storage/shard/wal.go` | 预写日志，崩溃恢复 |
+| SSTable | `internal/storage/shard/sstable/` | 持久化列式存储 |
+| MetaStore | `internal/storage/measurement/meas_meta.go` | Series ID 和标签管理 |
+| QueryIterator | `internal/query/iterator.go` | 流式查询迭代器 |
+
+---
+
+## 二、代码质量评估
+
+### 2.1 Lint 和测试
+
+| 指标 | 状态 |
 |------|------|
-| MemTable | 内存跳表索引，热点数据快速写入和查询 |
-| Shard Manager | Shard 生命周期管理，按时间窗口分片 |
-| WAL | 预写日志，崩溃恢复保证 |
-| SSTable | 有序字符串表，持久化存储 |
-| MetaStore | 元数据存储，Series ID 映射管理 |
+| golangci-lint | ✅ 0 issues |
+| 单元测试 | ✅ 全部通过 |
+| 代码覆盖 | ⚠️ 见下文 |
+
+**测试覆盖率**:
+
+| 包 | 覆盖率 |
+|----|--------|
+| internal/api | 88.1% |
+| internal/engine | 90.2% |
+| internal/query | 98.6% |
+| internal/storage | 63.3% |
+| internal/storage/measurement | 75.5% |
+| internal/storage/shard | 76.2% |
+| internal/storage/shard/compression | 96.6% |
+| internal/storage/shard/sstable | 79.7% |
+
+### 2.2 优点
+
+1. **清晰的模块化设计**: 各组件职责明确，接口清晰
+2. **完善的错误处理**: 大部分关键路径有错误处理
+3. **并发安全**: 正确使用 RWMutex 保护共享状态
+4. **文档完整**: 每个公共函数都有详细的 GoDoc 注释
+5. **安全意识**: 路径遍历检查、权限设置 (0700/0600)
+
+### 2.3 需要改进的地方
+
+#### P1: 设计缺陷
+
+| 问题 | 严重程度 | 文件 | 说明 |
+|------|---------|------|------|
+| 无 SSTable Compaction | 中 | sstable/ | 只增不减，无法合并旧文件 |
+| WAL 全量加载到内存 | 中 | wal.go | 大 WAL 文件可能导致 OOM |
+| MetaStore 无持久化验证 | 低 | meas_meta.go | 持久化失败静默忽略 |
+
+#### P2: 潜在问题
+
+| 问题 | 严重程度 | 文件 | 说明 |
+|------|---------|------|------|
+| ShardIterator 非线程安全 | 低 | iterator.go | 文档已说明 |
+| 单 WAL 文件无滚动 | 低 | wal.go | 文件无限增长 |
+| 无优雅关闭 | 低 | engine.go | 正在运行的查询会被中断 |
+
+#### P3: 测试覆盖不足
+
+| 文件/包 | 当前覆盖 | 建议覆盖 |
+|---------|---------|---------|
+| internal/storage | 63.3% | 80%+ |
+| internal/storage/measurement | 75.5% | 85%+ |
+| internal/storage/shard | 76.2% | 85%+ |
 
 ---
 
-## 一、严重问题 (P0) ✅ 已修复
+## 三、架构分析
 
-| 问题 | 状态 | 说明 |
-|------|------|------|
-| Shard.Close() 资源泄漏 | ✅ 已修复 | WAL 和 tsSidMap 在 WritePoints 错误时未清理 |
-| Block index 时间计算错误 | ✅ 已修复 | 使用 buffer 最后一个字节而非实际时间戳 |
-| ShardIterator 错误忽略 | ✅ 已修复 | 添加了 err 字段和 Err() 方法 |
+### 3.1 写入路径
 
----
-
-## 二、逻辑问题 (P2) ✅ 已修复
-
-| 问题 | 状态 | 说明 |
-|------|------|------|
-| tsSidMap 内存泄漏风险 | ✅ 已修复 | Close() 中所有路径都清理 tsSidMap |
-| Series ID 无上限检查 | ✅ 已修复 | 添加溢出检查，AllocateSID 返回 error |
-| ShardIterator 非线程安全 | ✅ 已修复 | 文档修正，明确说明非线程安全 |
-
----
-
-## 三、设计缺陷 (P1) ⚠️ 部分修复
-
-### 3.1 WAL 定期同步未启用 ✅ 已修复
-
-**文件**: `internal/storage/shard/shard.go`
-
-**修复方案**:
-- Shard 结构体添加 `walDone` channel 字段
-- NewShard 中 WAL 创建成功后启动定期同步 goroutine（默认 1 分钟间隔）
-- Close 时通过 walDone channel 停止定期同步
-
----
-
-### 3.2 SSTable ReadRange 未使用索引 ✅ 已优化
-
-**文件**: `internal/storage/shard/sstable/reader.go`
-
-**修复方案**:
-- 新增 `readTimestampRange` 和 `readSidsRange` 方法支持部分读取
-- 实现 `readRangeOptimized` 使用 BlockIndex 定位相关 Block
-- 使用二分查找 FindBlock 找到起始 Block
-- 只读取重叠 Block 的 timestamps 和 sids 数据
-- 索引不可用时回退到全表扫描
-
-**优化效果**:
-- 查询时间范围数据时，只读取相关 Block 的 timestamps/sids
-- 减少 I/O 数据量（尤其是在数据时间分布稀疏时）
-- 字段数据仍需全读（因变长字段无法块级索引）
-
----
+```
+Write Request
+    ↓
+Engine.Write()
+    ↓
+ShardManager.GetShard() → 创建/获取 Shard
+    ↓
+Shard.Write()
+    ├── serializePoint() → 序列化
+    ├── WAL.Write() → 持久化日志
+    ├── MetaStore.AllocateSID() → 分配 Series ID
+    ├── MemTable.Write() → 写入内存
+    └── ShouldFlush() → 检查是否需要刷盘
+        ↓ (如果需要)
+    flushLocked() → MemTable → SSTable
 ```
 
-**影响**: 查询性能差，BlockIndex 形同虚设
+**优点**:
+- WAL 保证持久性
+- MemTable 批量刷盘减少 IO
+- 双检锁避免并发问题
 
----
+**问题**:
+- 刷盘触发阈值固定（64MB 或 3000 条）
+- 无后台 compaction 合并小文件
 
-### 3.3 无数据过期 (TTL) 机制 ✅ 已实现
+### 3.2 读取路径
 
-SSTable 文件只增不减，没有任何 compaction 或 TTL 逻辑。
+```
+Query Request
+    ↓
+Engine.Query()
+    ↓
+ShardManager.GetShards() → 获取时间范围内所有 Shard
+    ↓
+QueryIterator.New() → 为每个 Shard 创建 ShardIterator，加入最小堆
+    ↓
+迭代:
+    ├── heap.Pop() → 取最小时间戳
+    ├── 返回当前行
+    └── Next() → 推进迭代器
+```
 
-**影响**: 存储只增不减，磁盘最终会耗尽
+**优点**:
+- 使用最小堆实现多路归并
+- 支持流式处理大数据集
+- BlockIndex 减少不必要的 IO
 
----
+**问题**:
+- ShardIterator 将整个时间范围数据预加载到内存
+- GetShards 不发现未加载到内存的 Shard
 
-### 3.4 Engine.Close() 未调用 FlushAll ✅ 已修复
+### 3.3 元数据管理
 
-**文件**: `internal/engine/engine.go`
-
-**修复方案**:
-- Engine.Close() 首先调用 shardManager.FlushAll() 刷盘
-- 刷盘失败不影响关闭流程，但记录日志
-
----
-
-### 3.5 MetaStore 持久化未自动 ✅ 已修复
-
-**文件**: `internal/storage/measurement/meas_meta.go`, `internal/storage/shard/manager.go`, `internal/engine/engine.go`
-
-**修复方案**:
-- MeasurementMetaStore 添加 `persistPath` 字段和 `SetPersistPath` 方法
-- 添加 `Persist()` 方法将 series 和 nextSID 持久化为 JSON 文件
-- 修改 ShardManager 创建 MetaStore 时设置持久化路径 (`dir/db/measurement/meta.json`)
-- Engine.Close() 调用 ShardManager.PersistAllMetaStores() 持久化所有脏数据
-- Shard.Close() 也调用 metaStore.Persist() 确保关闭时持久化
-
-**持久化内容**:
-- next_sid: 下一个可用的 Series ID
-- series: sid → tags 映射
-
----
-
-
-## 四、并发安全问题 ✅ 已修复
-
-### 4.1 ShardManager.GetShards 文档说明 ✅ 已修复
-
-**文件**: `internal/storage/shard/manager.go:162`
-
+**Series ID 分配**:
 ```go
-func (m *ShardManager) GetShards(...) []*Shard {
-    m.mu.RLock()
-    defer m.mu.RUnlock()
-    // ...遍历...
-    // ❌ 如果 shard 不存在，不会创建
-    // 但返回空切片，没有区分"不存在"和"时间范围内无数据"
+1. 计算 tagsHash
+2. 查找 tagHashIndex 确认是否存在
+3. 如果存在，返回现有 SID
+4. 如果不存在，分配新 SID (nextSID++)
+5. 更新 series, tagHashIndex, tagIndex
+```
+
+**优点**:
+- O(1) 查找已存在 Series
+- 标签倒排索引支持快速过滤
+- FNV-1a 哈希减少碰撞
+
+---
+
+## 四、深入分析
+
+### 4.1 WAL 实现
+
+**文件**: `internal/storage/shard/wal.go`
+
+**优点**:
+- 4KB 缓冲减少系统调用
+- 支持定期同步 (StartPeriodicSync)
+- SafeMkdirAll 确保目录安全创建
+
+**问题**:
+```go
+// ReplayWAL 将所有 WAL 数据一次性加载到内存
+func ReplayWAL(walDir string) ([]*types.Point, error) {
+    var points []*types.Point
+    for _, f := range files {
+        data, err := os.ReadFile(f)  // 整个文件读入内存
+        // ...
+        points = append(points, p...)  // 累积到 slice
+    }
+    return points, nil
 }
 ```
 
----
+**风险**: 对于大 WAL 文件（如写入密集场景），可能导致内存压力。
 
-## 五、性能问题 ✅ 已修复
+### 4.2 SSTable 格式
 
-### 5.1 MemTable 排序开销 ✅ 已修复
+**文件**: `internal/storage/shard/sstable/`
 
-**文件**: `internal/storage/shard/memtable.go:128`
+**目录结构**:
+```
+sst_{seq}/
+├── _timestamps.bin    # 时间戳列
+├── _sids.bin         # Series ID 列
+├── _index.bin        # Block 索引
+├── _schema.json      # 字段类型定义
+└── fields/
+    ├── {field1}.bin
+    └── {field2}.bin
+```
 
+**BlockIndex**:
 ```go
-if m.count > 1 && m.entries[m.count-1].Point.Timestamp < m.entries[m.count-2].Point.Timestamp {
-    sort.Slice(m.entries, func(i, j int) bool {
-        return m.entries[i].Point.Timestamp < m.entries[j].Timestamp
-    })
+type BlockIndexEntry struct {
+    FirstTimestamp int64   // Block 首时间戳
+    LastTimestamp  int64   // Block 尾时间戳
+    Offset         uint32  // 在 timestamps.bin 的偏移
+    RowCount       uint32  // 行数
 }
 ```
 
-乱序写入时每次都触发全局排序，复杂度 O(n log n)
+**优点**:
+- 列式存储，字段数据按列组织
+- Block 索引支持二分查找
+- 只读时间戳/sid 可确定数据位置
 
-**建议**: 改用跳表或定期排序
+**问题**:
+- 无 compaction，小文件会积累
+- 字段数据仍需全读（无法块级索引）
 
----
+### 4.3 Retention 服务
 
-### 5.2 固定 Block 大小 ✅ 已修复
-
-**文件**: `internal/storage/shard/sstable/writer.go:63`
+**文件**: `internal/storage/shard/retention.go`
 
 ```go
-const BlockSize = 64 * 1024  // 64KB 固定
-```
+func (s *RetentionService) cleanup() {
+    cutoff := time.Now().Add(-s.retention).UnixNano()
+    shards := s.manager.GetAllShards()
 
-不考虑数据点大小，可能导致小数据浪费或大数据跨块
-
----
-
-## 六、API 设计问题 ✅ 已修复
-
-### 6.1 gRPC 服务端错误处理一致 ✅ 已修复
-
-**文件**: `internal/api/grpc.go`, `internal/engine/engine.go`
-
-**问题**: engine.CreateMeasurement 永远不返回错误，但 gRPC 服务端检查错误
-
-**修复方案**:
-- 在 engine.CreateMeasurement 中添加输入验证
-- database 或 measurement 为空时返回对应错误
-- gRPC 服务端正确将错误转换为 Internal 状态码
-    // ❌ engine.CreateMeasurement 永远不返回错误
+    for _, shard := range shards {
+        if shard.EndTime() < cutoff {
+            // 删除过期 Shard
+            s.manager.DeleteShard(key)
+        }
+    }
 }
 ```
 
----
-
-### 6.2 DropMeasurement 错误语义混淆 ✅ 已修复
-
-```go
-// 修复前：字符串匹配
-if strings.Contains(err.Error(), "not found") { ... }
-
-// 修复后：使用 errors.Is()
-if errors.Is(err, engine.ErrDatabaseNotFound) || errors.Is(err, engine.ErrMeasurementNotFound) { ... }
-```
+**问题**:
+- 删除粒度是整个 Shard，不是单个数据点
+- 如果 ShardDuration 大于 RetentionPeriod，清理会有空窗期
 
 ---
 
-## 七、安全问题 ✅ 已修复
+## 五、安全分析
 
-| 问题 | 状态 | 说明 |
+### 5.1 已实现的安全措施
+
+| 措施 | 实现位置 | 说明 |
+|------|---------|------|
+| 路径遍历防护 | `internal/storage/util.go` | `isPathSafe()` 检查 `..` |
+| 目录权限 0700 | `storage.SafeMkdirAll()` | 只有 owner 可访问 |
+| 文件权限 0600 | `storage.SafeCreate()` | 只有 owner 可读写 |
+| 输入验证 | `engine.Write()` | Database/Measurement/Timestamp 检查 |
+
+### 5.2 缺失的安全措施
+
+| 措施 | 状态 | 说明 |
 |------|------|------|
-| 目录权限检查缺失 | ✅ 已修复 | 添加路径遍历检查，拒绝 `..` 路径组件 |
-| 缺少输入验证 | ✅ 已修复 | Write() 添加 Database/Measurement/Timestamp 验证 |
+| 认证 | ❌ | 无用户认证机制 |
+| 授权 | ❌ | 无权限控制 |
+| 加密 | ❌ | 数据文件未加密 |
+| 审计日志 | ❌ | 无操作日志 |
 
 ---
 
-## 八、测试覆盖问题 ✅ 已修复
+## 六、性能分析
 
-### 8.1 测试文件过多重复代码 ✅ 已修复
+### 6.1 已有的优化
 
-**文件**: `tests/e2e/pkg/framework/`
+| 优化 | 实现位置 | 效果 |
+|------|---------|------|
+| MemTable 跳表 | `memtable.go` | O(log n) 写入 |
+| WAL 缓冲 | `wal.go` | 减少系统调用 |
+| BlockIndex | `sstable/index.go` | 二分查找定位 Block |
+| 定期排序标记 | `memtable.go:128` | 避免重复排序 |
+| 流式迭代器 | `query/iterator.go` | 支持大数据集 |
 
-**修复方案**:
-- 新建 `framework` 包提供 `TestHarness` 测试工具
-- 统一管理数据库生命周期、配置、临时目录清理
-- 提供 `WritePoints`、`QueryRange`、`VerifyDataIntegrity` 辅助方法
-- 重构 simple_integrity、write_1k/10k/100k、query_1k/10k/100k 测试
+### 6.2 性能瓶颈
 
-**效果**:
-- 减少约 60% 样板代码
-- 消除重复的配置逻辑
-- 统一的错误处理和资源清理
-
-### 8.2 缺少边界条件测试 ✅ 已修复
-
-**文件**: `internal/engine/engine_test.go`
-
-**修复方案**:
-添加以下边界条件测试:
-- TestEngine_Write_EmptyDatabase - 空数据库名写入
-- TestEngine_Write_EmptyMeasurement - 空 measurement 名写入
-- TestEngine_Write_NegativeTimestamp - 负时间戳写入
-- TestEngine_Write_NilPoint - nil point 写入
-- TestEngine_CreateMeasurement_EmptyDatabase - 空数据库名创建 measurement
-- TestEngine_CreateMeasurement_EmptyMeasurement - 空 measurement 名创建 measurement
-- TestEngine_Query_EmptyDatabase - 空数据库名查询
-- TestEngine_Query_NonExistent - 不存在的数据库/measurement 查询
-- TestEngine_Write_Concurrent - 并发写入测试
-
-**覆盖率**: engine 测试覆盖率从 87.6% 提升至 91.5%
+| 瓶颈 | 影响 | 建议 |
+|------|------|------|
+| 固定 BlockSize (64KB) | 无法适应不同数据分布 | 可配置化 |
+| 无 compaction | 小文件累积，查询变慢 | 实现 Level compaction |
+| WAL 全量 replay | 大数据量启动慢 | 实现增量 replay |
+| 单 Shard 热点 | 高写入时单 Shard 成为瓶颈 | 支持分片并行写入 |
 
 ---
 
-## 九、代码质量 ✅ 已处理
+## 七、可选功能（未来增强）
 
-### 9.1 魔法数字 ✅ 已处理
-
-**文件**: 多处
-
-BlockSize 已定义为常量 `const BlockSize = 64 * 1024`，64MB MemTable 默认大小是合理的配置值，条目大小估算 1KB 是代码逻辑的一部分，不需要提取为常量。
-
-### 9.2 注释掉的代码 ✅ 已处理
-
-**文件**: 代码中已无 TODO/FIXME 注释，未清理的注释掉的代码
+| 功能 | 优先级 | 工作量 | 说明 |
+|------|--------|--------|------|
+| SSTable Compaction | 高 | 中 | 合并小文件，减少查询 IO |
+| 增量 WAL Replay | 中 | 中 | 支持大 WAL 文件启动 |
+| 标签压缩 | 低 | 小 | 共享标签存储 |
+| SQL 查询支持 | 中 | 大 | Executor 目前是 placeholder |
+| 备份/恢复 | 低 | 中 | 数据导出导入工具 |
+| 集群支持 | 低 | 大 | 多节点数据分片 |
 
 ---
 
-## 修复进度总结
+## 八、测试建议
 
-| 级别 | 已修复 | 待处理 |
-|------|--------|--------|
-| P0 (严重) | 3 | 0 |
-| P1 (设计缺陷) | 5 | 0 |
-| P2 (逻辑问题) | 3 | 0 |
-| P3 (性能优化) | 2 | 0 |
-| P4 (并发安全) | 1 | 0 |
-| P6 (API 设计) | 2 | 0 |
-| P7 (安全) | 2 | 0 |
-| P8 (测试) | 2 | 0 |
-| P9 (代码质量) | 2 | 0 |
+### 8.1 单元测试覆盖提升
 
-### 关键待处理项
+**目标**: 核心模块达到 85%+
 
-所有 P0-P8 问题已修复，P9 代码质量问题已处理。
+| 包 | 当前 | 目标 | 建议补充测试 |
+|----|------|------|------------|
+| internal/storage | 63.3% | 85% | 更多 util 测试 |
+| measurement | 75.5% | 85% | MetaStore 边界条件 |
+| shard | 76.2% | 85% | Shard 并发测试 |
 
-**说明**:
-- SSTable compaction 尚未实现（TTL 清理过期 Shard，但不合并 SSTable 文件）
-- 这是一个可选的优化项，不影响基本功能
+### 8.2 集成测试
+
+建议添加:
+- Shard 迁移测试
+- MetaStore 持久化恢复测试
+- Retention 并发安全测试
+
+### 8.3 E2E 测试
+
+已添加:
+- `retention_test` - Retention 过期清理
+- `persistence_test` - MetaStore 持久化
+
+建议添加:
+- 大数据量写入/查询测试
+- 并发写入压力测试
+- 异常恢复测试
+
+---
+
+## 九、总结
+
+### 9.1 整体评价
+
+| 维度 | 评分 | 说明 |
+|------|------|------|
+| 架构设计 | ⭐⭐⭐⭐ | 清晰的模块化设计，职责分明 |
+| 代码质量 | ⭐⭐⭐⭐ | Lint 0 issues，注释完善 |
+| 错误处理 | ⭐⭐⭐ | 大部分路径有处理，少数边缘情况 |
+| 性能 | ⭐⭐⭐⭐ | 已有多种优化，还有提升空间 |
+| 测试 | ⭐⭐⭐ | 核心模块覆盖良好，部分可提升 |
+| 安全性 | ⭐⭐⭐ | 基础安全措施到位，缺少企业级功能 |
+
+### 9.2 关键优势
+
+1. **清晰的数据流**: WAL → MemTable → SSTable 架构清晰
+2. **完善的持久化**: MetaStore 和数据都有持久化保证
+3. **索引优化**: BlockIndex 减少查询 IO
+4. **流式查询**: 支持大数据集处理
+5. **Retention 机制**: 自动清理过期数据
+
+### 9.3 改进建议
+
+**短期** (1-2 周):
+1. 提升 internal/storage 测试覆盖率
+2. 实现 WAL 增量 replay 支持
+3. 添加更多集成测试
+
+**中期** (1-2 月):
+1. 实现 SSTable Compaction
+2. 支持标签压缩减少存储
+3. 添加 Executor 完整实现
+
+**长期** (3-6 月):
+1. 集群支持
+2. 备份恢复工具
+3. SQL 查询支持
+
+---
+
+## 附录 A: 文件结构
+
+```
+mts/
+├── mts.go                          # 主入口，重导出类型
+├── microts/                         # 公共 API
+├── internal/
+│   ├── engine/engine.go            # 核心引擎
+│   ├── api/grpc.go                # gRPC 服务
+│   ├── query/
+│   │   ├── iterator.go            # 流式迭代器
+│   │   └── executor.go            # 查询执行器 (placeholder)
+│   └── storage/
+│       ├── measurement/            # 元数据管理
+│       │   ├── meas_meta.go       # Series ID 管理
+│       │   ├── db_meta.go         # 数据库元数据
+│       │   └── store.go           # 存储抽象
+│       └── shard/
+│           ├── shard.go           # Shard 实现
+│           ├── manager.go         # Shard 管理
+│           ├── memtable.go       # 内存表
+│           ├── wal.go            # 预写日志
+│           ├── retention.go       # 过期清理
+│           └── sstable/          # SSTable 实现
+│               ├── writer.go
+│               ├── reader.go
+│               ├── index.go
+│               └── iterator.go
+├── types/                          # Protobuf 生成类型
+└── tests/e2e/                     # 端到端测试
+    └── pkg/framework/             # 测试框架
+```
+
+---
+
+**报告结束**
