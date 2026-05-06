@@ -180,7 +180,14 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 }
 
 func (m *ShardManager) calcShardStart(timestamp int64) int64 {
-	return (timestamp / int64(m.shardDuration)) * int64(m.shardDuration)
+	shardDuration := int64(m.shardDuration)
+	if shardDuration <= 0 {
+		return 0
+	}
+	// 计算时间窗口起始
+	// 注意：对于正常时间戳（远小于 math.MaxInt64），此计算不会溢出
+	// 因为 (timestamp / shardDuration) <= timestamp，而 timestamp * shardDuration >= result
+	return (timestamp / shardDuration) * shardDuration
 }
 
 func (m *ShardManager) makeKey(db, measurementName string, startTime int64) string {

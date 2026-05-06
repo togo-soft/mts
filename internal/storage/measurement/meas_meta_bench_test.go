@@ -23,7 +23,7 @@ func BenchmarkAllocateSID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// 每次稍微不同的 tags 以模拟新 series
 		tags["host"] = fmt.Sprintf("server%d", i%100)
-		store.AllocateSID(tags)
+		_, _ = store.AllocateSID(tags)
 	}
 }
 
@@ -42,7 +42,7 @@ func BenchmarkAllocateSIDParallel(b *testing.B) {
 				"region": "us-west",
 				"env":    "prod",
 			}
-			store.AllocateSID(tags)
+			_, _ = store.AllocateSID(tags)
 			i++
 		}
 	})
@@ -60,7 +60,7 @@ func BenchmarkGetSidsByTag(b *testing.B) {
 			"region": "us-west",
 			"env":    "prod",
 		}
-		store.AllocateSID(tags)
+		_, _ = store.AllocateSID(tags)
 	}
 
 	b.ResetTimer()

@@ -13,7 +13,30 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// isPathSafe 检查路径是否是安全的，不包含路径遍历攻击
+//
+// 检查内容：
+//   - 不包含 .. 路径组件（标准化后）
+//   - 不包含空组件
+func isPathSafe(path string) bool {
+	// 清理路径
+	cleaned := filepath.Clean(path)
+
+	// 检查是否包含 .. 路径遍历（标准化后）
+	if strings.Contains(cleaned, "..") {
+		return false
+	}
+
+	// 检查是否有空组件
+	if cleaned == "" || cleaned == "." {
+		return false
+	}
+
+	return true
+}
 
 // SafeMkdirAll 安全地创建目录及其所有父目录。
 //
@@ -29,7 +52,16 @@ import (
 //	首先确保父目录存在（使用 0700 权限），
 //	然后创建目标目录并应用指定的权限。
 //	这是为了兼容父目录可能需要不同的权限策略。
+//
+// 安全检查：
+//
+//	路径不能包含 .. 路径遍历组件。
+//	路径不能是绝对路径。
 func SafeMkdirAll(path string, perm uint32) error {
+	if !isPathSafe(path) {
+		return &PathError{Op: "mkdir", Path: path, Err: ErrInvalidPath}
+	}
+
 	// 确保父目录存在
 	parent := filepath.Dir(path)
 	if parent != "" && parent != "." {
@@ -55,7 +87,16 @@ func SafeMkdirAll(path string, perm uint32) error {
 //	如果父目录不存在，自动创建（权限 0700）。
 //	如果文件已存在，会被截断。
 //	文件以读写模式打开。
+//
+// 安全检查：
+//
+//	路径不能包含 .. 路径遍历组件。
+//	路径不能是绝对路径。
 func SafeCreate(path string, perm uint32) (*os.File, error) {
+	if !isPathSafe(path) {
+		return nil, &PathError{Op: "create", Path: path, Err: ErrInvalidPath}
+	}
+
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
 		if err := SafeMkdirAll(dir, 0700); err != nil {
@@ -82,14 +123,23 @@ func SafeCreate(path string, perm uint32) (*os.File, error) {
 //	提供更细粒度的控制（如追加模式、只读模式等）。
 //	适用于需要特定打开标志的场景。
 //
+// 安全检查：
+//
+//	路径不能包含 .. 路径遍历组件。
+//	路径不能是绝对路径。
+//
 // 使用示例：
 //
-//	f, err := storage.SafeOpenFile("/data/wal/0001.wal", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+//	f, err := storage.SafeOpenFile("data/wal/0001.wal", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 //	if err != nil {
 //	    return err
 //	}
 //	defer f.Close()
 func SafeOpenFile(name string, flag int, perm uint32) (*os.File, error) {
+	if !isPathSafe(name) {
+		return nil, &PathError{Op: "open", Path: name, Err: ErrInvalidPath}
+	}
+
 	dir := filepath.Dir(name)
 	if dir != "" && dir != "." {
 		if err := SafeMkdirAll(dir, 0700); err != nil {
@@ -97,4 +147,30 @@ func SafeOpenFile(name string, flag int, perm uint32) (*os.File, error) {
 		}
 	}
 	return os.OpenFile(name, flag, os.FileMode(perm))
+}
+
+// PathError 表示路径安全检查失败
+type PathError struct {
+	Op  string
+	Path string
+	Err error
+}
+
+func (e *PathError) Error() string {
+	return "invalid path: " + e.Path + ": " + e.Err.Error()
+}
+
+func (e *PathError) Unwrap() error {
+	return e.Err
+}
+
+// ErrInvalidPath 表示路径包含非法组件
+var ErrInvalidPath = &pathError{"path contains invalid components (../ or absolute path)"}
+
+type pathError struct {
+	msg string
+}
+
+func (e *pathError) Error() string {
+	return e.msg
 }
