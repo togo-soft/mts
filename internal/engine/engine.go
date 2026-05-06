@@ -41,7 +41,7 @@ import (
 type Config struct {
 	DataDir       string
 	ShardDuration time.Duration
-	MemTableCfg   types.MemTableConfig
+	MemTableCfg   *types.MemTableConfig
 }
 
 // Engine 是微时序数据库的存储引擎。
@@ -92,10 +92,10 @@ type Engine struct {
 func New(cfg *Config) (*Engine, error) {
 	// 默认 MemTable 配置
 	var memTableCfg *types.MemTableConfig
-	if cfg.MemTableCfg.MaxSize == 0 {
+	if cfg.MemTableCfg == nil || cfg.MemTableCfg.MaxSize == 0 {
 		memTableCfg = shard.DefaultMemTableConfig()
 	} else {
-		memTableCfg = &cfg.MemTableCfg
+		memTableCfg = cfg.MemTableCfg
 	}
 	return &Engine{
 		cfg:          cfg,

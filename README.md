@@ -125,7 +125,7 @@ config := microts.Config{
     ShardDuration: 24 * time.Hour,
 
     // MemTable 配置
-    MemTableCfg: microts.MemTableConfig{
+    MemTableCfg: &microts.MemTableConfig{
         // 最大内存大小（字节），默认 64MB
         MaxSize: 64 * 1024 * 1024,
 
