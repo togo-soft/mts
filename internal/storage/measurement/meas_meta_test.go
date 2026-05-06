@@ -1,6 +1,10 @@
 package measurement
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestTagsHash(t *testing.T) {
 	emptyTags := map[string]string{}
@@ -162,5 +166,82 @@ func TestMeasurementMetaStore_GetSidsByTag(t *testing.T) {
 	sids := m.GetSidsByTag("region", "us")
 	if len(sids) != 2 {
 		t.Errorf("region=us should have 2 sids, got %d", len(sids))
+	}
+}
+
+func TestMeasurementMetaStore_SetPersistPath(t *testing.T) {
+	m := NewMeasurementMetaStore()
+	path := filepath.Join(t.TempDir(), "meta.json")
+	m.SetPersistPath(path)
+
+	// Allocate a SID to make it dirty
+	tags := map[string]string{"host": "server1"}
+	_, _ = m.AllocateSID(tags)
+
+	// Persist should work
+	err := m.Persist()
+	if err != nil {
+		t.Errorf("Persist failed: %v", err)
+	}
+
+	// Verify file exists
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		t.Error("meta.json should exist after Persist")
+	}
+}
+
+func TestMeasurementMetaStore_Persist_EmptyPath(t *testing.T) {
+	m := NewMeasurementMetaStore()
+	// persistPath 为空，Persist 应该直接返回 nil
+	err := m.Persist()
+	if err != nil {
+		t.Errorf("Persist with empty path should succeed, got: %v", err)
+	}
+}
+
+func TestMeasurementMetaStore_Close(t *testing.T) {
+	m := NewMeasurementMetaStore()
+
+	// Allocate to make it dirty
+	tags := map[string]string{"host": "server1"}
+	_, _ = m.AllocateSID(tags)
+
+	// Close should succeed
+	err := m.Close()
+	if err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+}
+
+func TestMeasurementMetaStore_Close_WithPersistPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := NewMeasurementMetaStore()
+	path := filepath.Join(tmpDir, "meta.json")
+	m.SetPersistPath(path)
+
+	// Allocate to make it dirty
+	tags := map[string]string{"host": "server1"}
+	_, _ = m.AllocateSID(tags)
+
+	// Close should persist and succeed
+	err := m.Close()
+	if err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+
+	// Verify file exists
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		t.Error("meta.json should exist after Close with dirty data")
+	}
+}
+
+func TestMeasurementMetaStore_AllocateSID_Overflow(t *testing.T) {
+	m := NewMeasurementMetaStore()
+	// 直接设置 nextSID 为最大值来测试溢出
+	m.nextSID = ^uint64(0)
+
+	_, err := m.AllocateSID(map[string]string{"host": "server1"})
+	if err == nil {
+		t.Error("AllocateSID should return error on overflow")
 	}
 }

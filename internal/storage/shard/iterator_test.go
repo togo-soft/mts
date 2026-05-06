@@ -459,3 +459,223 @@ func TestShardIterator_Empty(t *testing.T) {
 		t.Errorf("expected nil current, got %v", current)
 	}
 }
+
+func TestShardIterator_Err(t *testing.T) {
+	dir := t.TempDir()
+
+	// 创建一个会触发错误的 shard
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         dir,
+		MetaStore:   nil,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	iter := NewShardIterator(shard, 0, 0)
+
+	// 初始没有错误
+	if iter.Err() != nil {
+		t.Errorf("expected nil error initially, got %v", iter.Err())
+	}
+
+	// 正常迭代
+	for iter.Next() != nil {
+	}
+}
+
+func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
+	// 创建临时目录
+	dir := t.TempDir()
+
+	// 准备 SSTable 数据 - mem: 1000, sst: 2000
+	sstDir := filepath.Join(dir, "sst")
+	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
+		t.Fatalf("failed to create sst dir: %v", err)
+	}
+
+	// 写入 timestamps (SSTable: 2000)
+	sstTimestamps := []int64{2000}
+	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
+	if err != nil {
+		t.Fatalf("failed to create timestamps file: %v", err)
+	}
+	for _, ts := range sstTimestamps {
+		var buf [8]byte
+		buf[0] = byte(ts >> 56)
+		buf[1] = byte(ts >> 48)
+		buf[2] = byte(ts >> 40)
+		buf[3] = byte(ts >> 32)
+		buf[4] = byte(ts >> 24)
+		buf[5] = byte(ts >> 16)
+		buf[6] = byte(ts >> 8)
+		buf[7] = byte(ts)
+		if _, err := tsFile.Write(buf[:]); err != nil {
+			_ = tsFile.Close()
+			t.Fatalf("failed to write timestamp: %v", err)
+		}
+	}
+	if err := tsFile.Close(); err != nil {
+		t.Fatalf("failed to close timestamps file: %v", err)
+	}
+
+	// 写入字段数据
+	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
+	if err != nil {
+		t.Fatalf("failed to create field file: %v", err)
+	}
+	var buf [8]byte
+	val := int64(200)
+	buf[0] = byte(val >> 56)
+	buf[1] = byte(val >> 48)
+	buf[2] = byte(val >> 40)
+	buf[3] = byte(val >> 32)
+	buf[4] = byte(val >> 24)
+	buf[5] = byte(val >> 16)
+	buf[6] = byte(val >> 8)
+	buf[7] = byte(val)
+	if _, err := fieldFile.Write(buf[:]); err != nil {
+		_ = fieldFile.Close()
+		t.Fatalf("failed to write field: %v", err)
+	}
+	if err := fieldFile.Close(); err != nil {
+		t.Fatalf("failed to close field file: %v", err)
+	}
+
+	// 创建 Shard
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         sstDir,
+		MetaStore:   nil,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入 MemTable 数据 (MemTable: 1000)
+	memPoints := []*types.Point{
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+	}
+	for _, p := range memPoints {
+		if err := shard.memTable.Write(p); err != nil {
+			t.Fatalf("failed to write point: %v", err)
+		}
+	}
+
+	// 创建迭代器
+	iter := NewShardIterator(shard, 0, 0)
+
+	// 验证 Current 返回 MemTable 的 1000（因为 1000 < 2000）
+	current := iter.Current()
+	if current == nil {
+		t.Fatal("expected current to return a row")
+	}
+	if current.Timestamp != 1000 {
+		t.Errorf("current timestamp: expected 1000 (mem), got %d", current.Timestamp)
+	}
+
+	// 推进后，memRow 被消费，sstRow 成为 Current
+	iter.Next()
+	current = iter.Current()
+	if current == nil {
+		t.Fatal("expected current to return a row")
+	}
+	if current.Timestamp != 2000 {
+		t.Errorf("current timestamp: expected 2000 (sst), got %d", current.Timestamp)
+	}
+}
+
+func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
+	// 创建临时目录
+	dir := t.TempDir()
+
+	// 准备 SSTable 数据 - mem: 3000, sst: 1000
+	sstDir := filepath.Join(dir, "sst")
+	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
+		t.Fatalf("failed to create sst dir: %v", err)
+	}
+
+	// 写入 timestamps (SSTable: 1000)
+	sstTimestamps := []int64{1000}
+	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
+	if err != nil {
+		t.Fatalf("failed to create timestamps file: %v", err)
+	}
+	for _, ts := range sstTimestamps {
+		var buf [8]byte
+		buf[0] = byte(ts >> 56)
+		buf[1] = byte(ts >> 48)
+		buf[2] = byte(ts >> 40)
+		buf[3] = byte(ts >> 32)
+		buf[4] = byte(ts >> 24)
+		buf[5] = byte(ts >> 16)
+		buf[6] = byte(ts >> 8)
+		buf[7] = byte(ts)
+		if _, err := tsFile.Write(buf[:]); err != nil {
+			_ = tsFile.Close()
+			t.Fatalf("failed to write timestamp: %v", err)
+		}
+	}
+	if err := tsFile.Close(); err != nil {
+		t.Fatalf("failed to close timestamps file: %v", err)
+	}
+
+	// 写入字段数据
+	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
+	if err != nil {
+		t.Fatalf("failed to create field file: %v", err)
+	}
+	var buf [8]byte
+	val := int64(100)
+	buf[0] = byte(val >> 56)
+	buf[1] = byte(val >> 48)
+	buf[2] = byte(val >> 40)
+	buf[3] = byte(val >> 32)
+	buf[4] = byte(val >> 24)
+	buf[5] = byte(val >> 16)
+	buf[6] = byte(val >> 8)
+	buf[7] = byte(val)
+	if _, err := fieldFile.Write(buf[:]); err != nil {
+		_ = fieldFile.Close()
+		t.Fatalf("failed to write field: %v", err)
+	}
+	if err := fieldFile.Close(); err != nil {
+		t.Fatalf("failed to close field file: %v", err)
+	}
+
+	// 创建 Shard
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         sstDir,
+		MetaStore:   nil,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入 MemTable 数据 (MemTable: 3000)
+	memPoints := []*types.Point{
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
+	}
+	for _, p := range memPoints {
+		if err := shard.memTable.Write(p); err != nil {
+			t.Fatalf("failed to write point: %v", err)
+		}
+	}
+
+	// 创建迭代器
+	iter := NewShardIterator(shard, 0, 0)
+
+	// 验证 Current 返回 SSTable 的 1000（因为 1000 < 3000）
+	current := iter.Current()
+	if current == nil {
+		t.Fatal("expected current to return a row")
+	}
+	if current.Timestamp != 1000 {
+		t.Errorf("current timestamp: expected 1000 (sst), got %d", current.Timestamp)
+	}
+}

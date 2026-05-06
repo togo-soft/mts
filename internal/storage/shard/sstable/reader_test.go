@@ -105,3 +105,108 @@ func TestReader_ReadTimestamps(t *testing.T) {
 		t.Errorf("file should not be empty")
 	}
 }
+
+func TestReader_ReadRange_NoIndex(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 创建 writer 并写入数据
+	w, err := NewWriter(tmpDir, 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	points := []*types.Point{
+		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)}},
+		{Timestamp: 2000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)}},
+		{Timestamp: 3000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(95.5)}},
+	}
+	if err := w.WritePoints(points, nil); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 删除索引文件以触发 readRangeFullScan
+	indexPath := filepath.Join(tmpDir, "data", "sst_0", "_index.bin")
+	if err := os.Remove(indexPath); err != nil {
+		t.Fatalf("Failed to remove index file: %v", err)
+	}
+
+	// 使用 reader 读取范围（应该触发 readRangeFullScan）
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() {
+		_ = r.Close()
+	}()
+
+	// ReadRange 应该回退到全表扫描
+	rows, err := r.ReadRange(1500, 2500)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+
+	// 应该只返回时间戳在范围内的行
+	if len(rows) != 1 {
+		t.Errorf("expected 1 row in range [1500, 2500), got %d", len(rows))
+	}
+}
+
+func TestReader_ReadRange_AllFields(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	w, err := NewWriter(tmpDir, 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	points := []*types.Point{
+		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{
+			"float_val": types.NewFieldValue(3.14),
+			"int_val":   types.NewFieldValue(int64(42)),
+			"str_val":   types.NewFieldValue("hello"),
+			"bool_val":  types.NewFieldValue(true),
+		}},
+	}
+	if err := w.WritePoints(points, nil); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() {
+		_ = r.Close()
+	}()
+
+	rows, err := r.ReadRange(0, 2000)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	// 验证所有字段类型
+	row := rows[0]
+	if row.Fields["float_val"] == nil {
+		t.Error("float_val should be present")
+	}
+	if row.Fields["int_val"] == nil {
+		t.Error("int_val should be present")
+	}
+	if row.Fields["str_val"] == nil {
+		t.Error("str_val should be present")
+	}
+	if row.Fields["bool_val"] == nil {
+		t.Error("bool_val should be present")
+	}
+}
+
