@@ -354,6 +354,8 @@ func (m *MemoryMetaStore) Load(ctx context.Context, path string) error {
 }
 
 // writeString writes a length-prefixed string
+//
+//nolint:errcheck // binary.Write to bytes.Buffer cannot fail; this is defensive code for API completeness
 func writeString(buf *bytes.Buffer, s string) error {
 	if err := binary.Write(buf, binary.BigEndian, int64(len(s))); err != nil {
 		return fmt.Errorf("write string length: %w", err)
@@ -378,6 +380,8 @@ func readString(buf *bytes.Reader) (string, error) {
 }
 
 // writeBytes writes a length-prefixed byte slice
+//
+//nolint:errcheck // binary.Write to bytes.Buffer cannot fail; this is defensive code for API completeness
 func writeBytes(buf *bytes.Buffer, b []byte) error {
 	if err := binary.Write(buf, binary.BigEndian, int64(len(b))); err != nil {
 		return fmt.Errorf("write bytes length: %w", err)

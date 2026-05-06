@@ -210,3 +210,86 @@ func TestReader_ReadRange_AllFields(t *testing.T) {
 	}
 }
 
+func TestReader_ReadSids_NotExist(t *testing.T) {
+	// 测试 sids 文件不存在的情况
+	tmpDir := t.TempDir()
+
+	w, err := NewWriter(tmpDir, 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	points := []*types.Point{
+		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
+	}
+	if err := w.WritePoints(points, nil); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 删除 sids 文件
+	sidPath := filepath.Join(tmpDir, "data", "sst_0", "_sids.bin")
+	if err := os.Remove(sidPath); err != nil {
+		t.Fatalf("Remove sids file failed: %v", err)
+	}
+
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() {
+		_ = r.Close()
+	}()
+
+	// ReadAll 应该能处理缺失的 sids 文件
+	rows, err := r.ReadAll(nil)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("expected 1 row, got %d", len(rows))
+	}
+}
+
+func TestReader_ReadTimestamps_NotExist(t *testing.T) {
+	// 测试 timestamps 文件不存在的情况
+	tmpDir := t.TempDir()
+
+	w, err := NewWriter(tmpDir, 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	points := []*types.Point{
+		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
+	}
+	if err := w.WritePoints(points, nil); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 删除 timestamps 文件
+	tsPath := filepath.Join(tmpDir, "data", "sst_0", "_timestamps.bin")
+	if err := os.Remove(tsPath); err != nil {
+		t.Fatalf("Remove timestamps file failed: %v", err)
+	}
+
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() {
+		_ = r.Close()
+	}()
+
+	// ReadAll 应该返回错误
+	_, err = r.ReadAll(nil)
+	if err == nil {
+		t.Error("expected error for missing timestamps file")
+	}
+}
+
