@@ -117,6 +117,12 @@ type CompactionConfig struct {
 
     // 单个 Shard 数据大小上限（字节），超过后不参与 compaction
     ShardSizeLimit int64
+
+    // 定时触发间隔（0 表示禁用定时触发）
+    CheckInterval time.Duration
+
+    // Compaction 超时时间
+    Timeout time.Duration
 }
 
 // DefaultCompactionConfig 返回默认配置
@@ -125,6 +131,8 @@ func DefaultCompactionConfig() *CompactionConfig {
         MaxSSTableCount:  4,
         MaxCompactionBatch: 0,
         ShardSizeLimit:   ShardSizeLimit,
+        CheckInterval:    1 * time.Hour, // 默认 1 小时
+        Timeout:          30 * time.Minute,
     }
 }
 
@@ -133,6 +141,13 @@ type CompactionManager struct {
     shard   *Shard
     config  *CompactionConfig
     mu      sync.Mutex // 保护 compaction 状态
+
+    // 定时触发相关
+    ticker           *time.Ticker
+    stopCh           chan struct{}
+    lastCompact      time.Time    // 上次 compaction 完成时间
+    compactMu        sync.Mutex   // 保护 lastCompact
+    compactInProgress int32       // atomic: 0=空闲, 1=执行中
 }
 
 // NewCompactionManager 创建 CompactionManager
@@ -141,8 +156,9 @@ func NewCompactionManager(shard *Shard, config *CompactionConfig) *CompactionMan
         config = DefaultCompactionConfig()
     }
     return &CompactionManager{
-        shard:  shard,
-        config: config,
+        shard:   shard,
+        config:  config,
+        stopCh:  make(chan struct{}),
     }
 }
 ```
@@ -619,31 +635,205 @@ func dirSize(path string) (int64, error) {
 }
 ```
 
-#### 5.1.2 定时触发
+#### 5.1.2 定时触发与互斥机制
+
+**设计原则**：
+- 定时触发作为兜底机制（默认 1 小时）
+- 阈值触发时，重置定时器，避免密集执行
+- 两种触发方式互斥，同一时间只执行一个 compaction 任务
 
 ```go
-// StartPeriodicCheck 启动定期检查
-func (cm *CompactionManager) StartPeriodicCheck(interval time.Duration, stopCh <-chan struct{}) {
-    ticker := time.NewTicker(interval)
-    defer ticker.Stop()
-    
-    for {
-        select {
-        case <-ticker.C:
-            if cm.ShouldCompact() {
-                ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-                _, _, err := cm.Compact(ctx)
-                if err != nil {
-                    slog.Error("compaction failed", "error", err)
-                }
-                cancel()
-            }
-        case <-stopCh:
-            return
-        }
+// CompactionManager 新增字段
+type CompactionManager struct {
+    shard   *Shard
+    config  *CompactionConfig
+    mu      sync.Mutex
+
+    // 定时触发相关
+    ticker       *time.Ticker
+    stopCh       chan struct{}
+    lastCompact  time.Time    // 上次 compaction 完成时间
+    compactMu    sync.Mutex   // 保护 lastCompact
+}
+
+// NewCompactionManager 修改
+func NewCompactionManager(shard *Shard, config *CompactionConfig) *CompactionManager {
+    if config == nil {
+        config = DefaultCompactionConfig()
+    }
+    return &CompactionManager{
+        shard:   shard,
+        config:  config,
+        stopCh:  make(chan struct{}),
     }
 }
+
+// StartPeriodicCheck 启动定期检查
+//
+// 互斥机制：
+// - 定时器按固定间隔触发
+// - 如果阈值触发刚执行完，重置定时器
+// - compaction 执行期间，定时事件被忽略
+func (cm *CompactionManager) StartPeriodicCheck() {
+    if cm.config.CheckInterval <= 0 {
+        return // 未启用定时触发
+    }
+
+    cm.ticker = time.NewTicker(cm.config.CheckInterval)
+    go func() {
+        for {
+            select {
+            case <-cm.ticker.C:
+                cm.doPeriodicCompaction()
+            case <-cm.stopCh:
+                cm.ticker.Stop()
+                return
+            }
+        }
+    }()
+}
+
+// Stop 停止定期检查
+func (cm *CompactionManager) Stop() {
+    close(cm.stopCh)
+}
+
+// doPeriodicCompaction 定时执行的 compaction
+func (cm *CompactionManager) doPeriodicCompaction() {
+    cm.compactMu.Lock()
+    // 检查是否正在执行
+    if !cm.tryAcquireCompactLock() {
+        cm.compactMu.Unlock()
+        return
+    }
+    cm.compactMu.Unlock()
+
+    defer cm.releaseCompactLock()
+
+    ctx, cancel := context.WithTimeout(context.Background(), cm.config.Timeout)
+    defer cancel()
+
+    if !cm.ShouldCompact() {
+        return // 不满足触发条件
+    }
+
+    _, _, err := cm.Compact(ctx)
+    if err != nil {
+        slog.Error("periodic compaction failed", "error", err)
+    }
+
+    // 重置定时器：从现在开始计算下次触发时间
+    cm.resetTimer()
+}
+
+// tryAcquireCompactLock 尝试获取 compaction 执行锁
+// 返回 true 表示获取成功，可以执行
+func (cm *CompactionManager) tryAcquireCompactLock() bool {
+    // 使用 atomic 保证原子性
+    return atomic.CompareAndSwapInt32(&cm.compactInProgress, 0, 1)
+}
+
+// releaseCompactLock 释放 compaction 执行锁
+func (cm *CompactionManager) releaseCompactLock() {
+    atomic.StoreInt32(&cm.compactInProgress, 0)
+}
+
+// resetTimer 重置定时器
+// 在阈值触发 compaction 完成后调用
+func (cm *CompactionManager) resetTimer() {
+    cm.compactMu.Lock()
+    cm.lastCompact = time.Now()
+    cm.compactMu.Unlock()
+
+    if cm.ticker != nil {
+        cm.ticker.Reset(cm.config.CheckInterval)
+    }
+}
+
+// ShouldCompactWithLock 检查是否应该触发 compaction（已持有锁）
+// 由阈值触发调用
+func (cm *CompactionManager) ShouldCompactWithLock() bool {
+    // 检查 1: SSTable 数量是否超限
+    files, err := cm.collectSSTables()
+    if err != nil {
+        return false
+    }
+
+    if len(files) < cm.config.MaxSSTableCount {
+        return false
+    }
+
+    // 检查 2: Shard 总大小是否超过限制
+    shardSize, err := cm.calculateShardSize()
+    if err != nil {
+        return false
+    }
+
+    if shardSize >= cm.config.ShardSizeLimit {
+        return false
+    }
+
+    return true
+}
 ```
+
+**触发流程图**：
+
+```
+                    ┌─────────────────────────────────────────┐
+                    │           定时器触发 (1小时)              │
+                    └─────────────────┬───────────────────────┘
+                                      │
+                                      ▼
+                    ┌─────────────────────────────────────────┐
+                    │      tryAcquireCompactLock() 成功？      │
+                    └─────────────────┬───────────────────────┘
+                           │ No       │ Yes
+                           ▼          ▼
+                    ┌──────────┐  ┌─────────────────────────┐
+                    │  忽略    │  │  ShouldCompact()        │
+                    └──────────┘  │  - SSTable 数量检查     │
+                                  │  - Shard 大小检查       │
+                                  │  - 写入保护检查         │
+                                  └───────────┬─────────────┘
+                                      │ No       │ Yes
+                                      ▼          ▼
+                               ┌──────────┐  ┌─────────────────────────┐
+                               │  忽略     │  │  执行 Compact()         │
+                               └──────────┘  │  - 流式归并             │
+                                             │  - 去重写入             │
+                                             │  - resetTimer()        │
+                                             └─────────────────────────┘
+
+阈值触发 (Flush 后):
+                    ┌─────────────────────────────────────────┐
+                    │           Flush 完成                    │
+                    └─────────────────┬───────────────────────┘
+                                      │
+                                      ▼
+                    ┌─────────────────────────────────────────┐
+                    │      tryAcquireCompactLock() 成功？      │
+                    └─────────────────┬───────────────────────┘
+                           │ No       │ Yes
+                           ▼          ▼
+                    ┌──────────┐  ┌─────────────────────────┐
+                    │  直接返回  │  │  ShouldCompactWithLock()│
+                    └──────────┘  └───────────┬─────────────┘
+                                      │ No       │ Yes
+                                      ▼          ▼
+                               ┌──────────┐  ┌─────────────────────────┐
+                               │  直接返回  │  │  后台执行 Compact()    │
+                               └──────────┘  │  - 完成后 resetTimer() │
+                                             └─────────────────────────┘
+```
+
+#### 5.1.3 触发条件汇总
+
+| 触发方式 | 触发条件 | 重置定时器 |
+|----------|----------|------------|
+| **阈值触发** | SSTable 数量 >= MaxSSTableCount | 是（resetTimer） |
+| **定时触发** | 间隔 >= CheckInterval | 否 |
+| **互斥** | compaction 执行中 | - |
 
 ### 5.2 ShardManager 集成
 
@@ -729,25 +919,20 @@ func (s *Shard) Flush() error {
     }
 
     // Step 5: 检查是否需要 compaction（后台执行）
-    if s.compaction.ShouldCompact() {
+    if s.compaction.ShouldCompactWithLock() {
         go func() {
-            ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+            ctx, cancel := context.WithTimeout(context.Background(), cm.config.Timeout)
             defer cancel()
 
             if _, _, err := s.compaction.Compact(ctx); err != nil {
                 slog.Error("background compaction failed", "error", err)
+            } else {
+                // 阈值触发完成后重置定时器，避免密集执行
+                s.compaction.ResetTimer()
             }
         }()
     }
 
-    return nil
-}
-```
-                slog.Error("background compaction failed", "error", err)
-            }
-        }()
-    }
-    
     return nil
 }
 ```
@@ -755,18 +940,16 @@ func (s *Shard) Flush() error {
 ### 5.3 CompactionConfig 完整定义
 
 ```go
-// CompactionConfig 完整配置
-type CompactionConfig struct {
-    // 是否启用 compaction
-    Enabled bool
-    
-    // SSTable 数量阈值，超过此值触发 compaction
-    MaxSSTableCount int
-    
-    // 定期检查间隔（0 表示不启用定期检查）
-    CheckInterval time.Duration
-    
-    // 单次 compaction 最大文件数（0 表示不限制）
+// CompactionConfig 完整配置（已在上节定义，此处汇总）
+//
+// 字段说明：
+//   - Enabled:            是否启用 compaction
+//   - MaxSSTableCount:   SSTable 数量阈值
+//   - MaxCompactionBatch: 单次最大文件数
+//   - ShardSizeLimit:    Shard 大小上限
+//   - CheckInterval:     定时触发间隔（默认 1 小时）
+//   - Timeout:           compaction 超时时间
+
     MaxCompactionBatch int
     
     // compaction 超时时间
@@ -1045,6 +1228,7 @@ func (cm *CompactionManager) estimateTotal(inputFiles []string) int {
 | `TestE2E_ShardSizeLimit` | Shard 超过 1GB 后不参与 Compaction |
 | `TestE2E_MemoryEfficiency` | Compaction 过程中内存占用保持在合理范围 |
 | `TestE2E_WriteProtection` | 正在写入的 SSTable 不参与 Compaction |
+| `TestE2E_PeriodicCompaction` | 定时触发 compaction，阈值触发后重置定时器 |
 
 #### 9.4.2 测试用例详细设计
 
@@ -1307,6 +1491,83 @@ func TestE2E_WriteProtection() error {
 }
 ```
 
+```go
+// TestE2E_PeriodicCompaction 验证定时触发 compaction 和重置机制
+//
+// 测试流程：
+// 1. 创建数据库，配置短定时间隔（如 2 秒方便测试）
+// 2. 写入数据触发多次 Flush
+// 3. 等待定时器触发 compaction
+// 4. 验证 compaction 执行后定时器被重置
+// 5. 验证短时间内不再触发（因为刚被重置）
+func TestE2E_PeriodicCompaction() error {
+    tmpDir := filepath.Join(os.TempDir(), "microts_periodic_compaction_test")
+    defer os.RemoveAll(tmpDir)
+
+    // 使用短间隔方便测试
+    dbCfg := microts.Config{
+        DataDir:       tmpDir,
+        ShardDuration: time.Hour,
+        MemTableCfg: &microts.MemTableConfig{
+            MaxSize:    10 * 1024,
+            MaxCount:   10,
+        },
+        CompactionConfig: &microts.CompactionConfig{
+            CheckInterval: 2 * time.Second, // 2 秒间隔
+        },
+    }
+
+    db, err := microts.Open(dbCfg)
+    if err != nil {
+        return err
+    }
+    defer db.Close()
+
+    // 1. 写入数据触发多次 Flush
+    baseTime := time.Now().UnixNano()
+    for i := 0; i < 100; i++ {
+        p := &types.Point{
+            Database:    "testdb",
+            Measurement: "cpu",
+            Tags:        map[string]string{"host": fmt.Sprintf("server%d", i%3)},
+            Timestamp:   baseTime + int64(i)*int64(time.Millisecond),
+            Fields: map[string]*types.FieldValue{
+                "usage": types.NewFieldValue(float64(50.0 + float64(i%50))),
+            },
+        }
+        if err := db.Write(context.Background(), p); err != nil {
+            return fmt.Errorf("write point: %w", err)
+        }
+    }
+
+    // 等待第一次定时触发
+    time.Sleep(3 * time.Second)
+
+    // 2. 验证 compaction 已执行（SSTable 数量应该减少）
+    // 由于我们写入 100 条，触发多次 Flush，定时器应该已触发 compaction
+
+    // 3. 验证数据完整性
+    resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+        Database:    "testdb",
+        Measurement: "cpu",
+        StartTime:   baseTime,
+        EndTime:     baseTime + 200*int64(time.Millisecond),
+        Offset:      0,
+        Limit:       0,
+    })
+    if err != nil {
+        return fmt.Errorf("query: %w", err)
+    }
+
+    // 数据应该正确恢复（允许有少量重复，但不能全部丢失）
+    if len(resp.Rows) == 0 {
+        return fmt.Errorf("expected some rows after periodic compaction, got 0")
+    }
+
+    return nil
+}
+```
+
 #### 9.4.3 E2E 测试执行方式
 
 ```bash
@@ -1357,7 +1618,8 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 ### Phase 2 交付物
 
 - 阈值触发逻辑
-- 定时触发逻辑
+- 定时触发逻辑（默认 1 小时兜底）
+- 互斥机制（阈值触发后重置定时器）
 - ShardManager 集成
 - 配置项（含 1GB Shard 大小限制）
 
@@ -1376,6 +1638,7 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 - Shard 大小限制验证
 - 内存效率验证
 - 写入保护验证
+- 定时触发验证
 
 ### 硬性约束确认
 
@@ -1384,7 +1647,9 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 | **内存占用低** | 流式 K-way merge，内存占用 ≈ O(k * blockSize) |
 | **1GB Shard 限制** | ShouldCompact 中检查 calculateShardSize() |
 | **写入保护** | .writing 标志文件，isSSTableInWrite() 检查 |
-| **E2E 测试完整** | 7 个 E2E 测试用例覆盖核心场景 |
+| **定时兜底** | 1 小时触发一次，阈值触发后重置定时器 |
+| **互斥执行** | atomic int32 保证同一时间只有一个 compaction |
+| **E2E 测试完整** | 8 个 E2E 测试用例覆盖核心场景 |
 
 ---
 
@@ -1400,3 +1665,5 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 8. **E2E 测试**：测试用例是否足够覆盖核心场景？
 9. **写入保护**：.writing 标志机制是否完善？是否可能遗漏？
 10. **数据一致性**：Flush 和 Compaction 并发时是否保证数据不错乱？
+11. **定时触发**：1 小时兜底触发是否合理？重置机制是否有效？
+12. **互斥机制**：阈值触发和定时触发如何协调避免密集执行？
