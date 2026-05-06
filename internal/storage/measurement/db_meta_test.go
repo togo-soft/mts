@@ -60,3 +60,31 @@ func TestDatabaseMetaStore_DropMeasurement(t *testing.T) {
 		t.Error("DropMeasurement should return false for non-existent measurement")
 	}
 }
+
+func TestDatabaseMetaStore_MeasurementExists(t *testing.T) {
+	db := NewDatabaseMetaStore()
+
+	// 初始不存在
+	if db.MeasurementExists("cpu") {
+		t.Error("cpu should not exist initially")
+	}
+
+	// 创建 measurement
+	db.GetOrCreate("cpu")
+
+	// 现在存在
+	if !db.MeasurementExists("cpu") {
+		t.Error("cpu should exist after GetOrCreate")
+	}
+
+	// 其他 measurement 仍然不存在
+	if db.MeasurementExists("memory") {
+		t.Error("memory should not exist")
+	}
+
+	// 删除后不存在
+	db.DropMeasurement("cpu")
+	if db.MeasurementExists("cpu") {
+		t.Error("cpu should not exist after DropMeasurement")
+	}
+}
