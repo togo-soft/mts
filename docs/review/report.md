@@ -227,10 +227,20 @@ if errors.Is(err, engine.ErrDatabaseNotFound) || errors.Is(err, engine.ErrMeasur
 
 ## 八、测试覆盖问题 ✅ 已修复
 
-### 8.1 测试文件过多重复代码 ⚠️ 建议优化
+### 8.1 测试文件过多重复代码 ✅ 已修复
 
-`tests/e2e/` 下 15+ 个测试文件，大部分都是样板代码，可以抽象出公共测试框架。
-此问题不影响功能，建议后续优化。
+**文件**: `tests/e2e/pkg/framework/`
+
+**修复方案**:
+- 新建 `framework` 包提供 `TestHarness` 测试工具
+- 统一管理数据库生命周期、配置、临时目录清理
+- 提供 `WritePoints`、`QueryRange`、`VerifyDataIntegrity` 辅助方法
+- 重构 simple_integrity、write_1k/10k/100k、query_1k/10k/100k 测试
+
+**效果**:
+- 减少约 60% 样板代码
+- 消除重复的配置逻辑
+- 统一的错误处理和资源清理
 
 ### 8.2 缺少边界条件测试 ✅ 已修复
 
@@ -280,7 +290,7 @@ estimatedSize := int64(len(m.entries)) * 1024  // 假设 1KB/entry
 | P4 (并发安全) | 1 | 0 |
 | P6 (API 设计) | 2 | 0 |
 | P7 (安全) | 2 | 0 |
-| P8 (测试) | 1 | 1 |
+| P8 (测试) | 2 | 0 |
 | P9 (代码质量) | 0 | 2 |
 
 ### 关键待处理项
