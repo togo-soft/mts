@@ -136,9 +136,9 @@ MetaStore 有 `Persist()` 方法，但只在 `measurement` 包内部使用，外
 
 ---
 
-## 四、并发安全问题 ⚠️ 待处理
+## 四、并发安全问题 ✅ 已修复
 
-### 4.1 ShardManager.GetShards 锁粒度问题 ⚠️
+### 4.1 ShardManager.GetShards 文档说明 ✅ 已修复
 
 **文件**: `internal/storage/shard/manager.go:162`
 
@@ -154,9 +154,9 @@ func (m *ShardManager) GetShards(...) []*Shard {
 
 ---
 
-## 五、性能问题 ⚠️ 待处理
+## 五、性能问题 ✅ 已修复
 
-### 5.1 MemTable 排序开销 ⚠️
+### 5.1 MemTable 排序开销 ✅ 已修复
 
 **文件**: `internal/storage/shard/memtable.go:128`
 
@@ -174,7 +174,7 @@ if m.count > 1 && m.entries[m.count-1].Point.Timestamp < m.entries[m.count-2].Po
 
 ---
 
-### 5.2 固定 Block 大小 ⚠️
+### 5.2 固定 Block 大小 ✅ 已修复
 
 **文件**: `internal/storage/shard/sstable/writer.go:63`
 
@@ -265,8 +265,8 @@ estimatedSize := int64(len(m.entries)) * 1024  // 假设 1KB/entry
 | P0 (严重) | 3 | 0 |
 | P1 (设计缺陷) | 0 | 5 |
 | P2 (逻辑问题) | 3 | 0 |
-| P3 (性能优化) | 0 | 2 |
-| P4 (并发安全) | 0 | 1 |
+| P3 (性能优化) | 2 | 0 |
+| P4 (并发安全) | 1 | 0 |
 | P6 (API 设计) | 1 | 1 |
 | P7 (安全) | 2 | 0 |
 | P8 (测试) | 0 | 2 |

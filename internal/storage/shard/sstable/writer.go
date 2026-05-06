@@ -66,6 +66,7 @@ const BlockSize = 64 * 1024
 type Writer struct {
 	shardDir   string
 	seq        uint64
+	blockSize  int
 	dataDir    string
 	timestamp  *os.File
 	sids       *os.File // Sid 列表文件
@@ -99,6 +100,7 @@ func NewBlockIndex() *BlockIndex {
 // 参数：
 //   - shardDir: Shard 数据目录
 //   - seq:      SSTable 序列号
+//   - blockSize: Block 大小（字节），默认 64KB
 //
 // 返回：
 //   - *Writer: 初始化的 Writer
@@ -114,7 +116,11 @@ func NewBlockIndex() *BlockIndex {
 //	│   └── {field2}.bin
 //	├── _index.bin
 //	└── _schema.json
-func NewWriter(shardDir string, seq uint64) (*Writer, error) {
+func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
+	if blockSize <= 0 {
+		blockSize = BlockSize
+	}
+
 	// 使用 seq 创建独立的子目录，避免不同 SSTable 之间的冲突
 	dataDir := filepath.Join(shardDir, "data", fmt.Sprintf("sst_%d", seq))
 	if err := storage.SafeMkdirAll(dataDir, 0700); err != nil {
@@ -139,13 +145,14 @@ func NewWriter(shardDir string, seq uint64) (*Writer, error) {
 	return &Writer{
 		shardDir:   shardDir,
 		seq:        seq,
+		blockSize:  blockSize,
 		dataDir:    dataDir,
 		timestamp:  tsFile,
 		sids:       sidFile,
 		fields:     make(map[string]*os.File),
 		schema:     Schema{Fields: make(map[string]FieldType)},
 		blockIndex: NewBlockIndex(),
-		buf:        make([]byte, BlockSize),
+		buf:        make([]byte, blockSize),
 		bufPos:     0,
 		rowCount:   0,
 		fieldBufs:  make(map[string][]byte),
