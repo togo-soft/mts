@@ -354,11 +354,17 @@ func (s *Shard) Read(startTime, endTime int64) ([]*types.PointRow, error) {
 
 	var rows []*types.PointRow
 
-	// 1. 从 MemTable 读取
+	// 1. 从 MemTable 读取（可能有 WAL replay 重复数据，需要去重）
+	memTableSeen := make(map[int64]bool)
 	iter := s.memTable.Iterator()
 	for iter.Next() {
 		p := iter.Point()
 		if p.Timestamp >= startTime && p.Timestamp < endTime {
+			// MemTable 去重：基于 timestamp（同一时间戳只有一条数据）
+			if memTableSeen[p.Timestamp] {
+				continue
+			}
+			memTableSeen[p.Timestamp] = true
 			rows = append(rows, &types.PointRow{
 				Timestamp: p.Timestamp,
 				Tags:      p.Tags,
