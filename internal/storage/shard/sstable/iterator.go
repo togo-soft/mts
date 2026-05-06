@@ -109,7 +109,9 @@ func (it *Iterator) loadAllData() error {
 	if err != nil {
 		return err
 	}
-	defer tsFile.Close()
+	defer func() {
+		_ = tsFile.Close()
+	}()
 
 	var timestamps []int64
 	buf := make([]byte, 8)
@@ -226,7 +228,9 @@ func (it *Iterator) loadBlock(blockIdx int) error {
 	if err != nil {
 		return err
 	}
-	defer tsFile.Close()
+	defer func() {
+		_ = tsFile.Close()
+	}()
 
 	// seek 到 block 位置
 	if _, err := tsFile.Seek(int64(entry.Offset), io.SeekStart); err != nil {
@@ -298,7 +302,9 @@ func (it *Iterator) readFieldBlock(path string, offset, size int) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
 		return nil, err

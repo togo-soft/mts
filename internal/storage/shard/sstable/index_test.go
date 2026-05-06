@@ -76,7 +76,9 @@ func TestBlockIndex_ReadInvalidFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create file failed: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
 
 	idx := &BlockIndex{}
 	if err := idx.Read(indexFile); err == nil {
@@ -94,10 +96,12 @@ func TestBlockIndex_ReadCorruptFile(t *testing.T) {
 		t.Fatalf("Create file failed: %v", err)
 	}
 	if _, err := f.Write([]byte("CORRUPT")); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatalf("Write failed: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
 
 	idx := &BlockIndex{}
 	if err := idx.Read(indexFile); err == nil {

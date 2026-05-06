@@ -205,7 +205,9 @@ func TestWAL_StartPeriodicSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWAL for verify failed: %v", err)
 	}
-	defer wal2.Close()
+	defer func() {
+		_ = wal2.Close()
+	}()
 
 	points, err := ReplayWAL(tmpDir)
 	if err != nil {

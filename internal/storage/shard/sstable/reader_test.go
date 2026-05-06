@@ -31,7 +31,7 @@ func TestReader_ReadAll(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points); err != nil {
+	if err := w.WritePoints(points, nil); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -78,7 +78,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 		{Timestamp: 2000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)}},
 		{Timestamp: 3000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(95.5)}},
 	}
-	if err := w.WritePoints(points); err != nil {
+	if err := w.WritePoints(points, nil); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {

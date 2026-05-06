@@ -29,7 +29,7 @@ func TestWriter_WritePoints(t *testing.T) {
 		},
 	}
 
-	err = w.WritePoints(points)
+	err = w.WritePoints(points, nil)
 	if err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}

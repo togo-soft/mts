@@ -98,19 +98,21 @@ func copyTags(tags map[string]string) map[string]string {
 //
 // 索引结构：
 //
-//   - series:   map[SID] → tags
-//   - tagIndex: map[tagKey+tagValue] → []SID
+//   - series:        map[SID] → tags
+//   - tagHashIndex:  map[tagsHash] → SID (用于快速查找已存在的 tags)
+//   - tagIndex:      map[tagKey\0tagValue] → []SID
 //
 // 使用场景：
 //
 //	写入数据时调用 AllocateSID 获取/创建 Series。
 //	查询时调用 GetSidsByTag 进行标签过滤。
 type MeasurementMetaStore struct {
-	mu       sync.RWMutex
-	series   map[uint64]map[string]string // sid → tags
-	tagIndex map[string][]uint64          // tagKey\0tagValue → sids
-	nextSID  uint64
-	dirty    bool
+	mu           sync.RWMutex
+	series       map[uint64]map[string]string // sid → tags
+	tagHashIndex map[uint64]uint64            // tagsHash → sid (快速查找)
+	tagIndex     map[string][]uint64          // tagKey\0tagValue → sids
+	nextSID      uint64
+	dirty        bool
 }
 
 // NewMeasurementMetaStore 创建 MeasurementMetaStore。
@@ -120,14 +122,16 @@ type MeasurementMetaStore struct {
 //
 // 初始化内容：
 //
-//   - series:   空 map，存储 sid → tags 的映射
-//   - tagIndex: 空 map，存储 tagKey\x00tagValue → sids 的映射
-//   - nextSID:  0，下一个待分配的 Series ID
+//   - series:        空 map，存储 sid → tags 的映射
+//   - tagHashIndex:  空 map，存储 tagsHash → sid 的映射
+//   - tagIndex:      空 map，存储 tagKey\x00tagValue → sids 的映射
+//   - nextSID:       0，下一个待分配的 Series ID
 func NewMeasurementMetaStore() *MeasurementMetaStore {
 	return &MeasurementMetaStore{
-		series:   make(map[uint64]map[string]string),
-		tagIndex: make(map[string][]uint64),
-		nextSID:  0,
+		series:       make(map[uint64]map[string]string),
+		tagHashIndex: make(map[uint64]uint64),
+		tagIndex:     make(map[string][]uint64),
+		nextSID:      0,
 	}
 }
 
@@ -148,13 +152,19 @@ func NewMeasurementMetaStore() *MeasurementMetaStore {
 // 并发安全：
 //
 //	内部加锁，线程安全。
+//
+// 性能优化：
+//
+//	使用 tagsHashIndex 进行 O(1) 查找，而非 O(n) 线性遍历。
 func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 查找已存在的 SID
-	for sid, t := range m.series {
-		if tagsEqual(t, tags) {
+	// 使用 hash 索引快速查找已存在的 SID
+	h := tagsHash(tags)
+	if sid, ok := m.tagHashIndex[h]; ok {
+		// 验证 tags 是否真的相等（hash 可能有碰撞）
+		if tagsEqual(m.series[sid], tags) {
 			return sid
 		}
 	}
@@ -163,6 +173,7 @@ func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) uint64 {
 	sid := m.nextSID
 	m.nextSID++
 	m.series[sid] = copyTags(tags)
+	m.tagHashIndex[h] = sid
 	m.dirty = true
 
 	// 更新 tagIndex
