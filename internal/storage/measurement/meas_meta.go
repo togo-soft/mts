@@ -18,7 +18,10 @@
 package measurement
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 )
@@ -114,6 +117,7 @@ type MeasurementMetaStore struct {
 	tagIndex     map[string][]uint64          // tagKey\0tagValue → sids
 	nextSID      uint64
 	dirty        bool
+	persistPath  string // 持久化路径，为空时不持久化
 }
 
 // NewMeasurementMetaStore 创建 MeasurementMetaStore。
@@ -134,6 +138,21 @@ func NewMeasurementMetaStore() *MeasurementMetaStore {
 		tagIndex:     make(map[string][]uint64),
 		nextSID:      0,
 	}
+}
+
+// SetPersistPath 设置持久化路径。
+//
+// 参数：
+//   - path: 持久化文件路径
+//
+// 说明：
+//
+//	设置后，当 dirty 为 true 且 Close 或 Persist 被调用时，
+//	会自动将元数据持久化到指定路径。
+func (m *MeasurementMetaStore) SetPersistPath(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.persistPath = path
 }
 
 // AllocateSID 为指定的标签组合分配或查找 Series ID。
@@ -245,10 +264,76 @@ func (m *MeasurementMetaStore) GetSidsByTag(tagKey, tagValue string) []uint64 {
 // 说明：
 //
 //	清空 series 和 tagIndex 的 map 引用，帮助垃圾回收。
+//	如果设置了 persistPath 且 dirty 为 true，会先持久化。
 func (m *MeasurementMetaStore) Close() error {
+	// 如果有持久化路径且有脏数据，先持久化
+	if m.persistPath != "" && m.dirty {
+		_ = m.Persist()
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.series = nil
 	m.tagIndex = nil
+	return nil
+}
+
+// Persist 将元数据持久化到磁盘。
+//
+// 持久化内容：
+//   - series: sid → tags 映射
+//   - nextSID: 下一个可用的 SID
+//
+// 返回：
+//   - error: 持久化失败时返回错误
+func (m *MeasurementMetaStore) Persist() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.persistPath == "" {
+		return nil // 没有设置持久化路径
+	}
+
+	if !m.dirty {
+		return nil // 没有脏数据，不需要持久化
+	}
+
+	// 确保目录存在
+	dir := filepath.Dir(m.persistPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	// 序列化数据
+	data := struct {
+		NextSID uint64                  `json:"next_sid"`
+		Series map[uint64][]string      `json:"series"` // 将 tags 转换为 []string 便于 JSON
+	}{
+		NextSID: m.nextSID,
+		Series: make(map[uint64][]string),
+	}
+
+	for sid, tags := range m.series {
+		tagsList := make([]string, 0, len(tags)*2)
+		for k, v := range tags {
+			tagsList = append(tagsList, k, v)
+		}
+		data.Series[sid] = tagsList
+	}
+
+	// 写入文件
+	f, err := os.Create(m.persistPath)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(data); err != nil {
+		return fmt.Errorf("encode json: %w", err)
+	}
+
+	m.dirty = false
 	return nil
 }

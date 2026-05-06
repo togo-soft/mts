@@ -103,13 +103,20 @@ SSTable 文件只增不减，没有任何 compaction 或 TTL 逻辑。
 
 ---
 
-### 3.5 MetaStore 持久化未自动 ⚠️ 待重构
+### 3.5 MetaStore 持久化未自动 ✅ 已修复
 
-MetaStore 有 `Persist()` 方法，但只在测试中使用，外部写入路径从未调用。
+**文件**: `internal/storage/measurement/meas_meta.go`, `internal/storage/shard/manager.go`, `internal/engine/engine.go`
 
-**影响**: MetaStore 元数据（Schema、Series）变更不会自动保存到磁盘
+**修复方案**:
+- MeasurementMetaStore 添加 `persistPath` 字段和 `SetPersistPath` 方法
+- 添加 `Persist()` 方法将 series 和 nextSID 持久化为 JSON 文件
+- 修改 ShardManager 创建 MetaStore 时设置持久化路径 (`dir/db/measurement/meta.json`)
+- Engine.Close() 调用 ShardManager.PersistAllMetaStores() 持久化所有脏数据
+- Shard.Close() 也调用 metaStore.Persist() 确保关闭时持久化
 
-**注意**: 需要重新设计 MetaStore 添加路径跟踪，较大改动，待后续处理
+**持久化内容**:
+- next_sid: 下一个可用的 Series ID
+- series: sid → tags 映射
 
 ---
 
@@ -262,7 +269,7 @@ estimatedSize := int64(len(m.entries)) * 1024  // 假设 1KB/entry
 | 级别 | 已修复 | 待处理 |
 |------|--------|--------|
 | P0 (严重) | 3 | 0 |
-| P1 (设计缺陷) | 3 | 2 |
+| P1 (设计缺陷) | 4 | 1 |
 | P2 (逻辑问题) | 3 | 0 |
 | P3 (性能优化) | 2 | 0 |
 | P4 (并发安全) | 1 | 0 |

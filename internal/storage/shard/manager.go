@@ -123,6 +123,9 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 	metaStore, ok := m.metaStores[metaKey]
 	if !ok {
 		metaStore = measurement.NewMeasurementMetaStore()
+		// 设置持久化路径: dir/db/measurement/meta.json
+		metaPath := filepath.Join(m.dir, db, measurementName, "meta.json")
+		metaStore.SetPersistPath(metaPath)
 		m.metaStores[metaKey] = metaStore
 	}
 
@@ -256,4 +259,22 @@ func (m *ShardManager) FlushAll() error {
 		}
 	}
 	return firstErr
+}
+
+// PersistAllMetaStores 持久化所有 MetaStore 的脏数据。
+//
+// 调用每个 MetaStore 的 Persist 方法，将元数据写入磁盘。
+//
+// 用于 Engine.Close() 时确保所有元数据已持久化。
+func (m *ShardManager) PersistAllMetaStores() {
+	m.mu.RLock()
+	metaStores := make([]*measurement.MeasurementMetaStore, 0, len(m.metaStores))
+	for _, metaStore := range m.metaStores {
+		metaStores = append(metaStores, metaStore)
+	}
+	m.mu.RUnlock()
+
+	for _, metaStore := range metaStores {
+		_ = metaStore.Persist()
+	}
 }
