@@ -138,6 +138,9 @@ func (e *Engine) Close() error {
 	// 先刷盘确保数据不丢失
 	_ = e.shardManager.FlushAll() // 刷盘失败不影响关闭
 
+	// 持久化所有 MetaStore 的脏数据
+	e.shardManager.PersistAllMetaStores()
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, dbMeta := range e.dbMetaStores {

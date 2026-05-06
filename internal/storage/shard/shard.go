@@ -575,5 +575,10 @@ func (s *Shard) Close() error {
 		}
 	}
 
+	// 5. 持久化 MetaStore（如果脏了）
+	if s.metaStore != nil {
+		_ = s.metaStore.Persist()
+	}
+
 	return nil
 }
