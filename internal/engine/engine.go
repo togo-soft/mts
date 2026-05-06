@@ -578,6 +578,14 @@ func (e *Engine) DropDatabase(database string) bool {
 //	调用 DatabaseMetaStore.GetOrCreate 创建 MeasurementMetaStore。
 //	实际的目录和数据在第一次写入时才会创建。
 func (e *Engine) CreateMeasurement(database, measurement string) (bool, error) {
+	// 输入验证
+	if database == "" {
+		return false, ErrEmptyDatabase
+	}
+	if measurement == "" {
+		return false, ErrEmptyMeasurement
+	}
+
 	dbMeta := e.getOrCreateDBMetaStore(database)
 
 	// DatabaseMetaStore 内部使用双检锁，这里不需要额外加锁
