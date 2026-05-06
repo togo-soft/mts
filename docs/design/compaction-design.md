@@ -62,6 +62,7 @@ data/
 |------|------|------|
 | **内存占用** | 尽量低 | 使用流式处理，不一次性加载所有数据到内存 |
 | **文件大小限制** | 单个 Shard 数据不超过 1GB | 超过后该 MemTable 不参与压缩 |
+| **写入保护** | 正在写入的 SSTable 不参与压缩 | 防止并行操作导致数据错乱 |
 | **E2E 测试** | 必须完整覆盖 | 端到端验证数据准确性和功能完整性 |
 
 ### 2.4 不纳入本设计的内容
@@ -264,26 +265,72 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 }
 
 // collectSSTables 收集需要 compaction 的 SSTable
+//
+// 收集规则：
+// 1. 只收集已完成写入的 SSTable（排除正在写入的）
+// 2. 按文件名排序（确保序号小的先处理）
 func (cm *CompactionManager) collectSSTables() ([]string, error) {
     dataDir := filepath.Join(cm.shard.Dir(), "data")
     entries, err := os.ReadDir(dataDir)
     if err != nil {
         return nil, err
     }
-    
+
     var sstFiles []string
     for _, entry := range entries {
         if !entry.IsDir() {
             continue
         }
-        if strings.HasPrefix(entry.Name(), "sst_") {
-            sstFiles = append(sstFiles, filepath.Join(dataDir, entry.Name()))
+        if !strings.HasPrefix(entry.Name(), "sst_") {
+            continue
         }
+
+        sstPath := filepath.Join(dataDir, entry.Name())
+
+        // 检查是否正在被写入
+        // 通过检查是否存在 .writing 标志文件来判断
+        if cm.isSSTableInWrite(sstPath) {
+            slog.Debug("skipping sstable in write state", "path", sstPath)
+            continue
+        }
+
+        sstFiles = append(sstFiles, sstPath)
     }
-    
+
     // 按文件名排序（确保序号小的先处理）
     sort.Strings(sstFiles)
     return sstFiles, nil
+}
+
+// isSSTableInWrite 检查 SSTable 是否正在被写入
+//
+// 实现方式：
+// 在 Flush 开始时创建 {sstDir}/.writing 标志文件
+// Flush 完成后删除该标志文件并原子性替换目录
+//
+// 这样可以安全地检测正在写入的 SSTable，避免参与 compaction
+func (cm *CompactionManager) isSSTableInWrite(sstPath string) bool {
+    writingFlag := filepath.Join(sstPath, ".writing")
+    _, err := os.Stat(writingFlag)
+    return err == nil
+}
+
+// markSSTableWriting 开始写入标记
+// 在 Shard.Flush 开始时调用
+func (cm *CompactionManager) markSSTableWriting(sstPath string) error {
+    writingFlag := filepath.Join(sstPath, ".writing")
+    f, err := os.Create(writingFlag)
+    if err != nil {
+        return err
+    }
+    return f.Close()
+}
+
+// unmarkSSTableWriting 结束写入标记
+// 在 Shard.Flush 完成后调用
+func (cm *CompactionManager) unmarkSSTableWriting(sstPath string) error {
+    writingFlag := filepath.Join(sstPath, ".writing")
+    return os.Remove(writingFlag)
 }
 
 // merge 执行归并操作
@@ -612,24 +659,90 @@ func NewShard(cfg ShardConfig) *Shard {
     shard := &Shard{
         // ... 现有初始化 ...
     }
-    
+
     // 创建 CompactionManager
     shard.compaction = NewCompactionManager(shard, cfg.CompactionConfig)
-    
+
     return shard
 }
 
 // Shard.Flush 修改 - flush 后检查是否需要 compaction
+//
+// 写入保护流程：
+// 1. 创建 .writing 标志文件
+// 2. 执行 flush 写入 SSTable
+// 3. 删除 .writing 标志文件
+// 4. 原子性替换目录
+// 5. 检查是否需要 compaction
 func (s *Shard) Flush() error {
-    // ... 现有 flush 逻辑 ...
-    
-    // Flush 成功后检查 compaction
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
+    // 获取即将写入的 SSTable 路径
+    sstPath := filepath.Join(s.dir, fmt.Sprintf("sst_%d", s.sstSeq))
+
+    // Step 1: 创建写入标志（用于防止 compaction 选中正在写入的 SSTable）
+    if err := s.compaction.markSSTableWriting(sstPath); err != nil {
+        slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
+        // 不阻止 flush 继续，只是 compaction 可能选中此文件
+    }
+
+    // Step 2: 执行 flush
+    points := s.memTable.Flush()
+    if len(points) == 0 {
+        // 无数据，清理标志
+        _ = s.compaction.unmarkSSTableWriting(sstPath)
+        return nil
+    }
+
+    w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
+    if err != nil {
+        _ = s.compaction.unmarkSSTableWriting(sstPath)
+        return fmt.Errorf("create sstable writer: %w", err)
+    }
+    s.sstSeq++
+
+    if err := w.WritePoints(points, s.tsSidMap); err != nil {
+        _ = w.Close()
+        _ = s.compaction.unmarkSSTableWriting(sstPath)
+        return fmt.Errorf("write points to sstable: %w", err)
+    }
+
+    // 清理已刷盘的 timestamp→sid 映射
+    for _, p := range points {
+        delete(s.tsSidMap, p.Timestamp)
+    }
+
+    if err := w.Close(); err != nil {
+        _ = s.compaction.unmarkSSTableWriting(sstPath)
+        return fmt.Errorf("close sstable writer: %w", err)
+    }
+
+    // Step 3: 删除写入标志
+    if err := s.compaction.unmarkSSTableWriting(sstPath); err != nil {
+        slog.Warn("failed to unmark sstable write", "path", sstPath, "error", err)
+    }
+
+    // Step 4: 清空当前 WAL 文件
+    if s.wal != nil {
+        _ = s.wal.TruncateCurrent()
+    }
+
+    // Step 5: 检查是否需要 compaction（后台执行）
     if s.compaction.ShouldCompact() {
         go func() {
             ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
             defer cancel()
-            
+
             if _, _, err := s.compaction.Compact(ctx); err != nil {
+                slog.Error("background compaction failed", "error", err)
+            }
+        }()
+    }
+
+    return nil
+}
+```
                 slog.Error("background compaction failed", "error", err)
             }
         }()
@@ -931,6 +1044,7 @@ func (cm *CompactionManager) estimateTotal(inputFiles []string) int {
 | `TestE2E_CompactionRestartRecovery` | Compaction 后重启，数据完整恢复 |
 | `TestE2E_ShardSizeLimit` | Shard 超过 1GB 后不参与 Compaction |
 | `TestE2E_MemoryEfficiency` | Compaction 过程中内存占用保持在合理范围 |
+| `TestE2E_WriteProtection` | 正在写入的 SSTable 不参与 Compaction |
 
 #### 9.4.2 测试用例详细设计
 
@@ -1076,6 +1190,123 @@ func TestE2E_ShardSizeLimit() error {
 }
 ```
 
+```go
+// TestE2E_WriteProtection 验证正在写入的 SSTable 不参与 Compaction
+//
+// 测试流程：
+// 1. 写入数据触发第一次 Flush（生成 sst_0）
+// 2. 模拟正在写入状态（创建 .writing 标志）
+// 3. 触发 Compaction
+// 4. 验证 sst_0 不被选中参与合并
+// 5. 清理 .writing 标志
+func TestE2E_WriteProtection() error {
+    tmpDir := filepath.Join(os.TempDir(), "microts_write_protection_test")
+    defer os.RemoveAll(tmpDir)
+
+    dbCfg := microts.Config{
+        DataDir:       tmpDir,
+        ShardDuration: time.Hour,
+        MemTableCfg: &microts.MemTableConfig{
+            MaxSize:    10 * 1024,
+            MaxCount:   10,
+        },
+    }
+
+    db, err := microts.Open(dbCfg)
+    if err != nil {
+        return err
+    }
+
+    // 1. 写入数据触发 Flush
+    baseTime := time.Now().UnixNano()
+    for i := 0; i < 100; i++ {
+        p := &types.Point{
+            Database:    "testdb",
+            Measurement: "cpu",
+            Tags:        map[string]string{"host": "server1"},
+            Timestamp:   baseTime + int64(i)*int64(time.Millisecond),
+            Fields: map[string]*types.FieldValue{
+                "usage": types.NewFieldValue(float64(50.0)),
+            },
+        }
+        if err := db.Write(context.Background(), p); err != nil {
+            db.Close()
+            return fmt.Errorf("write point: %w", err)
+        }
+    }
+
+    // 等待 Flush 完成
+    time.Sleep(200 * time.Millisecond)
+
+    // 2. 手动创建 .writing 标志模拟正在写入状态
+    dataDir := filepath.Join(tmpDir, "testdb/cpu")
+    entries, _ := os.ReadDir(dataDir)
+    var sstPath string
+    for _, entry := range entries {
+        if entry.IsDir() && strings.HasPrefix(entry.Name(), "1") {
+            sstPath = filepath.Join(dataDir, entry.Name())
+            break
+        }
+    }
+    if sstPath != "" {
+        writingFlag := filepath.Join(sstPath, ".writing")
+        if f, err := os.Create(writingFlag); err == nil {
+            f.Close()
+        }
+        defer os.Remove(writingFlag)
+    }
+
+    if err := db.Close(); err != nil {
+        return fmt.Errorf("close db: %w", err)
+    }
+
+    // 3. 验证：在 .writing 标志存在时，该 SSTable 不被选中
+    db, err = microts.Open(dbCfg)
+    if err != nil {
+        return err
+    }
+    defer db.Close()
+
+    // 写入新数据触发第二次 Flush
+    for i := 0; i < 100; i++ {
+        p := &types.Point{
+            Database:    "testdb",
+            Measurement: "cpu",
+            Tags:        map[string]string{"host": "server2"},
+            Timestamp:   baseTime + 1000*int64(time.Millisecond) + int64(i)*int64(time.Millisecond),
+            Fields: map[string]*types.FieldValue{
+                "usage": types.NewFieldValue(float64(60.0)),
+            },
+        }
+        if err := db.Write(context.Background(), p); err != nil {
+            return fmt.Errorf("write point: %w", err)
+        }
+    }
+
+    // 等待 Compaction 执行
+    time.Sleep(500 * time.Millisecond)
+
+    // 4. 验证数据完整性（应该正确合并，未被 .writing 干扰）
+    resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+        Database:    "testdb",
+        Measurement: "cpu",
+        StartTime:   baseTime,
+        EndTime:     baseTime + 2000*int64(time.Millisecond),
+        Offset:      0,
+        Limit:       0,
+    })
+    if err != nil {
+        return fmt.Errorf("query: %w", err)
+    }
+
+    if len(resp.Rows) == 0 {
+        return fmt.Errorf("expected some rows, got 0")
+    }
+
+    return nil
+}
+```
+
 #### 9.4.3 E2E 测试执行方式
 
 ```bash
@@ -1097,6 +1328,8 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 | Compaction 失败 | 数据冗余 | 下次重试 |
 | 旧文件删除失败 | 磁盘占用高 | 记录未删除文件，下次清理 |
 | 并发 compaction | 数据不一致 | 使用锁保护 |
+| 正在写入的 SSTable 被选中 | 数据错乱 | .writing 标志文件保护 |
+| .writing 标志未清理 | SSTable 永久无法参与 compaction | 启动时检查并清理孤儿标志 |
 
 ---
 
@@ -1142,6 +1375,7 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 - 去重正确性验证
 - Shard 大小限制验证
 - 内存效率验证
+- 写入保护验证
 
 ### 硬性约束确认
 
@@ -1149,7 +1383,8 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 |------|----------|
 | **内存占用低** | 流式 K-way merge，内存占用 ≈ O(k * blockSize) |
 | **1GB Shard 限制** | ShouldCompact 中检查 calculateShardSize() |
-| **E2E 测试完整** | 6 个 E2E 测试用例覆盖核心场景 |
+| **写入保护** | .writing 标志文件，isSSTableInWrite() 检查 |
+| **E2E 测试完整** | 7 个 E2E 测试用例覆盖核心场景 |
 
 ---
 
@@ -1163,3 +1398,5 @@ go run ./tests/e2e/compaction_test/... -test.run TestE2E_CompactionDataIntegrity
 6. **内存约束**：流式处理实现是否满足低内存占用要求？
 7. **文件大小限制**：1GB Shard 限制的实现逻辑是否正确？
 8. **E2E 测试**：测试用例是否足够覆盖核心场景？
+9. **写入保护**：.writing 标志机制是否完善？是否可能遗漏？
+10. **数据一致性**：Flush 和 Compaction 并发时是否保证数据不错乱？
