@@ -10,6 +10,8 @@
 package shard
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -277,4 +279,70 @@ func (m *ShardManager) PersistAllMetaStores() {
 	for _, metaStore := range metaStores {
 		_ = metaStore.Persist()
 	}
+}
+
+// GetAllShards 返回所有 Shard 的快照。
+//
+// 返回：
+//   - []*Shard: 所有 Shard 的切片（按 key 排序）
+//
+// 注意：
+//
+//	返回的是 Shard 快照，不持有锁。
+//	调用方不应长时间持有返回的 Shard 引用。
+func (m *ShardManager) GetAllShards() []*Shard {
+	m.mu.RLock()
+	shards := make([]*Shard, 0, len(m.shards))
+	for _, s := range m.shards {
+		shards = append(shards, s)
+	}
+	m.mu.RUnlock()
+	return shards
+}
+
+// DeleteShard 删除指定的 Shard。
+//
+// 参数：
+//   - key: Shard 的唯一键，格式为 "db/measurement/startTime"
+//
+// 返回：
+//   - error: 删除失败时返回错误
+//
+// 删除流程：
+//
+//	1. 先刷盘确保数据持久化
+//	2. 关闭 Shard
+//	3. 删除 Shard 数据目录
+//	4. 从管理器的 shards map 中移除
+func (m *ShardManager) DeleteShard(key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	shard, ok := m.shards[key]
+	if !ok {
+		return nil // Shard 不存在，视为成功
+	}
+
+	// 1. 刷盘
+	if err := shard.Flush(); err != nil {
+		return fmt.Errorf("flush shard: %w", err)
+	}
+
+	// 2. 关闭
+	if err := shard.Close(); err != nil {
+		return fmt.Errorf("close shard: %w", err)
+	}
+
+	// 3. 删除数据目录
+	dir := shard.Dir()
+	if dir != "" {
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("remove shard dir: %w", err)
+		}
+	}
+
+	// 4. 从 map 中移除
+	delete(m.shards, key)
+
+	return nil
 }

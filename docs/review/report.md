@@ -85,7 +85,7 @@ gRPC API → Engine → ShardManager → MemTable/WAL → SSTable
 
 ---
 
-### 3.3 无数据过期 (TTL) 机制 ⚠️ 待实现
+### 3.3 无数据过期 (TTL) 机制 ✅ 已实现
 
 SSTable 文件只增不减，没有任何 compaction 或 TTL 逻辑。
 
@@ -269,7 +269,7 @@ estimatedSize := int64(len(m.entries)) * 1024  // 假设 1KB/entry
 | 级别 | 已修复 | 待处理 |
 |------|--------|--------|
 | P0 (严重) | 3 | 0 |
-| P1 (设计缺陷) | 4 | 1 |
+| P1 (设计缺陷) | 5 | 0 |
 | P2 (逻辑问题) | 3 | 0 |
 | P3 (性能优化) | 2 | 0 |
 | P4 (并发安全) | 1 | 0 |
