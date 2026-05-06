@@ -498,39 +498,54 @@ func (s *Shard) flushLocked() error {
 //
 // 关闭流程：
 //
-//  1. 刷盘 MemTable 数据（即使 WAL 关闭失败也继续）
+//  1. 刷盘 MemTable 数据到 SSTable
 //  2. 关闭 WAL
-//
-// 返回：
-//   - error: 关闭失败时返回错误
+//  3. 清理 tsSidMap 和 sstSeq
 //
 // 错误处理：
 //
-//	优先确保数据安全（刷盘），WAL 关闭失败不影响数据完整性。
+//	优先确保数据安全（刷盘）。
+//	如果刷盘成功但 WAL 关闭失败，数据已在 SSTable 中，不会丢失。
 //	关闭后 Shard 不可再使用。
 func (s *Shard) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 1. 先刷写 MemTable 到 SSTable（即使 WAL 关闭失败，数据也已安全）
+	// 1. 先刷写 MemTable 到 SSTable
 	points := s.memTable.Flush()
 	if len(points) > 0 {
 		w, err := sstable.NewWriter(s.dir, s.sstSeq)
 		if err != nil {
+			// 即使 writer 创建失败，也要继续关闭 WAL
+			if s.wal != nil {
+				_ = s.wal.Close()
+			}
 			return fmt.Errorf("create sstable writer: %w", err)
 		}
+		s.sstSeq++
 
 		if err := w.WritePoints(points, s.tsSidMap); err != nil {
 			_ = w.Close()
+			if s.wal != nil {
+				_ = s.wal.Close()
+			}
 			return fmt.Errorf("write points to sstable: %w", err)
 		}
 
 		if err := w.Close(); err != nil {
+			if s.wal != nil {
+				_ = s.wal.Close()
+			}
 			return fmt.Errorf("close sstable writer: %w", err)
+		}
+
+		// 清理已刷盘的 timestamp→sid 映射
+		for _, p := range points {
+			delete(s.tsSidMap, p.Timestamp)
 		}
 	}
 
-	// 2. 关闭 WAL（WAL 关闭失败可接受，因为数据已在 SSTable）
+	// 2. 关闭 WAL
 	if s.wal != nil {
 		if err := s.wal.Close(); err != nil {
 			return fmt.Errorf("close wal: %w", err)
