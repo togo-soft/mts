@@ -37,6 +37,7 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/internal/query"
+	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -108,6 +109,18 @@ type (
 	//	    IdleDuration: 5 * time.Minute,
 	//	}
 	MemTableConfig = types.MemTableConfig
+
+	// CompactionConfig 配置 Compaction 行为。
+	//
+	// 控制 Compaction 的触发策略、批处理大小和资源限制。
+	//
+	// 使用示例：
+	//
+	//	cfg := microts.CompactionConfig{
+	//	    MaxSSTableCount: 4,
+	//	    CheckInterval:   1 * time.Hour,
+	//	}
+	CompactionConfig = types.CompactionConfig
 )
 
 // Config 是数据库的配置选项。
@@ -115,12 +128,14 @@ type (
 // DataDir 指定数据存储目录，必须可写。
 // ShardDuration 定义每个 shard 的时间窗口，最小 1 小时，默认 7 天。
 // MemTableCfg 配置内存表行为，使用 nil 时将采用 DefaultMemTableConfig() 的默认值。
+// CompactionCfg 配置 compaction 行为，使用 nil 时将采用默认配置。
 // RetentionPeriod 配置数据保留期，0 表示不自动删除过期数据。
 // RetentionCheckInterval 配置 retention 检查间隔，默认 1 小时。
 type Config struct {
 	DataDir                string
 	ShardDuration          time.Duration
 	MemTableCfg            *types.MemTableConfig
+	CompactionCfg          *types.CompactionConfig
 	RetentionPeriod        time.Duration
 	RetentionCheckInterval time.Duration
 }
@@ -199,6 +214,18 @@ func Open(cfg Config) (*DB, error) {
 		memTableCfg = DefaultMemTableConfig()
 	}
 
+	// 默认 Compaction 配置
+	var compactionCfg *shard.CompactionConfig
+	if cfg.CompactionCfg != nil {
+		compactionCfg = &shard.CompactionConfig{
+			MaxSSTableCount:    cfg.CompactionCfg.MaxSSTableCount,
+			MaxCompactionBatch: cfg.CompactionCfg.MaxCompactionBatch,
+			ShardSizeLimit:     cfg.CompactionCfg.ShardSizeLimit,
+			CheckInterval:      cfg.CompactionCfg.CheckInterval,
+			Timeout:            cfg.CompactionCfg.Timeout,
+		}
+	}
+
 	// 确保数据目录存在
 	if cfg.DataDir != "" {
 		if err := os.MkdirAll(cfg.DataDir, 0700); err != nil {
@@ -210,6 +237,7 @@ func Open(cfg Config) (*DB, error) {
 		DataDir:                cfg.DataDir,
 		ShardDuration:          shardDuration,
 		MemTableCfg:            memTableCfg,
+		CompactionCfg:          compactionCfg,
 		RetentionPeriod:        cfg.RetentionPeriod,
 		RetentionCheckInterval: cfg.RetentionCheckInterval,
 	})
@@ -597,4 +625,17 @@ func (db *DB) CreateEmptyMeasurement(database, measurement string) error {
 		return fmt.Errorf("create measurement directory: %w", err)
 	}
 	return nil
+}
+
+// FlushAll 刷新所有 Shard 的 MemTable 到 SSTable。
+//
+// 返回：
+//   - error: 如果任一 Shard 刷盘失败则返回错误
+//
+// 说明：
+//
+//	遍历所有已创建的 Shard，调用其 Flush() 方法。
+//	用于确保所有内存数据持久化，或在关闭前确保数据安全。
+func (db *DB) FlushAll() error {
+	return db.engine.Flush()
 }

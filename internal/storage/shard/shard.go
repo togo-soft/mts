@@ -20,6 +20,7 @@
 package shard
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -57,19 +58,21 @@ func copyTags(tags map[string]string) map[string]string {
 //   - Dir:         数据存储目录路径
 //   - MetaStore:   测量元数据存储，用于分配 Series IDs
 //   - MemTableCfg: MemTable 配置
+//   - CompactionCfg: Compaction 配置（可选，nil 表示禁用 compaction）
 //
 // 时间窗口：
 //
 //	Shard 只包含 [StartTime, EndTime) 范围内的数据。
 //	时间戳小于 StartTime 或大于等于 EndTime 的点不会写入此 Shard。
 type ShardConfig struct {
-	DB          string
-	Measurement string
-	StartTime   int64
-	EndTime     int64
-	Dir         string
-	MetaStore   *measurement.MeasurementMetaStore
-	MemTableCfg *MemTableConfig
+	DB            string
+	Measurement   string
+	StartTime     int64
+	EndTime       int64
+	Dir           string
+	MetaStore     *measurement.MeasurementMetaStore
+	MemTableCfg   *MemTableConfig
+	CompactionCfg *CompactionConfig
 }
 
 // Shard 是数据存储的基本单元，管理一个时间窗口内的所有数据。
@@ -101,6 +104,7 @@ type ShardConfig struct {
 //   - tsSidMap: Timestamp→Sid 映射（用于 flush 时获取 Sid）
 //   - mu: 读写锁
 //   - sstSeq: SSTable 序列号（文件名生成）
+//   - compaction: Compaction 管理器
 type Shard struct {
 	db          string
 	measurement string
@@ -115,6 +119,7 @@ type Shard struct {
 	tsSidMap    map[int64]uint64             // timestamp → sid 映射
 	mu          sync.RWMutex
 	sstSeq      uint64 // SSTable序列号，用于生成唯一的文件名
+	compaction  *CompactionManager
 }
 
 // NewShard 创建新的 Shard 实例。
@@ -191,9 +196,19 @@ func NewShard(cfg ShardConfig) *Shard {
 		tsSidMap:    make(map[int64]uint64),
 	}
 
+	// 初始化 CompactionManager（如果配置了）
+	if cfg.CompactionCfg != nil {
+		shard.compaction = NewCompactionManager(shard, cfg.CompactionCfg)
+	}
+
 	// 启动 WAL 定期同步（如果 WAL 存在）
 	if wal != nil {
 		go wal.StartPeriodicSync(time.Minute, shard.walDone)
+	}
+
+	// 启动定期 Compaction 检查（如果启用了）
+	if shard.compaction != nil {
+		shard.compaction.StartPeriodicCheck()
 	}
 
 	return shard
@@ -441,6 +456,7 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 //  1. 获取 MemTable 中的数据（同时清空 MemTable）
 //  2. 创建 SSTable Writer
 //  3. 写入数据到 SSTable
+//  4. 检查是否需要触发 compaction
 //
 // 返回：
 //   - error: 刷盘失败时返回错误
@@ -458,6 +474,9 @@ func (s *Shard) Flush() error {
 		return nil
 	}
 
+	// 获取即将写入的 SSTable 路径
+	sstPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", s.sstSeq))
+
 	// 创建 SSTable Writer
 	w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
 	if err != nil {
@@ -465,8 +484,19 @@ func (s *Shard) Flush() error {
 	}
 	s.sstSeq++
 
+	// 创建写入标志（防止 compaction 选中正在写入的 SSTable）
+	// 注意：必须在 NewWriter 之后调用，因为 NewWriter 会创建目录
+	if s.compaction != nil {
+		if err := s.compaction.markSSTableWriting(sstPath); err != nil {
+			slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
+		}
+	}
+
 	if err := w.WritePoints(points, s.tsSidMap); err != nil {
 		_ = w.Close()
+		if s.compaction != nil {
+			_ = s.compaction.unmarkSSTableWriting(sstPath)
+		}
 		return fmt.Errorf("write points to sstable: %w", err)
 	}
 
@@ -476,7 +506,17 @@ func (s *Shard) Flush() error {
 	}
 
 	if err := w.Close(); err != nil {
+		if s.compaction != nil {
+			_ = s.compaction.unmarkSSTableWriting(sstPath)
+		}
 		return fmt.Errorf("close sstable writer: %w", err)
+	}
+
+	// 删除写入标志
+	if s.compaction != nil {
+		if err := s.compaction.unmarkSSTableWriting(sstPath); err != nil {
+			slog.Warn("failed to unmark sstable write", "path", sstPath, "error", err)
+		}
 	}
 
 	// 清空当前 WAL 文件（数据已持久化到 SSTable，不再需要）
@@ -487,6 +527,19 @@ func (s *Shard) Flush() error {
 	// 显式清空 points 引用，帮助 GC 回收内存
 	for i := range points {
 		points[i] = nil
+	}
+
+	// 检查是否需要触发 compaction（后台执行）
+	if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), s.compaction.config.Timeout)
+			defer cancel()
+			if _, _, err := s.compaction.Compact(ctx); err != nil {
+				slog.Error("background compaction failed", "error", err)
+			} else {
+				s.compaction.resetTimer()
+			}
+		}()
 	}
 
 	return nil
@@ -499,14 +552,28 @@ func (s *Shard) flushLocked() error {
 		return nil
 	}
 
+	// 获取即将写入的 SSTable 路径
+	sstPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", s.sstSeq))
+
 	w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
 	if err != nil {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
 	s.sstSeq++ // 递增序列号，确保下次 flush 使用不同的文件名
 
+	// 创建写入标志（防止 compaction 选中正在写入的 SSTable）
+	// 注意：必须在 NewWriter 之后调用，因为 NewWriter 会创建目录
+	if s.compaction != nil {
+		if err := s.compaction.markSSTableWriting(sstPath); err != nil {
+			slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
+		}
+	}
+
 	if err := w.WritePoints(points, s.tsSidMap); err != nil {
 		_ = w.Close()
+		if s.compaction != nil {
+			_ = s.compaction.unmarkSSTableWriting(sstPath)
+		}
 		return fmt.Errorf("write points to sstable: %w", err)
 	}
 
@@ -516,7 +583,17 @@ func (s *Shard) flushLocked() error {
 	}
 
 	if err := w.Close(); err != nil {
+		if s.compaction != nil {
+			_ = s.compaction.unmarkSSTableWriting(sstPath)
+		}
 		return fmt.Errorf("close sstable writer: %w", err)
+	}
+
+	// 删除写入标志
+	if s.compaction != nil {
+		if err := s.compaction.unmarkSSTableWriting(sstPath); err != nil {
+			slog.Warn("failed to unmark sstable write", "path", sstPath, "error", err)
+		}
 	}
 
 	// 清空当前 WAL 文件（数据已持久化到 SSTable，不再需要）
@@ -528,6 +605,9 @@ func (s *Shard) flushLocked() error {
 	for i := range points {
 		points[i] = nil
 	}
+
+	// 检查是否需要触发 compaction（后台执行）
+	// 注意：这里不需要再次检查，因为 ShouldCompact 在 Write 时已经被调用
 
 	return nil
 }
@@ -606,4 +686,28 @@ func (s *Shard) Close() error {
 	}
 
 	return nil
+}
+
+// DataDir 返回 Shard 的数据目录。
+//
+// 返回：
+//   - string: 数据目录路径 (shardDir/data)
+func (s *Shard) DataDir() string {
+	return filepath.Join(s.dir, "data")
+}
+
+// NextSSTSeq 返回下一个 SSTable 序列号并递增。
+//
+// 返回：
+//   - uint64: 下一个可用的序列号
+//
+// 注意：
+//
+//	调用此方法会递增内部序列号，确保每次调用返回不同的值。
+func (s *Shard) NextSSTSeq() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seq := s.sstSeq
+	s.sstSeq++
+	return seq
 }

@@ -292,4 +292,3 @@ func TestReader_ReadTimestamps_NotExist(t *testing.T) {
 		t.Error("expected error for missing timestamps file")
 	}
 }
-
