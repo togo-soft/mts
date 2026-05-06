@@ -47,22 +47,28 @@ var (
 
 // Config 定义存储引擎的配置。
 //
-// 配置包含数据目录、Shard 时长和 MemTable 配置。
+// 配置包含数据目录、Shard 时长、MemTable 配置和 Retention 配置。
 //
 // 字段说明：
 //
-//   - DataDir:       数据存储目录
-//   - ShardDuration: 每个 Shard 的时间窗口
-//   - MemTableCfg:   MemTable 配置
+//   - DataDir:         数据存储目录
+//   - ShardDuration:   每个 Shard 的时间窗口
+//   - MemTableCfg:     MemTable 配置
+//   - RetentionPeriod: 数据保留期（TTL），0 表示不自动删除
+//   - RetentionCheckInterval: Retention 检查间隔，0 表示使用默认值 1 小时
 //
 // 默认值：
 //
 //	New 函数会为 MemTableCfg 提供默认值（如果 MaxSize 为 0）。
-//	ShartDuration 应从外部传入。
+//	ShardDuration 应从外部传入。
+//	RetentionPeriod 默认为 0（不自动删除）。
+//	RetentionCheckInterval 默认为 1 小时。
 type Config struct {
-	DataDir       string
-	ShardDuration time.Duration
-	MemTableCfg   *types.MemTableConfig
+	DataDir                 string
+	ShardDuration           time.Duration
+	MemTableCfg             *types.MemTableConfig
+	RetentionPeriod         time.Duration // 数据保留期，0 表示不自动删除
+	RetentionCheckInterval  time.Duration // 检查间隔，0 表示默认 1 小时
 }
 
 // Engine 是微时序数据库的存储引擎。
@@ -71,10 +77,11 @@ type Config struct {
 //
 // 字段说明：
 //
-//   - cfg:           引擎配置
-//   - shardManager:  Shard 管理器，负责创建、回收 Shard
-//   - dbMetaStores:  数据库级元数据缓存（database -> DatabaseMetaStore）
-//   - mu:            保护 dbMetaStores 的读写锁
+//   - cfg:               引擎配置
+//   - shardManager:      Shard 管理器，负责创建、回收 Shard
+//   - retentionService:  Retention 服务，负责清理过期 Shard
+//   - dbMetaStores:      数据库级元数据缓存（database -> DatabaseMetaStore）
+//   - mu:                保护 dbMetaStores 的读写锁
 //
 // 并发安全：
 //
@@ -87,10 +94,11 @@ type Config struct {
 //	使用 New 创建，使用 Close 关闭。
 //	关闭后不可再使用。
 type Engine struct {
-	cfg          *Config
-	shardManager *shard.ShardManager
-	dbMetaStores map[string]*measurement.DatabaseMetaStore
-	mu           sync.RWMutex
+	cfg               *Config
+	shardManager      *shard.ShardManager
+	retentionService  *shard.RetentionService
+	dbMetaStores      map[string]*measurement.DatabaseMetaStore
+	mu                sync.RWMutex
 }
 
 // New 创建新的存储引擎实例。
@@ -118,11 +126,30 @@ func New(cfg *Config) (*Engine, error) {
 	} else {
 		memTableCfg = cfg.MemTableCfg
 	}
-	return &Engine{
+
+	// 默认 Retention 检查间隔
+	retentionCheckInterval := cfg.RetentionCheckInterval
+	if retentionCheckInterval == 0 {
+		retentionCheckInterval = time.Hour
+	}
+
+	engine := &Engine{
 		cfg:          cfg,
 		shardManager: shard.NewShardManager(cfg.DataDir, cfg.ShardDuration, memTableCfg),
 		dbMetaStores: make(map[string]*measurement.DatabaseMetaStore),
-	}, nil
+	}
+
+	// 如果配置了 RetentionPeriod，启动 RetentionService
+	if cfg.RetentionPeriod > 0 {
+		engine.retentionService = shard.NewRetentionService(
+			engine.shardManager,
+			cfg.RetentionPeriod,
+			retentionCheckInterval,
+		)
+		engine.retentionService.Start()
+	}
+
+	return engine, nil
 }
 
 // Close 关闭引擎，释放所有资源。
@@ -132,9 +159,14 @@ func New(cfg *Config) (*Engine, error) {
 //
 // 注意：
 //
-//	关闭引擎会清空 MetaStore 缓存。
+//	关闭引擎会停止 RetentionService、持久化 MetaStore 并清空缓存。
 //	关闭后引擎实例不可再使用。
 func (e *Engine) Close() error {
+	// 停止 RetentionService
+	if e.retentionService != nil {
+		e.retentionService.Stop()
+	}
+
 	// 先刷盘确保数据不丢失
 	_ = e.shardManager.FlushAll() // 刷盘失败不影响关闭
 

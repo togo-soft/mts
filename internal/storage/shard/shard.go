@@ -215,6 +215,21 @@ func (s *Shard) EndTime() int64 {
 	return s.endTime
 }
 
+// DB 返回 Shard 所属的数据库名称。
+func (s *Shard) DB() string {
+	return s.db
+}
+
+// Measurement 返回 Shard 所属的 Measurement 名称。
+func (s *Shard) Measurement() string {
+	return s.measurement
+}
+
+// Dir 返回 Shard 的数据目录。
+func (s *Shard) Dir() string {
+	return s.dir
+}
+
 // ContainsTime 检查给定时间戳是否在 Shard 的时间窗口内。
 //
 // 参数：
