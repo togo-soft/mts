@@ -34,8 +34,8 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -268,7 +268,7 @@ func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *types.Creat
 func (s *MicroTSService) DropMeasurement(ctx context.Context, req *types.DropMeasurementRequest) (*types.DropMeasurementResponse, error) {
 	found, err := s.engine.DropMeasurement(req.Database, req.Measurement)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, engine.ErrDatabaseNotFound) || errors.Is(err, engine.ErrMeasurementNotFound) {
 			return nil, status.Errorf(codes.NotFound, "measurement not found: %s/%s", req.Database, req.Measurement)
 		}
 		return nil, status.Errorf(codes.Internal, "drop measurement failed: %v", err)

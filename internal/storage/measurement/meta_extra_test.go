@@ -265,7 +265,10 @@ func TestMeasurementMetaStore_GetTagsBySID_NotFound(t *testing.T) {
 
 	// 分配一个 sid
 	tags := map[string]string{"host": "server1"}
-	sid := m.AllocateSID(tags)
+	sid, err := m.AllocateSID(tags)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
 
 	// 获取存在的 sid
 	retrieved, ok := m.GetTagsBySID(sid)

@@ -131,3 +131,11 @@ func (d *DatabaseMetaStore) DropMeasurement(name string) bool {
 	delete(d.measurements, name)
 	return true
 }
+
+// MeasurementExists 检查 measurement 是否存在
+func (d *DatabaseMetaStore) MeasurementExists(name string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	_, ok := d.measurements[name]
+	return ok
+}

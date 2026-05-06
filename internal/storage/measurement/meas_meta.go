@@ -18,6 +18,7 @@
 package measurement
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 )
@@ -142,6 +143,7 @@ func NewMeasurementMetaStore() *MeasurementMetaStore {
 //
 // 返回：
 //   - uint64: 分配的或已存在的 SID
+//   - error: SID 分配失败时返回错误（如达到上限）
 //
 // 语义：
 //
@@ -156,7 +158,7 @@ func NewMeasurementMetaStore() *MeasurementMetaStore {
 // 性能优化：
 //
 //	使用 tagsHashIndex 进行 O(1) 查找，而非 O(n) 线性遍历。
-func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) uint64 {
+func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) (uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -165,8 +167,14 @@ func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) uint64 {
 	if sid, ok := m.tagHashIndex[h]; ok {
 		// 验证 tags 是否真的相等（hash 可能有碰撞）
 		if tagsEqual(m.series[sid], tags) {
-			return sid
+			return sid, nil
 		}
+	}
+
+	// 检查 SID 上限（uint64 最大值）
+	const maxSID = ^uint64(0)
+	if m.nextSID >= maxSID {
+		return 0, fmt.Errorf("series ID overflow: maximum series count reached")
 	}
 
 	// 分配新 SID
@@ -182,7 +190,7 @@ func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) uint64 {
 		m.tagIndex[indexKey] = append(m.tagIndex[indexKey], sid)
 	}
 
-	return sid
+	return sid, nil
 }
 
 // GetTagsBySID 根据 Series ID 获取标签。

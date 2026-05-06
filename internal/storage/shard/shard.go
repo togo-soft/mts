@@ -266,7 +266,10 @@ func (s *Shard) Write(point *types.Point) error {
 	}
 
 	// 2. 分配 SID 并更新 sidCache 和 tsSidMap
-	sid := s.metaStore.AllocateSID(point.Tags)
+	sid, err := s.metaStore.AllocateSID(point.Tags)
+	if err != nil {
+		return fmt.Errorf("allocate SID: %w", err)
+	}
 	s.sidCache[sid] = copyTags(point.Tags)
 	s.tsSidMap[point.Timestamp] = sid
 
@@ -545,7 +548,12 @@ func (s *Shard) Close() error {
 		}
 	}
 
-	// 2. 关闭 WAL
+	// 2. 清理剩余的 tsSidMap（不再需要）
+	for ts := range s.tsSidMap {
+		delete(s.tsSidMap, ts)
+	}
+
+	// 3. 关闭 WAL
 	if s.wal != nil {
 		if err := s.wal.Close(); err != nil {
 			return fmt.Errorf("close wal: %w", err)

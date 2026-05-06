@@ -504,12 +504,11 @@ func TestMicroTSService_WriteBatch_Error(t *testing.T) {
 		},
 	}
 
-	// 这应该会成功，因为写入的是有效请求
-	resp, err := srv.WriteBatch(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// 这应该会返回错误，因为数据库名为空
+	_, err := srv.WriteBatch(ctx, req)
+	if err == nil {
+		t.Fatal("expected error for empty database name")
 	}
-	_ = resp
 }
 
 func TestMicroTSService_DropMeasurement_NotFound(t *testing.T) {

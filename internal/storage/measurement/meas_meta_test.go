@@ -87,20 +87,29 @@ func TestMeasurementMetaStore_AllocateSID(t *testing.T) {
 	m := NewMeasurementMetaStore()
 
 	tags1 := map[string]string{"host": "server1"}
-	sid1 := m.AllocateSID(tags1)
+	sid1, err := m.AllocateSID(tags1)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
 	if sid1 != 0 {
 		t.Errorf("first SID should be 0, got %d", sid1)
 	}
 
 	// 相同 tags 应该返回相同 SID
-	sid1Again := m.AllocateSID(tags1)
+	sid1Again, err := m.AllocateSID(tags1)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
 	if sid1Again != sid1 {
 		t.Errorf("same tags should return same SID, got %d vs %d", sid1Again, sid1)
 	}
 
 	// 不同 tags 应该返回新 SID
 	tags2 := map[string]string{"host": "server2"}
-	sid2 := m.AllocateSID(tags2)
+	sid2, err := m.AllocateSID(tags2)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
 	if sid2 != 1 {
 		t.Errorf("second SID should be 1, got %d", sid2)
 	}
@@ -110,7 +119,10 @@ func TestMeasurementMetaStore_GetTagsBySID(t *testing.T) {
 	m := NewMeasurementMetaStore()
 
 	tags := map[string]string{"host": "server1", "region": "us"}
-	sid := m.AllocateSID(tags)
+	sid, err := m.AllocateSID(tags)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
 
 	retrieved, ok := m.GetTagsBySID(sid)
 	if !ok {
@@ -134,9 +146,18 @@ func TestMeasurementMetaStore_GetSidsByTag(t *testing.T) {
 	tags2 := map[string]string{"host": "server2", "region": "us"}
 	tags3 := map[string]string{"host": "server3", "region": "eu"}
 
-	m.AllocateSID(tags1)
-	m.AllocateSID(tags2)
-	m.AllocateSID(tags3)
+	_, err := m.AllocateSID(tags1)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
+	_, err = m.AllocateSID(tags2)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
+	_, err = m.AllocateSID(tags3)
+	if err != nil {
+		t.Fatalf("AllocateSID failed: %v", err)
+	}
 
 	sids := m.GetSidsByTag("region", "us")
 	if len(sids) != 2 {

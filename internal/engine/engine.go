@@ -24,6 +24,27 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+// 错误定义
+var (
+	// ErrNilPoint 表示 point 参数为 nil
+	ErrNilPoint = errors.New("point is nil")
+
+	// ErrEmptyDatabase 表示数据库名称为空
+	ErrEmptyDatabase = errors.New("database name is empty")
+
+	// ErrEmptyMeasurement 表示 measurement 名称为空
+	ErrEmptyMeasurement = errors.New("measurement name is empty")
+
+	// ErrInvalidTimestamp 表示时间戳无效（负数）
+	ErrInvalidTimestamp = errors.New("timestamp is negative")
+
+	// ErrDatabaseNotFound 表示数据库不存在
+	ErrDatabaseNotFound = errors.New("database not found")
+
+	// ErrMeasurementNotFound 表示 measurement 不存在
+	ErrMeasurementNotFound = errors.New("measurement not found")
+)
+
 // Config 定义存储引擎的配置。
 //
 // 配置包含数据目录、Shard 时长和 MemTable 配置。
@@ -168,6 +189,20 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
+	}
+
+	// 输入验证
+	if point == nil {
+		return ErrNilPoint
+	}
+	if point.Database == "" {
+		return ErrEmptyDatabase
+	}
+	if point.Measurement == "" {
+		return ErrEmptyMeasurement
+	}
+	if point.Timestamp < 0 {
+		return ErrInvalidTimestamp
 	}
 
 	// 获取或创建 Shard
@@ -573,7 +608,12 @@ func (e *Engine) DropMeasurement(database, measurement string) (bool, error) {
 	dbMeta, ok := e.dbMetaStores[database]
 	e.mu.RUnlock()
 	if !ok {
-		return false, fmt.Errorf("database not found: %s", database)
+		return false, fmt.Errorf("%w: %s", ErrDatabaseNotFound, database)
+	}
+
+	if !dbMeta.MeasurementExists(measurement) {
+		// measurement 不存在，返回 found=false，无错误
+		return false, nil
 	}
 
 	return dbMeta.DropMeasurement(measurement), nil
