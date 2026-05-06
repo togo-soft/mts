@@ -164,6 +164,7 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 //
 //	查询时调用，获取需要扫描的 Shard 列表。
 //	由于只返回已存在的 Shard，空结果表示该时间范围内没有数据。
+//
 // GetShards 返回指定时间范围内存在的 Shard 列表。
 //
 // 参数：
@@ -310,10 +311,10 @@ func (m *ShardManager) GetAllShards() []*Shard {
 //
 // 删除流程：
 //
-//	1. 先刷盘确保数据持久化
-//	2. 关闭 Shard
-//	3. 删除 Shard 数据目录
-//	4. 从管理器的 shards map 中移除
+//  1. 先刷盘确保数据持久化
+//  2. 关闭 Shard
+//  3. 删除 Shard 数据目录
+//  4. 从管理器的 shards map 中移除
 func (m *ShardManager) DeleteShard(key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

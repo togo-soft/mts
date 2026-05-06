@@ -407,11 +407,11 @@ func (r *Reader) readRangeOptimized(dataDir string, startTime, endTime int64) ([
 
 	// 收集需要读取的 block 信息
 	type blockInfo struct {
-		blockIdx   int
-		offset     uint32
-		rowCount   uint32
-		firstTs    int64
-		lastTs     int64
+		blockIdx int
+		offset   uint32
+		rowCount uint32
+		firstTs  int64
+		lastTs   int64
 	}
 
 	var blocks []blockInfo

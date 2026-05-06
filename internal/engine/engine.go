@@ -64,11 +64,11 @@ var (
 //	RetentionPeriod 默认为 0（不自动删除）。
 //	RetentionCheckInterval 默认为 1 小时。
 type Config struct {
-	DataDir                 string
-	ShardDuration           time.Duration
-	MemTableCfg             *types.MemTableConfig
-	RetentionPeriod         time.Duration // 数据保留期，0 表示不自动删除
-	RetentionCheckInterval  time.Duration // 检查间隔，0 表示默认 1 小时
+	DataDir                string
+	ShardDuration          time.Duration
+	MemTableCfg            *types.MemTableConfig
+	RetentionPeriod        time.Duration // 数据保留期，0 表示不自动删除
+	RetentionCheckInterval time.Duration // 检查间隔，0 表示默认 1 小时
 }
 
 // Engine 是微时序数据库的存储引擎。
@@ -94,11 +94,11 @@ type Config struct {
 //	使用 New 创建，使用 Close 关闭。
 //	关闭后不可再使用。
 type Engine struct {
-	cfg               *Config
-	shardManager      *shard.ShardManager
-	retentionService  *shard.RetentionService
-	dbMetaStores      map[string]*measurement.DatabaseMetaStore
-	mu                sync.RWMutex
+	cfg              *Config
+	shardManager     *shard.ShardManager
+	retentionService *shard.RetentionService
+	dbMetaStores     map[string]*measurement.DatabaseMetaStore
+	mu               sync.RWMutex
 }
 
 // New 创建新的存储引擎实例。
