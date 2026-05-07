@@ -605,13 +605,14 @@ func (cm *CompactionManager) StartPeriodicCheck() {
 	}
 
 	cm.ticker = time.NewTicker(cm.config.CheckInterval)
+	ticker := cm.ticker // 捕获局部变量避免竞态
 	go func() {
 		for {
 			select {
-			case <-cm.ticker.C:
+			case <-ticker.C:
 				cm.doPeriodicCompaction()
 			case <-cm.stopCh:
-				cm.ticker.Stop()
+				ticker.Stop()
 				return
 			}
 		}
