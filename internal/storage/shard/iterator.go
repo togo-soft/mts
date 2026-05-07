@@ -18,7 +18,7 @@ import (
 //
 //	ShardIterator 是线程安全的。
 //	可以在多个 goroutine 之间共享同一个 ShardIterator。
-//	内部使用互斥锁保护所有状态操作。
+//	内部使用读写锁保护所有状态操作，允许多个并发读。
 //
 // 字段说明：
 //
@@ -47,8 +47,8 @@ type ShardIterator struct {
 	memRow *types.PointRow
 	sstRow *types.PointRow
 
-	// 线程安全保护
-	mu sync.Mutex
+	// 线程安全保护 - 读写锁允许多个并发读
+	mu sync.RWMutex
 }
 
 // NewShardIterator 创建 Shard 迭代器（带时间范围过滤）。
@@ -163,8 +163,8 @@ func (si *ShardIterator) Next() *types.PointRow {
 
 // filterRow 检查 row 是否在时间范围内
 func (si *ShardIterator) filterRow(row *types.PointRow) *types.PointRow {
-	si.mu.Lock()
-	defer si.mu.Unlock()
+	si.mu.RLock()
+	defer si.mu.RUnlock()
 	return si.filterRowLocked(row)
 }
 
@@ -250,8 +250,8 @@ func (si *ShardIterator) nextSstRowLocked() *types.PointRow {
 //	用于 peek 操作，在决定推进哪个数据源前查看当前值。
 //	QueryIterator 使用此方法构建最小堆。
 func (si *ShardIterator) Current() *types.PointRow {
-	si.mu.Lock()
-	defer si.mu.Unlock()
+	si.mu.RLock()
+	defer si.mu.RUnlock()
 
 	if si.memRow != nil && si.sstRow != nil {
 		if si.memRow.Timestamp < si.sstRow.Timestamp {
