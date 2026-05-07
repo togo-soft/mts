@@ -59,20 +59,17 @@ func copyTags(tags map[string]string) map[string]string {
 //   - MetaStore:   测量元数据存储，用于分配 Series IDs
 //   - MemTableCfg: MemTable 配置
 //   - CompactionCfg: Compaction 配置（可选，nil 表示禁用 compaction）
-//
-// 时间窗口：
-//
-//	Shard 只包含 [StartTime, EndTime) 范围内的数据。
-//	时间戳小于 StartTime 或大于等于 EndTime 的点不会写入此 Shard。
+//   - LevelCompactionCfg: Level Compaction 配置（可选，nil 表示使用平坦 compaction）
 type ShardConfig struct {
-	DB            string
-	Measurement   string
-	StartTime     int64
-	EndTime       int64
-	Dir           string
-	MetaStore     *measurement.MeasurementMetaStore
-	MemTableCfg   *MemTableConfig
-	CompactionCfg *CompactionConfig
+	DB                 string
+	Measurement        string
+	StartTime          int64
+	EndTime            int64
+	Dir                string
+	MetaStore          *measurement.MeasurementMetaStore
+	MemTableCfg        *MemTableConfig
+	CompactionCfg      *CompactionConfig
+	LevelCompactionCfg *LevelCompactionConfig
 }
 
 // Shard 是数据存储的基本单元，管理一个时间窗口内的所有数据。
@@ -105,21 +102,23 @@ type ShardConfig struct {
 //   - mu: 读写锁
 //   - sstSeq: SSTable 序列号（文件名生成）
 //   - compaction: Compaction 管理器
+//   - levelCompaction: Level Compaction 管理器（可选）
 type Shard struct {
-	db          string
-	measurement string
-	startTime   int64
-	endTime     int64
-	dir         string
-	memTable    *MemTable
-	wal         *WAL
-	walDone     chan struct{} // WAL 定期同步停止信号
-	metaStore   *measurement.MeasurementMetaStore
-	sidCache    map[uint64]map[string]string // sid → tags 缓存
-	tsSidMap    map[int64]uint64             // timestamp → sid 映射
-	mu          sync.RWMutex
-	sstSeq      uint64 // SSTable序列号，用于生成唯一的文件名
-	compaction  *CompactionManager
+	db              string
+	measurement     string
+	startTime       int64
+	endTime         int64
+	dir             string
+	memTable        *MemTable
+	wal             *WAL
+	walDone         chan struct{} // WAL 定期同步停止信号
+	metaStore       *measurement.MeasurementMetaStore
+	sidCache        map[uint64]map[string]string // sid → tags 缓存
+	tsSidMap        map[int64]uint64             // timestamp → sid 映射
+	mu              sync.RWMutex
+	sstSeq          uint64 // SSTable序列号，用于生成唯一的文件名
+	compaction      *CompactionManager
+	levelCompaction *LevelCompactionManager
 }
 
 // NewShard 创建新的 Shard 实例。
@@ -201,6 +200,16 @@ func NewShard(cfg ShardConfig) *Shard {
 		shard.compaction = NewCompactionManager(shard, cfg.CompactionCfg)
 	}
 
+	// 初始化 LevelCompactionManager（如果配置了）
+	if cfg.LevelCompactionCfg != nil {
+		shard.levelCompaction, err = NewLevelCompactionManager(shard, cfg.LevelCompactionCfg)
+		if err != nil {
+			slog.Warn("failed to create LevelCompactionManager, level compaction disabled",
+				"error", err)
+			shard.levelCompaction = nil
+		}
+	}
+
 	// 启动 WAL 定期同步（如果 WAL 存在）
 	if wal != nil {
 		go wal.StartPeriodicSync(time.Minute, shard.walDone)
@@ -209,6 +218,11 @@ func NewShard(cfg ShardConfig) *Shard {
 	// 启动定期 Compaction 检查（如果启用了）
 	if shard.compaction != nil {
 		shard.compaction.StartPeriodicCheck()
+	}
+
+	// 启动定期 Level Compaction 检查（如果启用了）
+	if shard.levelCompaction != nil {
+		shard.levelCompaction.StartPeriodicCheck()
 	}
 
 	return shard
@@ -397,45 +411,55 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 
 	var allRows []*types.PointRow
 
-	// 读取所有 SSTable 子目录 (sst_0, sst_1, ...)
-	entries, err := os.ReadDir(dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("read data dir: %w", err)
-	}
+	// 如果使用 Level Compaction，扫描 L0, L1, L2 等目录
+	if s.levelCompaction != nil {
+		for level := 0; ; level++ {
+			levelDir := filepath.Join(dataDir, fmt.Sprintf("L%d", level))
+			if _, err := os.Stat(levelDir); os.IsNotExist(err) {
+				break // 没有更多层级目录
+			}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		// 检查是否是 SSTable 目录
-		if !strings.HasPrefix(entry.Name(), "sst_") {
-			continue
-		}
+			entries, err := os.ReadDir(levelDir)
+			if err != nil {
+				slog.Warn("failed to read level dir", "levelDir", levelDir, "error", err)
+				continue
+			}
 
-		sstDir := filepath.Join(dataDir, entry.Name())
-		r, err := sstable.NewReader(sstDir)
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				if !strings.HasPrefix(entry.Name(), "sst_") {
+					continue
+				}
+
+				sstDir := filepath.Join(levelDir, entry.Name())
+				if err := s.readSSTableDir(sstDir, startTime, endTime, &allRows); err != nil {
+					slog.Warn("failed to read SSTable in level", "sstDir", sstDir, "error", err)
+				}
+			}
+		}
+	} else {
+		// 读取所有 SSTable 子目录 (sst_0, sst_1, ...) - 平坦结构
+		entries, err := os.ReadDir(dataDir)
 		if err != nil {
-			slog.Warn("failed to open SSTable, skipping",
-				"sstDir", sstDir,
-				"error", err)
-			continue
+			return nil, fmt.Errorf("read data dir: %w", err)
 		}
 
-		rows, err := r.ReadRange(startTime, endTime)
-		if closeErr := r.Close(); closeErr != nil {
-			slog.Warn("failed to close SSTable reader",
-				"sstDir", sstDir,
-				"closeError", closeErr)
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			// 检查是否是 SSTable 目录
+			if !strings.HasPrefix(entry.Name(), "sst_") {
+				continue
+			}
+
+			sstDir := filepath.Join(dataDir, entry.Name())
+			if err := s.readSSTableDir(sstDir, startTime, endTime, &allRows); err != nil {
+				slog.Warn("failed to read SSTable", "sstDir", sstDir, "error", err)
+			}
 		}
-		if err != nil {
-			slog.Error("failed to read SSTable range, skipping",
-				"sstDir", sstDir,
-				"startTime", startTime,
-				"endTime", endTime,
-				"error", err)
-			continue
-		}
-		allRows = append(allRows, rows...)
 	}
 
 	// 为所有 SSTable 行填充 Tags（通过 Sid 从 metaStore 获取）
@@ -453,6 +477,24 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 	})
 
 	return allRows, nil
+}
+
+// readSSTableDir 读取单个 SSTable 目录的数据
+func (s *Shard) readSSTableDir(sstDir string, startTime, endTime int64, rows *[]*types.PointRow) error {
+	r, err := sstable.NewReader(sstDir)
+	if err != nil {
+		return fmt.Errorf("open sstable: %w", err)
+	}
+
+	readRows, err := r.ReadRange(startTime, endTime)
+	if closeErr := r.Close(); closeErr != nil {
+		slog.Warn("failed to close SSTable reader", "sstDir", sstDir, "error", closeErr)
+	}
+	if err != nil {
+		return fmt.Errorf("read range: %w", err)
+	}
+	*rows = append(*rows, readRows...)
+	return nil
 }
 
 // Flush 将 MemTable 数据刷写到 SSTable。
@@ -475,24 +517,43 @@ func (s *Shard) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.flushLocked()
+}
+
+// flushLocked 内部刷写方法（已持有锁）
+func (s *Shard) flushLocked() error {
 	points := s.memTable.Flush()
 	if len(points) == 0 {
 		return nil
 	}
 
-	// 获取即将写入的 SSTable 路径
-	sstPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", s.sstSeq))
+	var sstSeq uint64
+	var sstPath string
+
+	// 确定使用的序列号和路径
+	if s.levelCompaction != nil {
+		// Level Compaction: 使用 LevelCompactionManager 的序列号，SSTable 放入 L0
+		sstSeq = s.levelCompaction.NextSeq()
+		l0Dir := filepath.Join(s.dir, "data", "L0")
+		if err := os.MkdirAll(l0Dir, 0700); err != nil {
+			return fmt.Errorf("create L0 dir: %w", err)
+		}
+		sstPath = filepath.Join(l0Dir, fmt.Sprintf("sst_%d", sstSeq))
+	} else {
+		// 平坦 Compaction: 使用 Shard 的序列号
+		sstSeq = s.sstSeq
+		sstPath = filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", sstSeq))
+	}
 
 	// 创建 SSTable Writer
-	w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
+	w, err := sstable.NewWriter(s.dir, sstSeq, 0)
 	if err != nil {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
-	s.sstSeq++
 
 	// 创建写入标志（防止 compaction 选中正在写入的 SSTable）
 	// 注意：必须在 NewWriter 之后调用，因为 NewWriter 会创建目录
-	if s.compaction != nil {
+	if s.compaction != nil && !s.levelCompactionEnabled() {
 		if err := s.compaction.markSSTableWriting(sstPath); err != nil {
 			slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
 		}
@@ -500,7 +561,7 @@ func (s *Shard) Flush() error {
 
 	if err := w.WritePoints(points, s.tsSidMap); err != nil {
 		_ = w.Close()
-		if s.compaction != nil {
+		if s.compaction != nil && !s.levelCompactionEnabled() {
 			_ = s.compaction.unmarkSSTableWriting(sstPath)
 		}
 		return fmt.Errorf("write points to sstable: %w", err)
@@ -512,17 +573,59 @@ func (s *Shard) Flush() error {
 	}
 
 	if err := w.Close(); err != nil {
-		if s.compaction != nil {
+		if s.compaction != nil && !s.levelCompactionEnabled() {
 			_ = s.compaction.unmarkSSTableWriting(sstPath)
 		}
 		return fmt.Errorf("close sstable writer: %w", err)
 	}
 
 	// 删除写入标志
-	if s.compaction != nil {
+	if s.compaction != nil && !s.levelCompactionEnabled() {
 		if err := s.compaction.unmarkSSTableWriting(sstPath); err != nil {
 			slog.Warn("failed to unmark sstable write", "path", sstPath, "error", err)
 		}
+	}
+
+	// 如果使用 Level Compaction，移动 SSTable 到 L0 并添加到 manifest
+	if s.levelCompaction != nil {
+		srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", sstSeq))
+		dstPath := sstPath
+
+		if srcPath != dstPath {
+			// 移动目录到 L0
+			if err := os.Rename(srcPath, dstPath); err != nil {
+				return fmt.Errorf("move SSTable to L0: %w", err)
+			}
+		}
+
+		// 计算 MinTime 和 MaxTime
+		minTime := int64(0)
+		maxTime := int64(0)
+		for i, p := range points {
+			if i == 0 || p.Timestamp < minTime {
+				minTime = p.Timestamp
+			}
+			if i == 0 || p.Timestamp > maxTime {
+				maxTime = p.Timestamp
+			}
+		}
+
+		// 获取文件大小
+		var size int64
+		if info, err := os.Stat(dstPath); err == nil {
+			size = info.Size()
+		}
+
+		// 添加到 manifest (L0)
+		s.levelCompaction.AddPart(0, PartInfo{
+			Name:    fmt.Sprintf("sst_%d", sstSeq),
+			Size:    size,
+			MinTime: minTime,
+			MaxTime: maxTime,
+		})
+	} else {
+		// 递增平坦 Compaction 的序列号
+		s.sstSeq++
 	}
 
 	// 清空当前 WAL 文件（数据已持久化到 SSTable，不再需要）
@@ -536,7 +639,15 @@ func (s *Shard) Flush() error {
 	}
 
 	// 检查是否需要触发 compaction（后台执行）
-	if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
+	if s.levelCompaction != nil && s.levelCompaction.ShouldCompact() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), s.levelCompaction.Config().Timeout)
+			defer cancel()
+			if _, _, err := s.levelCompaction.Compact(ctx); err != nil {
+				slog.Error("background level compaction failed", "error", err)
+			}
+		}()
+	} else if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), s.compaction.config.Timeout)
 			defer cancel()
@@ -551,71 +662,9 @@ func (s *Shard) Flush() error {
 	return nil
 }
 
-// flushLocked 内部刷写方法（已持有锁）
-func (s *Shard) flushLocked() error {
-	points := s.memTable.Flush()
-	if len(points) == 0 {
-		return nil
-	}
-
-	// 获取即将写入的 SSTable 路径
-	sstPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", s.sstSeq))
-
-	w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
-	if err != nil {
-		return fmt.Errorf("create sstable writer: %w", err)
-	}
-	s.sstSeq++ // 递增序列号，确保下次 flush 使用不同的文件名
-
-	// 创建写入标志（防止 compaction 选中正在写入的 SSTable）
-	// 注意：必须在 NewWriter 之后调用，因为 NewWriter 会创建目录
-	if s.compaction != nil {
-		if err := s.compaction.markSSTableWriting(sstPath); err != nil {
-			slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
-		}
-	}
-
-	if err := w.WritePoints(points, s.tsSidMap); err != nil {
-		_ = w.Close()
-		if s.compaction != nil {
-			_ = s.compaction.unmarkSSTableWriting(sstPath)
-		}
-		return fmt.Errorf("write points to sstable: %w", err)
-	}
-
-	// 写入完成后清除已刷盘的 timestamp→sid 映射
-	for _, p := range points {
-		delete(s.tsSidMap, p.Timestamp)
-	}
-
-	if err := w.Close(); err != nil {
-		if s.compaction != nil {
-			_ = s.compaction.unmarkSSTableWriting(sstPath)
-		}
-		return fmt.Errorf("close sstable writer: %w", err)
-	}
-
-	// 删除写入标志
-	if s.compaction != nil {
-		if err := s.compaction.unmarkSSTableWriting(sstPath); err != nil {
-			slog.Warn("failed to unmark sstable write", "path", sstPath, "error", err)
-		}
-	}
-
-	// 清空当前 WAL 文件（数据已持久化到 SSTable，不再需要）
-	if s.wal != nil {
-		_ = s.wal.TruncateCurrent()
-	}
-
-	// 显式清空 points 引用，帮助 GC 回收内存
-	for i := range points {
-		points[i] = nil
-	}
-
-	// 检查是否需要触发 compaction（后台执行）
-	// 注意：这里不需要再次检查，因为 ShouldCompact 在 Write 时已经被调用
-
-	return nil
+// levelCompactionEnabled 检查是否启用了 Level Compaction。
+func (s *Shard) levelCompactionEnabled() bool {
+	return s.levelCompaction != nil
 }
 
 // Close 关闭 Shard，释放资源。
@@ -636,36 +685,48 @@ func (s *Shard) Close() error {
 	defer s.mu.Unlock()
 
 	// 1. 先刷写 MemTable 到 SSTable
-	points := s.memTable.Flush()
-	if len(points) > 0 {
-		w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
-		if err != nil {
-			// 即使 writer 创建失败，也要继续关闭 WAL
+	// 如果使用 Level Compaction，调用 flushLocked 以保持一致的处理逻辑
+	if s.levelCompaction != nil {
+		if err := s.flushLocked(); err != nil {
+			// 即使失败也要继续关闭 WAL
 			if s.wal != nil {
 				_ = s.wal.Close()
 			}
-			return fmt.Errorf("create sstable writer: %w", err)
+			return fmt.Errorf("flush memtable: %w", err)
 		}
-		s.sstSeq++
-
-		if err := w.WritePoints(points, s.tsSidMap); err != nil {
-			_ = w.Close()
-			if s.wal != nil {
-				_ = s.wal.Close()
+	} else {
+		// 平坦 Compaction 的刷盘逻辑
+		points := s.memTable.Flush()
+		if len(points) > 0 {
+			w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
+			if err != nil {
+				// 即使 writer 创建失败，也要继续关闭 WAL
+				if s.wal != nil {
+					_ = s.wal.Close()
+				}
+				return fmt.Errorf("create sstable writer: %w", err)
 			}
-			return fmt.Errorf("write points to sstable: %w", err)
-		}
+			s.sstSeq++
 
-		if err := w.Close(); err != nil {
-			if s.wal != nil {
-				_ = s.wal.Close()
+			if err := w.WritePoints(points, s.tsSidMap); err != nil {
+				_ = w.Close()
+				if s.wal != nil {
+					_ = s.wal.Close()
+				}
+				return fmt.Errorf("write points to sstable: %w", err)
 			}
-			return fmt.Errorf("close sstable writer: %w", err)
-		}
 
-		// 清理已刷盘的 timestamp→sid 映射
-		for _, p := range points {
-			delete(s.tsSidMap, p.Timestamp)
+			if err := w.Close(); err != nil {
+				if s.wal != nil {
+					_ = s.wal.Close()
+				}
+				return fmt.Errorf("close sstable writer: %w", err)
+			}
+
+			// 清理已刷盘的 timestamp→sid 映射
+			for _, p := range points {
+				delete(s.tsSidMap, p.Timestamp)
+			}
 		}
 	}
 
@@ -696,6 +757,11 @@ func (s *Shard) Close() error {
 	// 6. 停止 Compaction Manager
 	if s.compaction != nil {
 		s.compaction.Stop()
+	}
+
+	// 7. 停止 Level Compaction Manager
+	if s.levelCompaction != nil {
+		s.levelCompaction.Stop()
 	}
 
 	return nil

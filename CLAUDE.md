@@ -102,12 +102,50 @@
 
 ### 测试策略与质量门禁
 
-- TDD 不对所有实现类任务默认强制；是否启用按“行为影响、共享范围、回归风险、测试价值”显式判定。
+- TDD 不对所有实现类任务默认强制；是否启用按”行为影响、共享范围、回归风险、测试价值”显式判定。
 - Level 0：定向验证——局部、低风险、小改动
 - Level 1：回归测试——中小修复或局部行为变化
 - Level 2：TDD——新功能、明确行为变更、共享逻辑或高风险改动
 - Level 3：Code Review——遵循上文 Review 规则
 - Level 4：Completion Verification——遵循上文完成前验证与 Change Delivery Gate
+
+### E2E 测试用例
+
+所有功能实现完成后，必须执行 `tests/e2e` 目录下的端到端测试用例，全部通过才能算功能实现完成。
+
+#### 测试用例清单
+
+| 目录 | 功能 | 说明 |
+|------|------|------|
+| `compaction_test` | Compaction 压缩 | 数据完整性、查询正确性、写入保护、定时触发、重启恢复、并发安全、内存效率 |
+| `grpc_write_query` | gRPC 读写 | gRPC 写入 10K 数据并查询验证 |
+| `integrity` | 数据完整性 | 10 万数据点完整性验证 |
+| `persistence_test` | 持久化 | MetaStore 持久化验证 |
+| `retention_test` | 数据过期 | 数据过期清理机制 |
+| `wal_test` | WAL 预写日志 | WAL 创建、持久化恢复、Replay 机制、清理、多 Shard |
+| `simple_integrity` | 简单完整性 | 100 数据点验证 |
+| `write_1k` | 1K 写入 | 1K 数据写入性能测试 |
+| `write_10k` | 10K 写入 | 10K 数据写入性能测试 |
+| `write_100k` | 100K 写入 | 100K 数据写入性能测试 |
+| `write_1m` | 1M 写入 | 1M 数据写入性能测试 |
+| `query_1k` | 1K 查询 | 1K 数据查询性能测试 |
+| `query_10k` | 10K 查询 | 10K 数据查询性能测试 |
+| `query_100k` | 100K 查询 | 100K 数据查询性能测试 |
+| `query_1m` | 1M 查询 | 1M 数据查询性能测试 |
+| `check_fields` | 字段检查 | 字段类型验证 |
+| `check_schema` | Schema 检查 | Schema 正确性验证 |
+
+#### 执行方式
+
+```bash
+cd tests/e2e/{test_dir} && go build && ./{test_binary}
+```
+
+#### 验收标准
+
+- 所有测试用例必须全部通过
+- 任何测试失败都表明功能实现不完整
+- 测试通过后应清理临时构建产物
 
 ## 工程实践
 

@@ -140,6 +140,86 @@ func NewMeasurementMetaStore() *MeasurementMetaStore {
 	}
 }
 
+// Load 从持久化文件加载元数据。
+//
+// 返回：
+//   - error: 加载失败时返回错误
+//
+// 加载内容：
+//   - series: sid → tags 映射
+//   - nextSID: 下一个可用的 SID
+//   - tagHashIndex 和 tagIndex 会根据 series 自动重建
+//
+// 原子性：
+//
+//	如果加载失败，MetaStore 保持空状态，不会部分加载。
+func (m *MeasurementMetaStore) Load() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.persistPath == "" {
+		return fmt.Errorf("persist path not set")
+	}
+
+	data, err := os.ReadFile(m.persistPath)
+	if err != nil {
+		return fmt.Errorf("read file: %w", err)
+	}
+
+	var persistData struct {
+		NextSID uint64              `json:"next_sid"`
+		Series  map[uint64][]string `json:"series"`
+	}
+
+	if err := json.Unmarshal(data, &persistData); err != nil {
+		return fmt.Errorf("unmarshal: %w", err)
+	}
+
+	// 重建 series, tagHashIndex, tagIndex
+	m.series = make(map[uint64]map[string]string)
+	m.tagHashIndex = make(map[uint64]uint64)
+	m.tagIndex = make(map[string][]uint64)
+
+	for sid, tagsList := range persistData.Series {
+		// tagsList 是 [key1, value1, key2, value2, ...] 格式
+		tags := make(map[string]string)
+		for i := 0; i < len(tagsList)-1; i += 2 {
+			tags[tagsList[i]] = tagsList[i+1]
+		}
+		m.series[sid] = tags
+
+		// 重建 tagHashIndex
+		h := tagsHash(tags)
+		m.tagHashIndex[h] = sid
+
+		// 重建 tagIndex
+		for k, v := range tags {
+			indexKey := k + "\x00" + v
+			m.tagIndex[indexKey] = append(m.tagIndex[indexKey], sid)
+		}
+	}
+
+	m.nextSID = persistData.NextSID
+	m.dirty = false
+	return nil
+}
+
+// LoadFromFile 从指定路径加载元数据（不依赖 persistPath）。
+//
+// 参数：
+//   - path: 持久化文件路径
+//
+// 返回：
+//   - error: 加载失败时返回错误
+func LoadFromFile(path string) (*MeasurementMetaStore, error) {
+	m := NewMeasurementMetaStore()
+	m.persistPath = path
+	if err := m.Load(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // SetPersistPath 设置持久化路径。
 //
 // 参数：
@@ -288,6 +368,11 @@ func (m *MeasurementMetaStore) Close() error {
 //
 // 返回：
 //   - error: 持久化失败时返回错误
+//
+// 安全性：
+//
+//	写入临时文件后 fsync，然后原子性 rename。
+//	确保崩溃不会导致文件损坏。
 func (m *MeasurementMetaStore) Persist() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -323,17 +408,33 @@ func (m *MeasurementMetaStore) Persist() error {
 		data.Series[sid] = tagsList
 	}
 
-	// 写入文件
-	f, err := os.Create(m.persistPath)
+	// 写入临时文件
+	tmpPath := m.persistPath + ".tmp"
+	f, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer func() { _ = f.Close() }()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(data); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("encode json: %w", err)
+	}
+
+	// fsync 确保数据写入磁盘
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("fsync: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close file: %w", err)
+	}
+
+	// 原子性 rename
+	if err := os.Rename(tmpPath, m.persistPath); err != nil {
+		return fmt.Errorf("rename: %w", err)
 	}
 
 	m.dirty = false

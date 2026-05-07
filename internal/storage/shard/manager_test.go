@@ -393,7 +393,7 @@ func TestShardManager_DeleteShard_CleanupMetaStore(t *testing.T) {
 		Measurement: "cpu",
 		Tags:        map[string]string{"host": "server1"},
 		Timestamp:   s.StartTime() + 1000,
-		Fields:     map[string]*types.FieldValue{"value": types.NewFieldValue(int64(1))},
+		Fields:      map[string]*types.FieldValue{"value": types.NewFieldValue(int64(1))},
 	}
 	_ = s.Write(p)
 	_ = s.Flush()
