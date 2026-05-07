@@ -3,11 +3,14 @@ package shard
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -68,6 +71,51 @@ type WAL struct {
 	pos      int
 	logger   *slog.Logger
 	fileSize int64 // 当前文件已写入的字节数
+}
+
+// WALReplayCheckpoint 记录 WAL replay 的进度，用于增量 replay。
+type WALReplayCheckpoint struct {
+	// LastSeq 是最后处理的 WAL 文件序列号
+	LastSeq uint64
+	// LastPos 是在 LastSeq 文件中已处理的字节偏移
+	LastPos int64
+	// Updated 是 checkpoint 更新时间戳
+	Updated int64
+}
+
+// checkpoint 文件路径
+func (c *WALReplayCheckpoint) filePath(walDir string) string {
+	return filepath.Join(walDir, "_replay_checkpoint.json")
+}
+
+// Save 保存 checkpoint 到文件。
+func (c *WALReplayCheckpoint) Save(walDir string) error {
+	c.Updated = time.Now().UnixNano()
+	data, err := json.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("marshal checkpoint: %w", err)
+	}
+	path := c.filePath(walDir)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("write checkpoint: %w", err)
+	}
+	return nil
+}
+
+// Load 从文件加载 checkpoint。
+func (c *WALReplayCheckpoint) Load(walDir string) error {
+	path := c.filePath(walDir)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read checkpoint: %w", err)
+	}
+	if err := json.Unmarshal(data, c); err != nil {
+		return fmt.Errorf("unmarshal checkpoint: %w", err)
+	}
+	return nil
 }
 
 // NewWAL 创建新的 WAL 实例。
@@ -644,38 +692,163 @@ func deserializePoint(data []byte) (*types.Point, error) {
 // 使用场景：
 //
 //	数据库启动时调用，恢复崩溃前的未刷盘数据。
+//
+// 增量 replay：
+//
+//	如果存在 checkpoint 文件，会从上次中断的位置继续 replay。
+//	这避免了对已处理数据的重复读取。
 func ReplayWAL(walDir string) ([]*types.Point, error) {
+	// 加载 checkpoint
+	var cp WALReplayCheckpoint
+	if err := cp.Load(walDir); err != nil {
+		slog.Warn("failed to load WAL checkpoint, doing full replay", "walDir", walDir, "error", err)
+	}
+
+	// 获取所有 WAL 文件
 	files, err := filepath.Glob(filepath.Join(walDir, "*.wal"))
 	if err != nil {
 		return nil, err
 	}
 
-	var points []*types.Point
+	// 解析文件序列号并排序
+	type walFile struct {
+		seq  uint64
+		path string
+	}
+	var walFiles []walFile
 	for _, f := range files {
-		data, err := os.ReadFile(f)
+		seq, err := parseWALSeq(f)
 		if err != nil {
 			continue
 		}
+		walFiles = append(walFiles, walFile{seq: seq, path: f})
+	}
+	sort.Slice(walFiles, func(i, j int) bool {
+		return walFiles[i].seq < walFiles[j].seq
+	})
 
-		pos := 0
-		for pos < len(data) {
-			if pos+4 > len(data) {
-				break
-			}
-			size := int(binary.BigEndian.Uint32(data[pos : pos+4]))
-			pos += 4
-
-			if pos+size > len(data) {
-				break
-			}
-			p, err := deserializePoint(data[pos : pos+size])
-			if err != nil {
-				pos += size
-				continue
-			}
-			points = append(points, p)
-			pos += size
+	var points []*types.Point
+	for _, wf := range walFiles {
+		// 跳过完全处理过的文件
+		if wf.seq < cp.LastSeq {
+			continue
 		}
+
+		// 确定起始偏移
+		startPos := int64(0)
+		if wf.seq == cp.LastSeq {
+			startPos = cp.LastPos
+		}
+
+		// 读取并解析文件
+		readPoints, readPos, err := replayWALFile(wf.path, startPos)
+		if err != nil {
+			slog.Warn("failed to replay WAL file, skipping", "path", wf.path, "error", err)
+			continue
+		}
+		points = append(points, readPoints...)
+
+		// 更新 checkpoint
+		cp.LastSeq = wf.seq
+		cp.LastPos = readPos
+		if err := cp.Save(walDir); err != nil {
+			slog.Warn("failed to save WAL checkpoint", "error", err)
+		}
+	}
+
+	return points, nil
+}
+
+// parseWALSeq 从 WAL 文件路径解析序列号。
+func parseWALSeq(path string) (uint64, error) {
+	filename := filepath.Base(path)
+	if len(filename) < 4 || filename[len(filename)-4:] != ".wal" {
+		return 0, fmt.Errorf("invalid WAL filename: %s", filename)
+	}
+	seqStr := filename[:len(filename)-4]
+	seq, err := strconv.ParseUint(seqStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse WAL seq: %w", err)
+	}
+	return seq, nil
+}
+
+// replayWALFile 从指定偏移读取单个 WAL 文件。
+func replayWALFile(path string, startPos int64) ([]*types.Point, int64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if startPos >= int64(len(data)) {
+		return nil, startPos, nil
+	}
+
+	var points []*types.Point
+	pos := int(startPos)
+	for pos < len(data) {
+		if pos+4 > len(data) {
+			break
+		}
+		size := int(binary.BigEndian.Uint32(data[pos : pos+4]))
+		pos += 4
+
+		if pos+size > len(data) {
+			break
+		}
+		p, err := deserializePoint(data[pos : pos+size])
+		if err != nil {
+			pos += size
+			continue
+		}
+		points = append(points, p)
+		pos += size
+	}
+
+	return points, int64(pos), nil
+}
+
+// ReplayWALFromCheckpoint 从指定 checkpoint 开始 replay。
+// 用于测试或强制全量 replay。
+func ReplayWALFromCheckpoint(walDir string, checkpoint *WALReplayCheckpoint) ([]*types.Point, error) {
+	files, err := filepath.Glob(filepath.Join(walDir, "*.wal"))
+	if err != nil {
+		return nil, err
+	}
+
+	type walFile struct {
+		seq  uint64
+		path string
+	}
+	var walFiles []walFile
+	for _, f := range files {
+		seq, err := parseWALSeq(f)
+		if err != nil {
+			continue
+		}
+		walFiles = append(walFiles, walFile{seq: seq, path: f})
+	}
+	sort.Slice(walFiles, func(i, j int) bool {
+		return walFiles[i].seq < walFiles[j].seq
+	})
+
+	var points []*types.Point
+	for _, wf := range walFiles {
+		if wf.seq < checkpoint.LastSeq {
+			continue
+		}
+
+		startPos := int64(0)
+		if wf.seq == checkpoint.LastSeq {
+			startPos = checkpoint.LastPos
+		}
+
+		readPoints, _, err := replayWALFile(wf.path, startPos)
+		if err != nil {
+			slog.Warn("failed to replay WAL file, skipping", "path", wf.path, "error", err)
+			continue
+		}
+		points = append(points, readPoints...)
 	}
 
 	return points, nil
