@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -384,7 +385,9 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 		return nil, fmt.Errorf("create query iterator: %w", err)
 	}
 	defer func() {
-		_ = qit.Close()
+		if err := qit.Close(); err != nil {
+			slog.Warn("failed to close query iterator", "error", err)
+		}
 	}()
 
 	// 收集结果

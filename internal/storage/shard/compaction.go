@@ -242,13 +242,16 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 	for _, path := range task.inputFiles {
 		r, err := sstable.NewReader(path)
 		if err != nil {
+			// 关闭已打开的 readers
 			for _, r := range readers {
 				_ = r.Close()
 			}
-			return err
+			return fmt.Errorf("open sstable reader for %s: %w", path, err)
 		}
 		readers = append(readers, r)
 	}
+
+	// 统一关闭所有 readers
 	defer func() {
 		for _, r := range readers {
 			_ = r.Close()
@@ -366,9 +369,11 @@ func (cm *CompactionManager) commit(task *CompactionTask) error {
 	}
 
 	// 删除旧文件
+	var lastErr error
 	for _, oldFile := range task.inputFiles {
 		if err := os.RemoveAll(oldFile); err != nil {
 			slog.Warn("failed to remove old sstable", "path", oldFile, "error", err)
+			lastErr = err
 		}
 	}
 
@@ -377,6 +382,9 @@ func (cm *CompactionManager) commit(task *CompactionTask) error {
 	cm.lastCompact = time.Now()
 	cm.compactMu.Unlock()
 
+	if lastErr != nil {
+		return fmt.Errorf("remove old sstable files: %w", lastErr)
+	}
 	return nil
 }
 

@@ -795,38 +795,81 @@ func parseWALSeq(path string) (uint64, error) {
 }
 
 // replayWALFile 从指定偏移读取单个 WAL 文件。
+// 使用流式读取，避免将整个文件加载到内存。
 func replayWALFile(path string, startPos int64) ([]*types.Point, int64, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if startPos >= int64(len(data)) {
-		return nil, startPos, nil
+	// Seek 到起始位置
+	if _, err := file.Seek(startPos, 0); err != nil {
+		_ = file.Close()
+		return nil, 0, err
 	}
 
 	var points []*types.Point
-	pos := int(startPos)
-	for pos < len(data) {
-		if pos+4 > len(data) {
+	pos := startPos
+	buf := make([]byte, 4096) // 4KB 读取缓冲区
+
+	for {
+		// 读取长度字段 (4 bytes)
+		lengthBuf := make([]byte, 4)
+		n, err := file.Read(lengthBuf)
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			_ = file.Close()
+			return points, pos, err
+		}
+		if n != 4 {
+			_ = file.Close()
 			break
 		}
-		size := int(binary.BigEndian.Uint32(data[pos : pos+4]))
 		pos += 4
 
-		if pos+size > len(data) {
+		size := int(binary.BigEndian.Uint32(lengthBuf))
+		if size > 1024*1024*1024 { // 超过 1GB 的单条记录，可能是损坏
+			slog.Warn("WAL record too large, stopping replay", "size", size, "path", path)
+			_ = file.Close()
 			break
 		}
-		p, err := deserializePoint(data[pos : pos+size])
+
+		if size > len(buf) {
+			buf = make([]byte, size)
+		}
+
+		// 读取数据
+		data := buf[:size]
+		read := 0
+		for read < size {
+			n, err := file.Read(data[read:])
+			if err != nil {
+				if err.Error() == "EOF" {
+					break
+				}
+				_ = file.Close()
+				return points, pos, err
+			}
+			read += n
+			pos += int64(n)
+		}
+
+		if read != size {
+			_ = file.Close()
+			break
+		}
+
+		p, err := deserializePoint(data)
 		if err != nil {
-			pos += size
 			continue
 		}
 		points = append(points, p)
-		pos += size
 	}
 
-	return points, int64(pos), nil
+	_ = file.Close()
+	return points, pos, nil
 }
 
 // ReplayWALFromCheckpoint 从指定 checkpoint 开始 replay。
