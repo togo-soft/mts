@@ -1,6 +1,8 @@
 package shard
 
 import (
+	"sync"
+
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -14,9 +16,9 @@ import (
 //
 // 线程安全：
 //
-//	ShardIterator 不是线程安全的。
-//	每个查询应该创建独立的迭代器实例。
-//	不应该在多个 goroutine 之间共享同一个 ShardIterator。
+//	ShardIterator 是线程安全的。
+//	可以在多个 goroutine 之间共享同一个 ShardIterator。
+//	内部使用互斥锁保护所有状态操作。
 //
 // 字段说明：
 //
@@ -38,12 +40,15 @@ type ShardIterator struct {
 
 	memIter *MemTableIterator // MemTable 迭代器
 	rows    []*types.PointRow // SSTable 预读取的数据
-	rowIdx  int               // 当前在 rows 中的位置
-	err     error             // 迭代过程中的错误
+	rowIdx  int              // 当前在 rows 中的位置
+	err     error            // 迭代过程中的错误
 
 	// 当前 peek
 	memRow *types.PointRow
 	sstRow *types.PointRow
+
+	// 线程安全保护
+	mu sync.Mutex
 }
 
 // NewShardIterator 创建 Shard 迭代器（带时间范围过滤）。
@@ -122,31 +127,34 @@ func (si *ShardIterator) pointToRow(p *types.Point) *types.PointRow {
 //	自动过滤不在 [startTime, endTime) 范围内的数据。
 //	如果当前数据超出范围，自动跳过并获取下一个。
 func (si *ShardIterator) Next() *types.PointRow {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+
 	// 如果 MemTable 和 SSTable 都有数据，取 timestamp 较小的
 	if si.memRow != nil && si.sstRow != nil {
 		if si.memRow.Timestamp < si.sstRow.Timestamp {
 			row := si.memRow
-			si.memRow = si.nextMemRow()
-			return si.filterRow(row)
+			si.memRow = si.nextMemRowLocked()
+			return si.filterRowLocked(row)
 		}
 		// memRow.Timestamp >= sstRow.Timestamp（包括相等）
 		row := si.sstRow
-		si.sstRow = si.nextSstRow()
-		return si.filterRow(row)
+		si.sstRow = si.nextSstRowLocked()
+		return si.filterRowLocked(row)
 	}
 
 	// 只剩 MemTable
 	if si.memRow != nil {
 		row := si.memRow
-		si.memRow = si.nextMemRow()
-		return si.filterRow(row)
+		si.memRow = si.nextMemRowLocked()
+		return si.filterRowLocked(row)
 	}
 
 	// 只剩 SSTable
 	if si.sstRow != nil {
 		row := si.sstRow
-		si.sstRow = si.nextSstRow()
-		return si.filterRow(row)
+		si.sstRow = si.nextSstRowLocked()
+		return si.filterRowLocked(row)
 	}
 
 	// 都耗尽了
@@ -155,6 +163,13 @@ func (si *ShardIterator) Next() *types.PointRow {
 
 // filterRow 检查 row 是否在时间范围内
 func (si *ShardIterator) filterRow(row *types.PointRow) *types.PointRow {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	return si.filterRowLocked(row)
+}
+
+// filterRowLocked 检查 row 是否在时间范围内（已持有锁）
+func (si *ShardIterator) filterRowLocked(row *types.PointRow) *types.PointRow {
 	if row == nil {
 		return nil
 	}
@@ -162,11 +177,42 @@ func (si *ShardIterator) filterRow(row *types.PointRow) *types.PointRow {
 		return row
 	}
 	// 不在范围内，继续获取下一个
-	return si.Next()
+	return si.nextLocked()
 }
 
-// nextMemRow 获取下一个 MemTable row
-func (si *ShardIterator) nextMemRow() *types.PointRow {
+// nextLocked 获取下一个内部方法（已持有锁）
+func (si *ShardIterator) nextLocked() *types.PointRow {
+	// 如果 MemTable 和 SSTable 都有数据，取 timestamp 较小的
+	if si.memRow != nil && si.sstRow != nil {
+		if si.memRow.Timestamp < si.sstRow.Timestamp {
+			row := si.memRow
+			si.memRow = si.nextMemRowLocked()
+			return si.filterRowLocked(row)
+		}
+		row := si.sstRow
+		si.sstRow = si.nextSstRowLocked()
+		return si.filterRowLocked(row)
+	}
+
+	// 只剩 MemTable
+	if si.memRow != nil {
+		row := si.memRow
+		si.memRow = si.nextMemRowLocked()
+		return si.filterRowLocked(row)
+	}
+
+	// 只剩 SSTable
+	if si.sstRow != nil {
+		row := si.sstRow
+		si.sstRow = si.nextSstRowLocked()
+		return si.filterRowLocked(row)
+	}
+
+	return nil
+}
+
+// nextMemRow 获取下一个 MemTable row（已持有锁）
+func (si *ShardIterator) nextMemRowLocked() *types.PointRow {
 	for si.memIter.Next() {
 		p := si.memIter.Point()
 		if p.Timestamp >= si.startTime && (si.endTime <= 0 || p.Timestamp < si.endTime) {
@@ -176,15 +222,15 @@ func (si *ShardIterator) nextMemRow() *types.PointRow {
 	return nil
 }
 
-// nextSstRow 获取下一个 SSTable row
-func (si *ShardIterator) nextSstRow() *types.PointRow {
+// nextSstRow 获取下一个 SSTable row（已持有锁）
+func (si *ShardIterator) nextSstRowLocked() *types.PointRow {
 	si.rowIdx++
 	if si.rowIdx < len(si.rows) {
 		row := si.rows[si.rowIdx]
 		if row.Timestamp >= si.startTime && (si.endTime <= 0 || row.Timestamp < si.endTime) {
 			return row
 		}
-		return si.nextSstRow()
+		return si.nextSstRowLocked()
 	}
 	return nil
 }
@@ -204,6 +250,9 @@ func (si *ShardIterator) nextSstRow() *types.PointRow {
 //	用于 peek 操作，在决定推进哪个数据源前查看当前值。
 //	QueryIterator 使用此方法构建最小堆。
 func (si *ShardIterator) Current() *types.PointRow {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+
 	if si.memRow != nil && si.sstRow != nil {
 		if si.memRow.Timestamp < si.sstRow.Timestamp {
 			return si.memRow
