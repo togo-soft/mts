@@ -40,8 +40,8 @@ type ShardIterator struct {
 
 	memIter *MemTableIterator // MemTable 迭代器
 	rows    []*types.PointRow // SSTable 预读取的数据
-	rowIdx  int              // 当前在 rows 中的位置
-	err     error            // 迭代过程中的错误
+	rowIdx  int               // 当前在 rows 中的位置
+	err     error             // 迭代过程中的错误
 
 	// 当前 peek
 	memRow *types.PointRow

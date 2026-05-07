@@ -2,6 +2,9 @@ package shard
 
 import (
 	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -563,5 +566,265 @@ func TestDeserializePoint_InvalidData(t *testing.T) {
 	_, err = deserializePoint(invalidData)
 	if err == nil {
 		t.Error("expected error for invalid tag length")
+	}
+}
+
+func TestNewShard_WALCreationFails(t *testing.T) {
+	// 测试 WAL 创建失败时 Shard 仍能正常工作
+	// 使用一个只读路径导致 WAL 创建失败
+	tmpDir := t.TempDir()
+	readonlyDir := filepath.Join(tmpDir, "readonly")
+	if err := os.MkdirAll(readonlyDir, 0555); err != nil {
+		t.Fatalf("failed to create readonly dir: %v", err)
+	}
+
+	// 在只读目录下创建 Shard，WAL 创建会失败但应该继续运行
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         filepath.Join(readonlyDir, "shard1"),
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 即使 WAL 创建失败，写入仍应该成功（只是没有持久化）
+	p := &types.Point{
+		Timestamp: 1000000000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(85.5))},
+	}
+	if err := s.Write(p); err != nil {
+		t.Fatalf("Write failed even though WAL creation failed: %v", err)
+	}
+
+	// 读取验证
+	rows, err := s.Read(0, 2000000000)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("expected 1 row, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_ReadFromSSTable_NoDataDir(t *testing.T) {
+	// 测试读取时数据目录不存在
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 不创建 data 目录，直接读取
+	rows, err := s.Read(0, time.Hour.Nanoseconds())
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_Close_WithData_PersistError(t *testing.T) {
+	// 测试关闭时 MetaStore.Persist 出错的情况
+	tmpDir := t.TempDir()
+
+	// 创建一个无法写入的 MetaStore 路径
+	readonlyMetaDir := filepath.Join(tmpDir, "meta")
+	if err := os.MkdirAll(readonlyMetaDir, 0555); err != nil {
+		t.Fatalf("failed to create readonly dir: %v", err)
+	}
+	metaPath := filepath.Join(readonlyMetaDir, "meta.json")
+
+	metaStore := measurement.NewMeasurementMetaStore()
+	metaStore.SetPersistPath(metaPath)
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   metaStore,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入数据
+	p := &types.Point{
+		Timestamp: 1000000000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(85.5))},
+	}
+	if err := s.Write(p); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// 关闭时 MetaStore.Persist 应该失败
+	// 但 Close 可能不会返回错误因为 Persist 失败不会中断关闭流程
+	_ = s.Close()
+}
+
+func TestShard_Extra_Close_EmptyShard(t *testing.T) {
+	// 测试关闭空 Shard
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 不写入任何数据，直接关闭
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close empty shard failed: %v", err)
+	}
+}
+
+func TestShard_Extra_Close_WithData(t *testing.T) {
+	// 测试关闭时有数据的 Shard
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入数据触发 MemTable
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e8,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 关闭
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestShard_Flush_AfterMultipleWrites(t *testing.T) {
+	// 测试多次写入后 flush
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入多个 points
+	for i := 0; i < 100; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": fmt.Sprintf("server%d", i%5)},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 手动 flush
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// 继续写入
+	for i := 100; i < 150; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": fmt.Sprintf("server%d", i%5)},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 再次 flush
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// 读取所有数据
+	rows, err := s.Read(0, time.Hour.Nanoseconds())
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(rows) != 150 {
+		t.Errorf("expected 150 rows, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+func TestWAL_ReplayWalReplayingCorruptedFiles(t *testing.T) {
+	// 测试 replay 时遇到损坏的 WAL 文件
+	tmpDir := t.TempDir()
+
+	// 创建 WAL
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入一些正常数据
+	for i := 0; i < 5; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1000,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		data, _ := serializePoint(p)
+		_, _ = w.Write(data)
+	}
+	_ = w.Close()
+
+	// 创建损坏的 WAL 文件
+	corruptedWAL := filepath.Join(tmpDir, padSeq(1)+".wal")
+	if err := os.WriteFile(corruptedWAL, []byte("corrupted data"), 0600); err != nil {
+		t.Fatalf("failed to create corrupted WAL: %v", err)
+	}
+
+	// Replay 应该能跳过损坏的文件继续处理
+	points, err := ReplayWAL(tmpDir)
+	if err != nil {
+		t.Fatalf("ReplayWAL failed: %v", err)
+	}
+
+	// 应该能恢复第一个 WAL 的数据
+	if len(points) != 5 {
+		t.Errorf("expected 5 points from valid WAL, got %d", len(points))
 	}
 }
