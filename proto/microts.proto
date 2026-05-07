@@ -243,69 +243,6 @@ message HealthResponse {
 // 内部元数据类型（Measurement 元数据）
 // ===================================
 
-// 字段类型枚举
-//
-// 支持的字段数据类型。
-// 字段类型用于 Schema 定义和类型检查。
-enum FieldType {
-  // 未知/无效类型
-  FIELD_TYPE_UNKNOWN = 0;
-
-  // 64位有符号整数
-  FIELD_TYPE_INT64 = 1;
-
-  // 64位浮点数
-  FIELD_TYPE_FLOAT64 = 2;
-
-  // 可变长度字符串
-  FIELD_TYPE_STRING = 3;
-
-  // 布尔值
-  FIELD_TYPE_BOOL = 4;
-}
-
-// 字段定义
-//
-// 定义字段的名称和数据类型。
-// 用于 Measurement 的 Schema 定义。
-message FieldDef {
-  // 字段名称
-  string name = 1;
-
-  // 字段类型
-  FieldType type = 2;
-}
-
-// Measurement 元数据
-//
-// MeasurementMeta 包含 Measurement 的元信息，
-// 包括字段 Schema、标签键列表和下一个 Series ID。
-//
-// 字段说明：
-//
-//   - version: Schema 版本号，用于 Schema 演进
-//   - field_schema: 字段定义列表
-//   - tag_keys: 所有标签的键名
-//   - next_sid: 下一个待分配的 Series ID
-//
-// 内部使用：
-//
-//	用户不直接操作此结构，由数据库内部管理。
-//	可以通过元数据 API 查询这些信息。
-message MeasurementMeta {
-  // Schema 版本号
-  int64 version = 1;
-
-  // 字段 Schema 定义
-  repeated FieldDef field_schema = 2;
-
-  // 所有标签的键名
-  repeated string tag_keys = 3;
-
-  // 下一个待分配的 Series ID
-  int64 next_sid = 4;
-}
-
 // 内存表配置
 //
 // 内存表（MemTable）是写入缓冲区，数据先写入 MemTable，

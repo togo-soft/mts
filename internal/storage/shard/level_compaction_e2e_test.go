@@ -72,7 +72,7 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -161,7 +161,7 @@ func TestLevelCompactionE2E_L1ToL2(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -236,7 +236,7 @@ func TestLevelCompactionE2E_CheckpointRecovery(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -307,7 +307,7 @@ func TestLevelCompactionE2E_OldFormatMigration(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -357,7 +357,7 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -441,7 +441,7 @@ func TestLevelCompactionE2E_SelectPartsForMerge(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -491,7 +491,7 @@ func TestLevelCompactionE2E_HasOverlap(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -545,7 +545,7 @@ func TestLevelCompactionE2E_PeriodicCompaction(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -586,7 +586,7 @@ func TestLevelCompactionE2E_EmptyManifest(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -628,7 +628,7 @@ func TestLevelCompactionE2E_MultipleLevels(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 

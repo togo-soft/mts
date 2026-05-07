@@ -22,7 +22,7 @@ func TestShardIterator_PointToRow(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   metaStore,
+		SeriesStore: metaStore,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -72,7 +72,7 @@ func TestShardIterator_FilterRow(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   metaStore,
+		SeriesStore: metaStore,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -120,7 +120,7 @@ func TestShard_NextSstRow(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   metaStore,
+		SeriesStore: metaStore,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -169,7 +169,7 @@ func TestShard_NextSstRow(t *testing.T) {
 
 func TestShardManager_GetShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 获取不存在的 shard（不应该创建新的）
 	shards := sm.GetShards("db1", "cpu", 0, time.Hour.Nanoseconds())
@@ -199,7 +199,7 @@ func TestShardManager_GetShards(t *testing.T) {
 
 func TestShardManager_FlushAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建 shard 并写入数据
 	s, err := sm.GetShard("db1", "cpu", time.Hour.Nanoseconds()/2)
@@ -232,7 +232,7 @@ func TestShard_FlushLocked(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   metaStore,
+		SeriesStore: metaStore,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -264,7 +264,7 @@ func TestShard_Close_WithData(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   metaStore,
+		SeriesStore: metaStore,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -296,7 +296,7 @@ func TestShard_ReadFromSSTable_Empty(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   metaStore,
+		SeriesStore: metaStore,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -585,7 +585,7 @@ func TestNewShard_WALCreationFails(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         filepath.Join(readonlyDir, "shard1"),
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -621,7 +621,7 @@ func TestShard_ReadFromSSTable_NoDataDir(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -657,7 +657,7 @@ func TestShard_Close_WithData_PersistError(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   metaStore,
+		SeriesStore: metaStore,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -686,7 +686,7 @@ func TestShard_Extra_Close_EmptyShard(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -706,7 +706,7 @@ func TestShard_Extra_Close_WithData(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -738,7 +738,7 @@ func TestShard_Flush_AfterMultipleWrites(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -839,7 +839,7 @@ func TestShard_LevelCompaction_NewShard(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		LevelCompactionCfg: &LevelCompactionConfig{
 			Enabled:          true,
@@ -874,7 +874,7 @@ func TestShard_LevelCompaction_FlushToL0(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		LevelCompactionCfg: &LevelCompactionConfig{
 			Enabled:          true,
@@ -931,7 +931,7 @@ func TestShard_LevelCompaction_Close(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		LevelCompactionCfg: &LevelCompactionConfig{
 			Enabled:          true,
@@ -983,7 +983,7 @@ func TestShard_LevelCompaction_Read(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		LevelCompactionCfg: &LevelCompactionConfig{
 			Enabled:          true,
@@ -1036,7 +1036,7 @@ func TestShard_LevelCompaction_BothConfigs(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount:    10,
@@ -1073,7 +1073,7 @@ func TestShard_LevelCompaction_NoLevelConfig(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount:    10,
@@ -1108,7 +1108,7 @@ func TestNewShard_WALCreationFailure(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1144,7 +1144,7 @@ func TestNewShard_LevelCompactionCreationFailure(t *testing.T) {
 		StartTime:          0,
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
-		MetaStore:          measurement.NewMeasurementMetaStore(),
+		SeriesStore:        measurement.NewMeasurementMetaStore(),
 		MemTableCfg:        DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
@@ -1175,7 +1175,7 @@ func TestShard_Write_WithoutWAL(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1211,7 +1211,7 @@ func TestShard_flushLocked_NoPoints(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1237,7 +1237,7 @@ func TestShard_flushLocked_WithLevelCompaction(t *testing.T) {
 		StartTime:          0,
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
-		MetaStore:          measurement.NewMeasurementMetaStore(),
+		SeriesStore:        measurement.NewMeasurementMetaStore(),
 		MemTableCfg:        DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
@@ -1276,7 +1276,7 @@ func TestShard_Close_WithLevelCompaction(t *testing.T) {
 		StartTime:          0,
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
-		MetaStore:          measurement.NewMeasurementMetaStore(),
+		SeriesStore:        measurement.NewMeasurementMetaStore(),
 		MemTableCfg:        DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
@@ -1312,7 +1312,7 @@ func TestShard_Close_WithCompaction(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: compactionCfg,
 	})
@@ -1345,7 +1345,7 @@ func TestShard_Close_WALCloseError(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1377,7 +1377,7 @@ func TestShard_readFromSSTable_NoDataDir(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1403,7 +1403,7 @@ func TestShard_readSSTableDir_InvalidPath(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1427,7 +1427,7 @@ func TestShard_Read_EmptyTimeRange(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1466,7 +1466,7 @@ func TestShard_Write_SerializeError(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1498,7 +1498,7 @@ func TestShard_Write_ManyPoints(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1536,7 +1536,7 @@ func TestShard_Flush_Manual(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1582,7 +1582,7 @@ func TestShard_ContainsTimeRange(t *testing.T) {
 		StartTime:   1000000000,
 		EndTime:     2000000000,
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -1622,7 +1622,7 @@ func TestShard_DurationMethod(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 

@@ -63,21 +63,21 @@ func main() {
 	}
 	fmt.Printf("db1 closed\n")
 
-	// 验证 meta.json 存在
-	metaPath := filepath.Join(tmpDir, "db1", "cpu", "meta.json")
+	// 验证 series.json 存在
+	metaPath := filepath.Join(tmpDir, "_metadata", "db1", "cpu", "series.json")
 	if _, err := os.Stat(metaPath); os.IsNotExist(err) {
-		fmt.Printf("FAIL: meta.json not found after close\n")
+		fmt.Printf("FAIL: series.json not found after close\n")
 		os.Exit(1)
 	}
-	fmt.Printf("meta.json exists: %s\n", metaPath)
+	fmt.Printf("series.json exists: %s\n", metaPath)
 
-	// 读取 meta.json 验证内容
+	// 读取 series.json 验证内容
 	metaContent, err := os.ReadFile(metaPath)
 	if err != nil {
-		fmt.Printf("FAIL: could not read meta.json: %v\n", err)
+		fmt.Printf("FAIL: could not read series.json: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("meta.json content: %s\n", string(metaContent))
+	fmt.Printf("series.json content: %s\n", string(metaContent))
 
 	// 检查数据目录
 	dataDir := filepath.Join(tmpDir, "db1", "cpu")
@@ -133,20 +133,20 @@ func main() {
 	}
 	fmt.Printf("Write succeeded\n")
 
-	// 验证 meta.json 仍然存在
+	// 验证 series.json 仍然存在
 	if _, err := os.Stat(metaPath); os.IsNotExist(err) {
-		fmt.Printf("FAIL: meta.json was deleted\n")
+		fmt.Printf("FAIL: series.json was deleted\n")
 		os.Exit(1)
 	}
-	fmt.Printf("meta.json still exists\n")
+	fmt.Printf("series.json still exists\n")
 
-	// 读取更新后的 meta.json
+	// 读取更新后的 series.json
 	metaContent2, err := os.ReadFile(metaPath)
 	if err != nil {
-		fmt.Printf("FAIL: could not read meta.json: %v\n", err)
+		fmt.Printf("FAIL: could not read series.json: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("meta.json content after second session: %s\n", string(metaContent2))
+	fmt.Printf("series.json content after second session: %s\n", string(metaContent2))
 
 	// 查询数据（使用较窄的时间范围避免挂起）
 	fmt.Printf("\nQuerying data in original shard time range...\n")
@@ -169,8 +169,8 @@ func main() {
 		}
 	}
 
-	fmt.Printf("\nSUCCESS: MetaStore persistence is working!\n")
-	fmt.Printf("  - meta.json correctly persisted after first session\n")
+	fmt.Printf("\nSUCCESS: Metadata persistence is working!\n")
+	fmt.Printf("  - series.json correctly persisted after first session\n")
 	fmt.Printf("  - Database reopened successfully in second session\n")
 	fmt.Printf("  - Same tags and different tags both accepted writes\n")
 }
