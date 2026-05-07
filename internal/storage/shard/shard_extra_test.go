@@ -910,7 +910,7 @@ func TestShard_LevelCompaction_FlushToL0(t *testing.T) {
 	}
 
 	// 验证 manifest 中有 L0 parts
-	level := s.levelCompaction.manifest.GetLevel(0)
+	level := s.levelCompaction.manifest.getLevel(0)
 	if level == nil {
 		t.Fatal("L0 level should exist in manifest")
 	}

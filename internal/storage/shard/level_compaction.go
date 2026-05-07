@@ -114,8 +114,8 @@ func NewLevelManifest(dataDir string, configs []LevelConfig) (*LevelManifest, er
 	return manifest, nil
 }
 
-// GetLevel 获取指定层次。
-func (m *LevelManifest) GetLevel(level int) *Level {
+// getLevel 获取指定层次（调用者需持有 m.mu 的读锁或写锁）。
+func (m *LevelManifest) getLevel(level int) *Level {
 	return m.levels[level]
 }
 
@@ -419,6 +419,7 @@ type LevelCompactionManager struct {
 	ticker   *time.Ticker
 	stopCh   chan struct{}
 	stopOnce sync.Once
+	wg       sync.WaitGroup
 
 	// 序列号锁
 	seqMu sync.Mutex
@@ -500,7 +501,7 @@ func (lcm *LevelCompactionManager) levelMaxSize(level int) int64 {
 
 // shouldCompactLevel 检查指定层次是否需要 compaction。
 func (lcm *LevelCompactionManager) shouldCompactLevel(level int) bool {
-	l := lcm.manifest.GetLevel(level)
+	l := lcm.manifest.getLevel(level)
 	if l == nil {
 		return false
 	}
@@ -541,7 +542,7 @@ func (lcm *LevelCompactionManager) ShouldCompact() bool {
 // selectPartsForMerge 选择待合并的 Parts。
 // 策略：小文件优先，保持大文件顺序读取优势。
 func (lcm *LevelCompactionManager) selectPartsForMerge(level int) []PartInfo {
-	l := lcm.manifest.GetLevel(level)
+	l := lcm.manifest.getLevel(level)
 	if l == nil || len(l.Parts) == 0 {
 		return nil
 	}
@@ -583,7 +584,7 @@ func (lcm *LevelCompactionManager) collectOverlapParts(level int, targets []Part
 
 	for _, target := range targets {
 		// 检查当前层
-		current := lcm.manifest.GetLevel(level)
+		current := lcm.manifest.getLevel(level)
 		if current != nil {
 			for _, p := range current.Parts {
 				if hasOverlap(p, target) && !seen[p.Name] {
@@ -594,7 +595,7 @@ func (lcm *LevelCompactionManager) collectOverlapParts(level int, targets []Part
 		}
 
 		// 检查下一层
-		next := lcm.manifest.GetLevel(level + 1)
+		next := lcm.manifest.getLevel(level + 1)
 		if next != nil {
 			for _, p := range next.Parts {
 				if hasOverlap(p, target) && !seen[p.Name] {
@@ -857,7 +858,9 @@ func (lcm *LevelCompactionManager) StartPeriodicCheck() {
 
 	lcm.ticker = time.NewTicker(lcm.config.CheckInterval)
 	ticker := lcm.ticker // 捕获局部变量避免竞态
+	lcm.wg.Add(1)
 	go func() {
+		defer lcm.wg.Done()
 		for {
 			select {
 			case <-ticker.C:
@@ -875,7 +878,7 @@ func (lcm *LevelCompactionManager) Stop() {
 	lcm.stopOnce.Do(func() {
 		close(lcm.stopCh)
 	})
-	time.Sleep(10 * time.Millisecond) // 给 goroutine 时间退出
+	lcm.wg.Wait()
 }
 
 // doPeriodicCompaction 定时执行的 compaction。

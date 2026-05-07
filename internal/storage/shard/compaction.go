@@ -101,6 +101,7 @@ type CompactionManager struct {
 	ticker            *time.Ticker
 	stopCh            chan struct{}
 	stopOnce          sync.Once // 确保 Stop 只执行一次
+	wg                sync.WaitGroup
 	lastCompact       time.Time // 上次 compaction 完成时间
 	compactMu         sync.Mutex
 	compactInProgress int32 // atomic: 0=空闲, 1=执行中
@@ -415,6 +416,7 @@ func (cm *CompactionManager) verifyOutput(path string) error {
 type mergeIterator struct {
 	iterators []*sstable.Iterator
 	heap      *mergeHeap
+	current   *mergeHeapItem
 	err       error
 }
 
@@ -485,28 +487,29 @@ func newMergeIterator(iters []*sstable.Iterator) *mergeIterator {
 
 func (m *mergeIterator) Next() bool {
 	if len(*m.heap) == 0 || m.err != nil {
+		m.current = nil
 		return false
 	}
 
 	// 弹出最小元素
-	item := heap.Pop(m.heap).(*mergeHeapItem)
+	m.current = heap.Pop(m.heap).(*mergeHeapItem)
 
 	// 将该迭代器 advance 到下一个元素
-	if item.iter.Next() {
-		p := item.iter.Point()
-		item.point = p
-		item.timestamp = p.Timestamp
-		heap.Push(m.heap, item)
+	if m.current.iter.Next() {
+		p := m.current.iter.Point()
+		m.current.point = p
+		m.current.timestamp = p.Timestamp
+		heap.Push(m.heap, m.current)
 	}
 
-	return len(*m.heap) > 0
+	return true
 }
 
 func (m *mergeIterator) Point() *types.PointRow {
-	if len(*m.heap) == 0 {
+	if m.current == nil {
 		return nil
 	}
-	return (*m.heap)[0].point
+	return m.current.point
 }
 
 func (m *mergeIterator) Error() error {
@@ -606,7 +609,9 @@ func (cm *CompactionManager) StartPeriodicCheck() {
 
 	cm.ticker = time.NewTicker(cm.config.CheckInterval)
 	ticker := cm.ticker // 捕获局部变量避免竞态
+	cm.wg.Add(1)
 	go func() {
+		defer cm.wg.Done()
 		for {
 			select {
 			case <-ticker.C:
@@ -624,8 +629,7 @@ func (cm *CompactionManager) Stop() {
 	cm.stopOnce.Do(func() {
 		close(cm.stopCh)
 	})
-	// 等待一小段时间让 goroutine 有机会退出
-	time.Sleep(10 * time.Millisecond)
+	cm.wg.Wait()
 }
 
 // doPeriodicCompaction 定时执行的 compaction。

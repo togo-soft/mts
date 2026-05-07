@@ -380,7 +380,6 @@ func (it *Iterator) Point() *types.PointRow {
 		}
 		return &types.PointRow{
 			Timestamp: it.fallbackTimestamps[it.fallbackPos],
-			Tags:      map[string]string{"host": "server1"},
 			Fields:    it.fallbackFields[it.fallbackPos],
 		}
 	}
@@ -394,7 +393,6 @@ func (it *Iterator) Point() *types.PointRow {
 
 	row := &types.PointRow{
 		Timestamp: it.blockTimestamps[it.pos],
-		Tags:      map[string]string{"host": "server1"},
 		Fields:    make(map[string]*types.FieldValue),
 	}
 

@@ -35,18 +35,7 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// copyTags 复制 tags map
-func copyTags(tags map[string]string) map[string]string {
-	if tags == nil {
-		return nil
-	}
-	result := make(map[string]string, len(tags))
-	for k, v := range tags {
-		result[k] = v
-	}
-	return result
-}
-
+// ===================================
 // ShardConfig 定义 Shard 的配置。
 //
 // 字段说明：
@@ -60,6 +49,7 @@ func copyTags(tags map[string]string) map[string]string {
 //   - MemTableCfg: MemTable 配置
 //   - CompactionCfg: Compaction 配置（可选，nil 表示禁用 compaction）
 //   - LevelCompactionCfg: Level Compaction 配置（可选，nil 表示使用平坦 compaction）
+//   - Logger:      日志记录器（nil 使用 slog.Default()）
 type ShardConfig struct {
 	DB                 string
 	Measurement        string
@@ -70,6 +60,7 @@ type ShardConfig struct {
 	MemTableCfg        *MemTableConfig
 	CompactionCfg      *CompactionConfig
 	LevelCompactionCfg *LevelCompactionConfig
+	Logger             *slog.Logger
 }
 
 // Shard 是数据存储的基本单元，管理一个时间窗口内的所有数据。
@@ -142,13 +133,18 @@ type Shard struct {
 //
 //	WAL 恢复失败会记录日志，但继续启动 Shard（可能丢失部分数据）。
 func NewShard(cfg ShardConfig) *Shard {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	// 创建 WAL
 	walDir := filepath.Join(cfg.Dir, "wal")
-	wal, err := NewWAL(walDir, 0)
+	wal, err := NewWALWithLogger(walDir, 0, logger)
 	if err != nil {
 		// 如果 WAL 创建失败，使用 nil wal
 		wal = nil
-		slog.Warn("failed to create WAL, writes will not be durable",
+		logger.Warn("failed to create WAL, writes will not be durable",
 			"walDir", walDir,
 			"error", err)
 	}
@@ -160,20 +156,20 @@ func NewShard(cfg ShardConfig) *Shard {
 	if wal != nil {
 		points, err := ReplayWAL(walDir)
 		if err != nil {
-			slog.Error("failed to replay WAL, some data may be lost",
+			logger.Error("failed to replay WAL, some data may be lost",
 				"walDir", walDir,
 				"error", err)
 		} else {
 			for _, p := range points {
 				if writeErr := memTable.Write(p); writeErr != nil {
-					slog.Error("failed to replay WAL point, skipping",
+					logger.Error("failed to replay WAL point, skipping",
 						"walDir", walDir,
 						"timestamp", p.Timestamp,
 						"error", writeErr)
 				}
 			}
 			if len(points) > 0 {
-				slog.Info("replayed WAL data into MemTable",
+				logger.Info("replayed WAL data into MemTable",
 					"walDir", walDir,
 					"pointCount", len(points))
 			}
@@ -324,7 +320,7 @@ func (s *Shard) Write(point *types.Point) error {
 	if err != nil {
 		return fmt.Errorf("allocate SID: %w", err)
 	}
-	s.sidCache[sid] = copyTags(point.Tags)
+	s.sidCache[sid] = measurement.CopyTags(point.Tags)
 	s.tsSidMap[point.Timestamp] = sid
 
 	// 3. 写入 MemTable

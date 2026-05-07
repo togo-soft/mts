@@ -376,6 +376,6 @@ func ToProtoPointRow(row *types.PointRow) *types.Row {
 	return &types.Row{
 		Timestamp: row.Timestamp,
 		Tags:      row.Tags,
-		Fields:    nil,
+		Fields:    row.Fields,
 	}
 }

@@ -75,8 +75,8 @@ func tagsEqual(a, b map[string]string) bool {
 	return true
 }
 
-// copyTags 复制 tags
-func copyTags(tags map[string]string) map[string]string {
+// CopyTags 复制 tags map，返回副本以避免共享底层数据结构。
+func CopyTags(tags map[string]string) map[string]string {
 	if tags == nil {
 		return nil
 	}
@@ -279,7 +279,7 @@ func (m *MeasurementMetaStore) AllocateSID(tags map[string]string) (uint64, erro
 	// 分配新 SID
 	sid := m.nextSID
 	m.nextSID++
-	m.series[sid] = copyTags(tags)
+	m.series[sid] = CopyTags(tags)
 	m.tagHashIndex[h] = sid
 	m.dirty = true
 
@@ -311,7 +311,7 @@ func (m *MeasurementMetaStore) GetTagsBySID(sid uint64) (map[string]string, bool
 	if !ok {
 		return nil, false
 	}
-	return copyTags(tags), true
+	return CopyTags(tags), true
 }
 
 // GetSidsByTag 根据标签键值查找所有匹配的 Series IDs。
@@ -374,6 +374,8 @@ func (m *MeasurementMetaStore) Close() error {
 //	写入临时文件后 fsync，然后原子性 rename。
 //	确保崩溃不会导致文件损坏。
 func (m *MeasurementMetaStore) Persist() error {
+	// 使用 JSON 格式持久化，与 MemoryMetaStore 的二进制格式不同。
+	// JSON 格式便于人工检查和跨版本兼容，二进制格式更紧凑。
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

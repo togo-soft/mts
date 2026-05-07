@@ -53,7 +53,7 @@ type (
 	//
 	//	point := &microts.Point{
 	//	    Database:    "metrics",
-	//	    Measurement: "cpu_usage",
+	//	    Measurement: "cpu",
 	//	    Tags: map[string]string{
 	//	        "host":   "server1",
 	//	        "region": "us-east-1",
@@ -81,7 +81,7 @@ type (
 	//
 	//	req := &microts.QueryRangeRequest{
 	//	    Database:    "metrics",
-	//	    Measurement: "cpu_usage",
+	//	    Measurement: "cpu",
 	//	    StartTime:   startTime.UnixNano(),
 	//	    EndTime:     endTime.UnixNano(),
 	//	    Fields:      []string{"value"},           // 只返回指定字段
@@ -450,8 +450,8 @@ func (db *DB) ListMeasurements(ctx context.Context, database string) ([]string, 
 //	}
 func (db *DB) CreateMeasurement(ctx context.Context, database, measurement string) error {
 	_ = ctx // 保留参数以符合接口约定
-	_, _ = db.engine.CreateMeasurement(database, measurement)
-	return nil
+	_, err := db.engine.CreateMeasurement(database, measurement)
+	return err
 }
 
 // DropMeasurement 删除指定的 Measurement。

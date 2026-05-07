@@ -128,6 +128,8 @@ func (m *MemoryMetaStore) AddTagIndex(ctx context.Context, tagKey, tagValue stri
 }
 
 func (m *MemoryMetaStore) Persist(ctx context.Context, path string) error {
+	// 使用二进制格式（magic + version + structured data），与 MeasurementMetaStore 的 JSON 格式不同。
+	// 二进制格式更紧凑，JSON 格式更易于调试。两者均服务于元数据持久化，暂时保留各自格式。
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
