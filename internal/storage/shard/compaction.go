@@ -100,6 +100,7 @@ type CompactionManager struct {
 	// 定时触发相关
 	ticker            *time.Ticker
 	stopCh            chan struct{}
+	stopOnce          sync.Once // 确保 Stop 只执行一次
 	lastCompact       time.Time // 上次 compaction 完成时间
 	compactMu         sync.Mutex
 	compactInProgress int32 // atomic: 0=空闲, 1=执行中
@@ -176,6 +177,9 @@ func (cm *CompactionManager) collectSSTables() ([]string, error) {
 	dataDir := filepath.Join(cm.shard.Dir(), "data")
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
@@ -213,6 +217,10 @@ func (cm *CompactionManager) isSSTableInWrite(sstPath string) bool {
 
 // markSSTableWriting 开始写入标记。
 func (cm *CompactionManager) markSSTableWriting(sstPath string) error {
+	// 确保目录存在
+	if err := os.MkdirAll(sstPath, 0755); err != nil {
+		return err
+	}
 	writingFlag := filepath.Join(sstPath, ".writing")
 	f, err := os.Create(writingFlag)
 	if err != nil {
@@ -540,6 +548,9 @@ func (cm *CompactionManager) calculateShardSize() (int64, error) {
 
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
 		return 0, err
 	}
 
@@ -595,7 +606,9 @@ func (cm *CompactionManager) StartPeriodicCheck() {
 
 // Stop 停止定期检查。
 func (cm *CompactionManager) Stop() {
-	close(cm.stopCh)
+	cm.stopOnce.Do(func() {
+		close(cm.stopCh)
+	})
 }
 
 // doPeriodicCompaction 定时执行的 compaction。

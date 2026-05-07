@@ -688,7 +688,9 @@ func (s *Shard) Close() error {
 
 	// 5. 持久化 MetaStore（如果脏了）
 	if s.metaStore != nil {
-		_ = s.metaStore.Persist()
+		if err := s.metaStore.Persist(); err != nil {
+			return fmt.Errorf("persist metastore: %w", err)
+		}
 	}
 
 	return nil

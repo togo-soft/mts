@@ -106,6 +106,7 @@ type Engine struct {
 	dbMetaStores     map[string]*measurement.DatabaseMetaStore
 	mu               sync.RWMutex
 	shutdownMu       sync.Mutex
+	queryWg          sync.WaitGroup // 跟踪正在运行的查询
 	closed           bool
 }
 
@@ -188,11 +189,16 @@ func (e *Engine) Close() error {
 		e.retentionService.Stop()
 	}
 
+	// 等待所有正在运行的查询完成
+	e.queryWg.Wait()
+
 	// 先刷盘确保数据不丢失
 	_ = e.shardManager.FlushAll() // 刷盘失败不影响关闭
 
 	// 持久化所有 MetaStore 的脏数据
-	e.shardManager.PersistAllMetaStores()
+	if err := e.shardManager.PersistAllMetaStores(); err != nil {
+		return fmt.Errorf("persist metastore: %w", err)
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -353,6 +359,10 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	if e.isClosed() {
 		return nil, errors.New("engine is closed")
 	}
+
+	// 添加到查询跟踪
+	e.queryWg.Add(1)
+	defer e.queryWg.Done()
 
 	// 获取相交的 Shard
 	shards := e.shardManager.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
