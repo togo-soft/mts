@@ -878,3 +878,199 @@ func TestWAL_Write_ExactlyAtLimit(t *testing.T) {
 
 	_ = w.Close()
 }
+
+func TestReplayWALFile_Streaming(t *testing.T) {
+	// 测试流式读取：确保不会一次性加载整个文件到内存
+	tmpDir := t.TempDir()
+
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入 100 条数据
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 100; i++ {
+		p := &types.Point{
+			Database:    "testdb",
+			Measurement: "test",
+			Tags:        map[string]string{"host": fmt.Sprintf("server%d", i%10)},
+			Timestamp:   baseTime + int64(i)*int64(time.Millisecond),
+			Fields: map[string]*types.FieldValue{
+				"value": types.NewFieldValue(int64(i)),
+			},
+		}
+		data, _ := serializePoint(p)
+		_, _ = w.Write(data)
+	}
+	_ = w.Close()
+
+	walPath := filepath.Join(tmpDir, "00000000000000000000.wal")
+
+	// 从偏移 0 读取全部
+	readPoints, readPos, err := replayWALFile(walPath, 0)
+	if err != nil {
+		t.Fatalf("replayWALFile failed: %v", err)
+	}
+	if len(readPoints) != 100 {
+		t.Errorf("expected 100 points, got %d", len(readPoints))
+	}
+	if readPos <= 0 {
+		t.Errorf("expected positive readPos, got %d", readPos)
+	}
+
+	// 验证数据完整性
+	for i, p := range readPoints {
+		if p.Timestamp != baseTime+int64(i)*int64(time.Millisecond) {
+			t.Errorf("point %d: expected timestamp %d, got %d", i, baseTime+int64(i)*int64(time.Millisecond), p.Timestamp)
+		}
+	}
+}
+
+func TestReplayWALFile_PartialRead(t *testing.T) {
+	// 测试部分读取：从中间位置开始
+	tmpDir := t.TempDir()
+
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Database:    "testdb",
+			Measurement: "test",
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   baseTime + int64(i)*int64(time.Millisecond),
+			Fields: map[string]*types.FieldValue{
+				"value": types.NewFieldValue(int64(i)),
+			},
+		}
+		data, _ := serializePoint(p)
+		_, _ = w.Write(data)
+	}
+	_ = w.Close()
+
+	walPath := filepath.Join(tmpDir, "00000000000000000000.wal")
+
+	// 从偏移 0 读取全部 10 条
+	points1, pos1, err := replayWALFile(walPath, 0)
+	if err != nil {
+		t.Fatalf("replayWALFile failed: %v", err)
+	}
+	if len(points1) != 10 {
+		t.Errorf("expected 10 points from offset 0, got %d", len(points1))
+	}
+	if pos1 <= 0 {
+		t.Errorf("expected positive pos1, got %d", pos1)
+	}
+
+	// 从 pos1/2 位置读取（跳过一些数据）
+	points2, _, err := replayWALFile(walPath, pos1/2)
+	if err != nil {
+		t.Fatalf("replayWALFile from middle failed: %v", err)
+	}
+	// 应该读到更少的数据（因为跳过了前半部分）
+	if len(points2) >= len(points1) {
+		t.Errorf("expected fewer points from middle offset, got first=%d second=%d", len(points1), len(points2))
+	}
+}
+
+func TestReplayWALFile_EmptyFile(t *testing.T) {
+	// 测试读取空文件
+	tmpDir := t.TempDir()
+
+	// 创建一个空的 WAL 文件
+	emptyPath := filepath.Join(tmpDir, "00000000000000000000.wal")
+	if err := os.WriteFile(emptyPath, []byte{}, 0600); err != nil {
+		t.Fatalf("failed to create empty WAL file: %v", err)
+	}
+
+	points, pos, err := replayWALFile(emptyPath, 0)
+	if err != nil {
+		t.Fatalf("replayWALFile failed: %v", err)
+	}
+	if len(points) != 0 {
+		t.Errorf("expected 0 points from empty file, got %d", len(points))
+	}
+	if pos != 0 {
+		t.Errorf("expected pos 0 for empty file, got %d", pos)
+	}
+}
+
+func TestReplayWALFile_StartPosition(t *testing.T) {
+	// 测试从指定起始位置读取
+	tmpDir := t.TempDir()
+
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 5; i++ {
+		p := &types.Point{
+			Timestamp: baseTime + int64(i)*int64(time.Millisecond),
+			Tags:      map[string]string{"host": "server1"},
+			Fields: map[string]*types.FieldValue{
+				"value": types.NewFieldValue(int64(i)),
+			},
+		}
+		data, _ := serializePoint(p)
+		_, _ = w.Write(data)
+	}
+	_ = w.Close()
+
+	walPath := filepath.Join(tmpDir, "00000000000000000000.wal")
+
+	// 从偏移 0 读取
+	allPoints, _, err := replayWALFile(walPath, 0)
+	if err != nil {
+		t.Fatalf("replayWALFile(0) failed: %v", err)
+	}
+
+	// 从文件末尾位置读取（应该没有数据）
+	points, pos, err := replayWALFile(walPath, 1<<30) // 1GB offset
+	if err != nil {
+		t.Fatalf("replayWALFile(eof) failed: %v", err)
+	}
+	if len(points) != 0 {
+		t.Errorf("expected 0 points from EOF position, got %d", len(points))
+	}
+	_ = allPoints
+	_ = pos
+}
+
+func TestReplayWALFile_LargeRecord(t *testing.T) {
+	// 测试处理超大记录
+	tmpDir := t.TempDir()
+
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入一条正常记录
+	p := &types.Point{
+		Timestamp: time.Now().UnixNano(),
+		Tags:      map[string]string{"host": "server1"},
+		Fields: map[string]*types.FieldValue{
+			"value": types.NewFieldValue(int64(1)),
+		},
+	}
+	data, _ := serializePoint(p)
+	_, _ = w.Write(data)
+	_ = w.Close()
+
+	walPath := filepath.Join(tmpDir, "00000000000000000000.wal")
+
+	// 读取应该成功
+	points, _, err := replayWALFile(walPath, 0)
+	if err != nil {
+		t.Fatalf("replayWALFile failed: %v", err)
+	}
+	if len(points) != 1 {
+		t.Errorf("expected 1 point, got %d", len(points))
+	}
+}

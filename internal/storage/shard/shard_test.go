@@ -969,9 +969,9 @@ func TestShard_Close_WithActiveCompaction(t *testing.T) {
 		MetaStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
-			MaxSSTableCount:    2,
-			CheckInterval:       10 * time.Millisecond, // 快速触发
-			Timeout:            30 * time.Second,
+			MaxSSTableCount: 2,
+			CheckInterval:   10 * time.Millisecond, // 快速触发
+			Timeout:         30 * time.Second,
 		},
 	}
 

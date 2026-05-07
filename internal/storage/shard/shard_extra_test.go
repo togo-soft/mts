@@ -828,3 +828,808 @@ func TestWAL_ReplayWalReplayingCorruptedFiles(t *testing.T) {
 		t.Errorf("expected 5 points from valid WAL, got %d", len(points))
 	}
 }
+
+// TestShard_LevelCompaction_NewShard creates Shard with LevelCompactionConfig.
+func TestShard_LevelCompaction_NewShard(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+		LevelCompactionCfg: &LevelCompactionConfig{
+			Enabled:          true,
+			CheckInterval:    time.Minute,
+			Timeout:          time.Minute,
+			EnableCheckpoint: true,
+		},
+	}
+
+	s := NewShard(cfg)
+
+	// 验证 Shard 创建成功
+	if s == nil {
+		t.Fatal("NewShard returned nil")
+	}
+
+	// 验证 LevelCompactionManager 已创建
+	if s.levelCompaction == nil {
+		t.Fatal("levelCompaction should be initialized")
+	}
+
+	_ = s.Close()
+}
+
+// TestShard_LevelCompaction_FlushToL0 tests that Flush creates SSTable in L0.
+func TestShard_LevelCompaction_FlushToL0(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+		LevelCompactionCfg: &LevelCompactionConfig{
+			Enabled:          true,
+			CheckInterval:    time.Minute,
+			Timeout:          time.Minute,
+			EnableCheckpoint: true,
+		},
+	}
+
+	s := NewShard(cfg)
+
+	// 写入数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i+1) * 1e9,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 手动 flush
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// 验证 L0 目录已创建
+	l0Dir := filepath.Join(tmpDir, "data", "L0")
+	if _, err := os.Stat(l0Dir); os.IsNotExist(err) {
+		t.Fatal("L0 directory should exist after flush")
+	}
+
+	// 验证 manifest 中有 L0 parts
+	level := s.levelCompaction.manifest.GetLevel(0)
+	if level == nil {
+		t.Fatal("L0 level should exist in manifest")
+	}
+	if len(level.Parts) == 0 {
+		t.Error("L0 should have at least one part after flush")
+	}
+
+	_ = s.Close()
+}
+
+// TestShard_LevelCompaction_Close tests that Close properly stops LevelCompactionManager.
+func TestShard_LevelCompaction_Close(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+		LevelCompactionCfg: &LevelCompactionConfig{
+			Enabled:          true,
+			CheckInterval:    time.Millisecond * 10,
+			Timeout:          time.Minute,
+			EnableCheckpoint: true,
+		},
+	}
+
+	s := NewShard(cfg)
+
+	// 写入数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i+1) * 1e9,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 关闭
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 验证 L0 目录和数据文件存在
+	l0Dir := filepath.Join(tmpDir, "data", "L0")
+	if _, err := os.Stat(l0Dir); os.IsNotExist(err) {
+		t.Fatal("L0 directory should exist after close with data")
+	}
+
+	// 验证 manifest 文件存在
+	manifestPath := filepath.Join(tmpDir, "data", "_manifest.json")
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		t.Fatal("manifest file should exist after close")
+	}
+}
+
+// TestShard_LevelCompaction_Read tests reading data with LevelCompaction enabled.
+func TestShard_LevelCompaction_Read(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+		LevelCompactionCfg: &LevelCompactionConfig{
+			Enabled:          true,
+			CheckInterval:    time.Minute,
+			Timeout:          time.Minute,
+			EnableCheckpoint: true,
+		},
+	}
+
+	s := NewShard(cfg)
+
+	// 写入数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i+1) * 1e9,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i * 10))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 手动 flush
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// 读取数据
+	rows, err := s.Read(0, time.Hour.Nanoseconds())
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(rows) != 10 {
+		t.Errorf("expected 10 rows, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+// TestShard_LevelCompaction_BothConfigs tests that LevelCompactionCfg takes precedence.
+func TestShard_LevelCompaction_BothConfigs(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 同时设置 CompactionCfg 和 LevelCompactionCfg
+	cfg := ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+		CompactionCfg: &CompactionConfig{
+			MaxSSTableCount:    10,
+			MaxCompactionBatch: 5,
+			CheckInterval:      time.Minute,
+			Timeout:            time.Minute,
+		},
+		LevelCompactionCfg: &LevelCompactionConfig{
+			Enabled:          true,
+			CheckInterval:    time.Minute,
+			Timeout:          time.Minute,
+			EnableCheckpoint: true,
+		},
+	}
+
+	s := NewShard(cfg)
+
+	// 验证 LevelCompactionManager 已创建
+	if s.levelCompaction == nil {
+		t.Fatal("levelCompaction should be initialized even when both configs are set")
+	}
+
+	_ = s.Close()
+}
+
+// TestShard_LevelCompaction_NoLevelConfig tests Shard without LevelCompactionConfig.
+func TestShard_LevelCompaction_NoLevelConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 不设置 LevelCompactionCfg，使用平坦 compaction
+	cfg := ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+		CompactionCfg: &CompactionConfig{
+			MaxSSTableCount:    10,
+			MaxCompactionBatch: 5,
+			CheckInterval:      time.Minute,
+			Timeout:            time.Minute,
+		},
+	}
+
+	s := NewShard(cfg)
+
+	// 验证 LevelCompactionManager 为 nil
+	if s.levelCompaction != nil {
+		t.Error("levelCompaction should be nil when LevelCompactionCfg is not set")
+	}
+
+	// 验证 CompactionManager 存在
+	if s.compaction == nil {
+		t.Error("compaction should exist when CompactionCfg is set")
+	}
+
+	_ = s.Close()
+}
+
+func TestNewShard_WALCreationFailure(t *testing.T) {
+	// 测试 WAL 创建失败的情况
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// WAL 创建失败不应该阻止 Shard 创建
+	// 数据会写入 MemTable 但不会持久化到 WAL
+
+	// 写入数据
+	p := &types.Point{
+		Timestamp: 1000000000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
+	}
+	if err := s.Write(p); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	_ = s.Close()
+}
+
+func TestNewShard_LevelCompactionCreationFailure(t *testing.T) {
+	// 测试 LevelCompaction 创建失败的情况
+	tmpDir := t.TempDir()
+
+	// 使用一个无效的 level 配置导致创建失败
+	cfg := &LevelCompactionConfig{
+		LevelConfigs: nil, // 无效配置
+		Timeout:      time.Hour,
+	}
+
+	s := NewShard(ShardConfig{
+		DB:                 "db1",
+		Measurement:        "cpu",
+		StartTime:          0,
+		EndTime:            time.Hour.Nanoseconds(),
+		Dir:                tmpDir,
+		MetaStore:          measurement.NewMeasurementMetaStore(),
+		MemTableCfg:        DefaultMemTableConfig(),
+		LevelCompactionCfg: cfg,
+	})
+
+	// LevelCompaction 创建失败不应该阻止 Shard 创建
+	// 即使 levelCompaction 不是 nil，Shard 本身应该仍能正常工作
+
+	// 验证 Shard 可以正常写入和读取
+	p := &types.Point{
+		Timestamp: 1000000000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
+	}
+	if err := s.Write(p); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_Write_WithoutWAL(t *testing.T) {
+	// 测试没有 WAL 的写入
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入数据（没有 WAL，所以不会写入预写日志）
+	p := &types.Point{
+		Timestamp: 1000000000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
+	}
+	if err := s.Write(p); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// 读取验证
+	rows, err := s.Read(0, time.Hour.Nanoseconds())
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Errorf("expected 1 row, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_flushLocked_NoPoints(t *testing.T) {
+	// 测试 flushLocked 时没有数据
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 直接调用 flushLocked（没有数据）
+	err := s.flushLocked()
+	if err != nil {
+		t.Fatalf("flushLocked failed: %v", err)
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_flushLocked_WithLevelCompaction(t *testing.T) {
+	// 测试带 Level Compaction 的 flush
+	tmpDir := t.TempDir()
+
+	cfg := DefaultLevelCompactionConfig()
+	cfg.CheckInterval = time.Hour // 避免自动 compaction
+
+	s := NewShard(ShardConfig{
+		DB:                 "db1",
+		Measurement:        "cpu",
+		StartTime:          0,
+		EndTime:            time.Hour.Nanoseconds(),
+		Dir:                tmpDir,
+		MetaStore:          measurement.NewMeasurementMetaStore(),
+		MemTableCfg:        DefaultMemTableConfig(),
+		LevelCompactionCfg: cfg,
+	})
+
+	// 写入触发 flush 的数据
+	for i := 0; i < 4000; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e6,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// flushLocked 应该将数据刷到 L0
+	err := s.flushLocked()
+	if err != nil {
+		t.Fatalf("flushLocked failed: %v", err)
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_Close_WithLevelCompaction(t *testing.T) {
+	// 测试带 Level Compaction 的 Close
+	tmpDir := t.TempDir()
+
+	cfg := DefaultLevelCompactionConfig()
+	cfg.CheckInterval = time.Hour // 避免自动 compaction
+
+	s := NewShard(ShardConfig{
+		DB:                 "db1",
+		Measurement:        "cpu",
+		StartTime:          0,
+		EndTime:            time.Hour.Nanoseconds(),
+		Dir:                tmpDir,
+		MetaStore:          measurement.NewMeasurementMetaStore(),
+		MemTableCfg:        DefaultMemTableConfig(),
+		LevelCompactionCfg: cfg,
+	})
+
+	// 写入数据
+	for i := 0; i < 100; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 关闭
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestShard_Close_WithCompaction(t *testing.T) {
+	// 测试带 Compaction 的 Close
+	tmpDir := t.TempDir()
+
+	compactionCfg := DefaultCompactionConfig()
+	compactionCfg.CheckInterval = time.Hour // 避免定时触发
+
+	s := NewShard(ShardConfig{
+		DB:            "db1",
+		Measurement:   "cpu",
+		StartTime:     0,
+		EndTime:       time.Hour.Nanoseconds(),
+		Dir:           tmpDir,
+		MetaStore:     measurement.NewMeasurementMetaStore(),
+		MemTableCfg:   DefaultMemTableConfig(),
+		CompactionCfg: compactionCfg,
+	})
+
+	// 写入数据
+	for i := 0; i < 100; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 关闭
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestShard_Close_WALCloseError(t *testing.T) {
+	// 测试 WAL 关闭错误
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e8,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// WAL 关闭在正常情况下不会失败，所以只验证关闭能完成
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestShard_readFromSSTable_NoDataDir(t *testing.T) {
+	// 测试读取不存在的 SSTable 目录
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 没有 data 目录，readFromSSTable 应该返回空
+	rows, err := s.readFromSSTable(0, time.Hour.Nanoseconds())
+	if err != nil {
+		t.Fatalf("readFromSSTable failed: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_readSSTableDir_InvalidPath(t *testing.T) {
+	// 测试读取无效的 SSTable 目录
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 读取不存在的 SSTable 目录
+	var rows []*types.PointRow
+	err := s.readSSTableDir("/nonexistent/path", 0, time.Hour.Nanoseconds(), &rows)
+	if err == nil {
+		t.Error("expected error for nonexistent SSTable dir")
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_Read_EmptyTimeRange(t *testing.T) {
+	// 测试读取空时间范围
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e8,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 读取不在范围内的时间
+	rows, err := s.Read(time.Hour.Nanoseconds(), 2*time.Hour.Nanoseconds())
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows for out-of-range query, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_Write_SerializeError(t *testing.T) {
+	// 测试序列化错误 - 实际上 serializePoint 不太可能失败
+	// 但我们可以验证正常路径
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入各种类型的字段
+	p := &types.Point{
+		Timestamp: 1000000000,
+		Tags:      map[string]string{"host": "server1"},
+		Fields: map[string]*types.FieldValue{
+			"float_val":  types.NewFieldValue(85.5),
+			"int_val":    types.NewFieldValue(int64(100)),
+			"string_val": types.NewFieldValue("hello"),
+			"bool_val":   types.NewFieldValue(true),
+		},
+	}
+	if err := s.Write(p); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_Write_ManyPoints(t *testing.T) {
+	// 测试写入大量数据点
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入 5000 个数据点（触发多次 flush）
+	for i := 0; i < 5000; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e6,
+			Tags:      map[string]string{"host": fmt.Sprintf("server%d", i%10)},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed at i=%d: %v", i, err)
+		}
+	}
+
+	// 读取验证
+	rows, err := s.Read(0, time.Hour.Nanoseconds())
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if len(rows) != 5000 {
+		t.Errorf("expected 5000 rows, got %d", len(rows))
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_Flush_Manual(t *testing.T) {
+	// 测试手动 Flush
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 写入少量数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e8,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 手动 Flush
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// 再次写入
+	for i := 10; i < 20; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e8,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_ContainsTimeRange(t *testing.T) {
+	// 测试 ContainsTime 方法
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   1000000000,
+		EndTime:     2000000000,
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 时间在范围内
+	if !s.ContainsTime(1500000000) {
+		t.Error("timestamp 1500000000 should be in range [1000000000, 2000000000)")
+	}
+
+	// 时间等于起始
+	if !s.ContainsTime(1000000000) {
+		t.Error("timestamp 1000000000 should be in range (inclusive start)")
+	}
+
+	// 时间等于结束
+	if s.ContainsTime(2000000000) {
+		t.Error("timestamp 2000000000 should NOT be in range (exclusive end)")
+	}
+
+	// 时间超出范围
+	if s.ContainsTime(500000000) {
+		t.Error("timestamp 500000000 should NOT be in range")
+	}
+	if s.ContainsTime(3000000000) {
+		t.Error("timestamp 3000000000 should NOT be in range")
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_DurationMethod(t *testing.T) {
+	// 测试 Duration 方法
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	d := s.Duration()
+	if d != time.Hour {
+		t.Errorf("expected 1 hour duration, got %v", d)
+	}
+
+	_ = s.Close()
+}

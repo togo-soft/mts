@@ -1711,18 +1711,18 @@ func TestCompactionManager_ShouldCompact_CollectError(t *testing.T) {
 	// 测试 collectSSTables 返回错误时 ShouldCompact 的行为
 	tmpDir := t.TempDir()
 	cfg := ShardConfig{
-		DB:            "testdb",
-		Measurement:   "test",
-		StartTime:     0,
-		EndTime:       time.Hour.Nanoseconds(),
-		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
-		MemTableCfg:   DefaultMemTableConfig(),
+		DB:          "testdb",
+		Measurement: "test",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
-			MaxSSTableCount:    2,
-			ShardSizeLimit:     100 * 1024 * 1024,
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			MaxSSTableCount: 2,
+			ShardSizeLimit:  100 * 1024 * 1024,
+			CheckInterval:   time.Hour,
+			Timeout:         30 * time.Minute,
 		},
 	}
 
@@ -1747,18 +1747,18 @@ func TestCompactionManager_Compact_Concurrent(t *testing.T) {
 	// 测试并发 compaction 调用
 	tmpDir := t.TempDir()
 	cfg := ShardConfig{
-		DB:            "testdb",
-		Measurement:   "test",
-		StartTime:     0,
-		EndTime:       time.Hour.Nanoseconds(),
-		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
-		MemTableCfg:   DefaultMemTableConfig(),
+		DB:          "testdb",
+		Measurement: "test",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
-			MaxSSTableCount:    10,
-			ShardSizeLimit:     100 * 1024 * 1024,
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			MaxSSTableCount: 10,
+			ShardSizeLimit:  100 * 1024 * 1024,
+			CheckInterval:   time.Hour,
+			Timeout:         30 * time.Minute,
 		},
 	}
 
@@ -1955,18 +1955,18 @@ func TestCompactionManager_doPeriodicCompaction_NotNeeded(t *testing.T) {
 	// 测试 doPeriodicCompaction 当不需要 compaction 时
 	tmpDir := t.TempDir()
 	cfg := ShardConfig{
-		DB:            "testdb",
-		Measurement:   "test",
-		StartTime:     0,
-		EndTime:       time.Hour.Nanoseconds(),
-		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
-		MemTableCfg:   DefaultMemTableConfig(),
+		DB:          "testdb",
+		Measurement: "test",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
-			MaxSSTableCount:    10, // 高阈值，不会触发
-			ShardSizeLimit:     100 * 1024 * 1024,
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			MaxSSTableCount: 10, // 高阈值，不会触发
+			ShardSizeLimit:  100 * 1024 * 1024,
+			CheckInterval:   time.Hour,
+			Timeout:         30 * time.Minute,
 		},
 	}
 
@@ -2002,18 +2002,18 @@ func TestCompactionManager_Compact_VerifyInputFilesDeleted(t *testing.T) {
 	// 测试 compaction 后输入文件确实被删除
 	tmpDir := t.TempDir()
 	cfg := ShardConfig{
-		DB:            "testdb",
-		Measurement:   "test",
-		StartTime:     0,
-		EndTime:       time.Hour.Nanoseconds(),
-		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
-		MemTableCfg:   DefaultMemTableConfig(),
+		DB:          "testdb",
+		Measurement: "test",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
-			MaxSSTableCount:    10,
-			ShardSizeLimit:     100 * 1024 * 1024,
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			MaxSSTableCount: 10,
+			ShardSizeLimit:  100 * 1024 * 1024,
+			CheckInterval:   time.Hour,
+			Timeout:         30 * time.Minute,
 		},
 	}
 
