@@ -856,13 +856,14 @@ func (lcm *LevelCompactionManager) StartPeriodicCheck() {
 	}
 
 	lcm.ticker = time.NewTicker(lcm.config.CheckInterval)
+	ticker := lcm.ticker // 捕获局部变量避免竞态
 	go func() {
 		for {
 			select {
-			case <-lcm.ticker.C:
+			case <-ticker.C:
 				lcm.doPeriodicCompaction()
 			case <-lcm.stopCh:
-				lcm.ticker.Stop()
+				ticker.Stop()
 				return
 			}
 		}
