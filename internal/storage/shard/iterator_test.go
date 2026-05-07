@@ -679,3 +679,122 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 		t.Errorf("current timestamp: expected 1000 (sst), got %d", current.Timestamp)
 	}
 }
+
+func TestShardIterator_TimeRangeFilter(t *testing.T) {
+	// 测试时间范围过滤
+	dir := t.TempDir()
+
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         dir,
+		MetaStore:   nil,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+	defer func() { _ = shard.Close() }()
+
+	// 写入多个时间点的数据
+	points := []*types.Point{
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
+		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
+	}
+	for _, p := range points {
+		if err := shard.memTable.Write(p); err != nil {
+			t.Fatalf("failed to write point: %v", err)
+		}
+	}
+
+	// 创建迭代器，只返回 [2000, 4000) 范围内的数据
+	iter := NewShardIterator(shard, 2000, 4000)
+
+	var got []int64
+	for {
+		row := iter.Next()
+		if row == nil {
+			break
+		}
+		got = append(got, row.Timestamp)
+	}
+
+	// 期望: 2000, 3000 (不包括 1000, 4000, 5000)
+	expected := []int64{2000, 3000}
+	if len(got) != len(expected) {
+		t.Errorf("expected %d rows, got %d", len(expected), len(got))
+	}
+	for i, ts := range got {
+		if ts != expected[i] {
+			t.Errorf("row[%d] timestamp: expected %d, got %d", i, expected[i], ts)
+		}
+	}
+}
+
+func TestShardIterator_PointToRowNil(t *testing.T) {
+	// 测试 pointToRow 处理 nil 的情况
+	dir := t.TempDir()
+
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         dir,
+		MetaStore:   nil,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+	defer func() { _ = shard.Close() }()
+
+	// 创建迭代器时不写入任何数据
+	iter := NewShardIterator(shard, 0, 0)
+
+	// MemTable 为空，SSTable 也为空，所以 memRow 和 sstRow 都为 nil
+	// 调用 Next 应该返回 nil
+	row := iter.Next()
+	if row != nil {
+		t.Errorf("expected nil row, got %v", row)
+	}
+}
+
+func TestShardIterator_NextLocked_AllExhausted(t *testing.T) {
+	// 测试 nextLocked 当 MemTable 和 SSTable 都耗尽时的情况
+	dir := t.TempDir()
+
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         dir,
+		MetaStore:   nil,
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+	defer func() { _ = shard.Close() }()
+
+	// 写入一个数据点
+	p := &types.Point{
+		Tags:      map[string]string{"host": "server1"},
+		Timestamp: 1000,
+		Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))},
+	}
+	if err := shard.memTable.Write(p); err != nil {
+		t.Fatalf("failed to write point: %v", err)
+	}
+
+	iter := NewShardIterator(shard, 0, 0)
+
+	// 第一次 Next 返回数据
+	row1 := iter.Next()
+	if row1 == nil {
+		t.Fatal("expected first row")
+	}
+
+	// 第二次 Next 应该返回 nil（MemTable 已耗尽）
+	row2 := iter.Next()
+	if row2 != nil {
+		t.Errorf("expected nil row, got %v", row2)
+	}
+}

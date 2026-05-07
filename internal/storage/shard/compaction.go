@@ -256,7 +256,13 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 	}()
 
 	// 创建输出 Writer
-	w, err := sstable.NewWriter(cm.shard.Dir(), cm.shard.NextSSTSeq(), 0)
+	// 从 outputPath 解析序列号，避免重复调用 NextSSTSeq
+	seqStr := filepath.Base(task.outputPath)
+	var outputSeq uint64
+	if _, err := fmt.Sscanf(seqStr, "sst_%d", &outputSeq); err != nil {
+		return fmt.Errorf("parse output seq from path: %w", err)
+	}
+	w, err := sstable.NewWriter(cm.shard.Dir(), outputSeq, 0)
 	if err != nil {
 		return err
 	}
@@ -609,6 +615,8 @@ func (cm *CompactionManager) Stop() {
 	cm.stopOnce.Do(func() {
 		close(cm.stopCh)
 	})
+	// 等待一小段时间让 goroutine 有机会退出
+	time.Sleep(10 * time.Millisecond)
 }
 
 // doPeriodicCompaction 定时执行的 compaction。

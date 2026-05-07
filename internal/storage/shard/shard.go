@@ -693,6 +693,11 @@ func (s *Shard) Close() error {
 		}
 	}
 
+	// 6. 停止 Compaction Manager
+	if s.compaction != nil {
+		s.compaction.Stop()
+	}
+
 	return nil
 }
 

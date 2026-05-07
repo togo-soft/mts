@@ -2,7 +2,9 @@
 package shard
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -299,4 +301,155 @@ func TestDatabaseMetaStore_MeasurementExists(t *testing.T) {
 	if !dbMeta.MeasurementExists("cpu") {
 		t.Error("cpu should exist after GetOrCreate")
 	}
+}
+
+func TestShardManager_GetShard_DiscoverExisting(t *testing.T) {
+	// 测试发现已存在的 shard 目录
+	tmpDir := t.TempDir()
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+
+	// 手动创建一个 shard 目录结构
+	shardDir := filepath.Join(tmpDir, "db1", "cpu", "0_3600000000000")
+	if err := os.MkdirAll(shardDir, 0755); err != nil {
+		t.Fatalf("failed to create shard dir: %v", err)
+	}
+
+	// GetShard 应该能发现已存在的 shard
+	s, err := m.GetShard("db1", "cpu", 1000000000) // 1000ms 在 [0, 3600s) 范围内
+	if err != nil {
+		t.Fatalf("GetShard failed: %v", err)
+	}
+
+	if s.StartTime() != 0 {
+		t.Errorf("expected start time 0, got %d", s.StartTime())
+	}
+	if s.EndTime() != 3600000000000 {
+		t.Errorf("expected end time 3600000000000, got %d", s.EndTime())
+	}
+}
+
+func TestShardManager_GetShard_DiscoverMultipleExisting(t *testing.T) {
+	// 测试发现多个已存在的 shard
+	tmpDir := t.TempDir()
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+
+	// 手动创建多个 shard 目录结构
+	baseTime := int64(3600000000000) // 1 hour in ns
+	for i := 0; i < 3; i++ {
+		start := baseTime * int64(i)
+		end := start + baseTime
+		shardDir := filepath.Join(tmpDir, "db1", "cpu", fmt.Sprintf("%d_%d", start, end))
+		if err := os.MkdirAll(shardDir, 0755); err != nil {
+			t.Fatalf("failed to create shard dir: %v", err)
+		}
+	}
+
+	// GetShard 应该发现 3 个 shard
+	s1, _ := m.GetShard("db1", "cpu", 1000000000)
+	s2, _ := m.GetShard("db1", "cpu", baseTime+1000000000)
+	s3, _ := m.GetShard("db1", "cpu", baseTime*2+1000000000)
+
+	if s1.StartTime() != 0 || s2.StartTime() != baseTime || s3.StartTime() != baseTime*2 {
+		t.Errorf("shard start times incorrect")
+	}
+}
+
+func TestShardManager_GetShard_InvalidDirectory(t *testing.T) {
+	// 测试处理无效目录名
+	tmpDir := t.TempDir()
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+
+	// 手动创建包含无效目录名的目录结构
+	measDir := filepath.Join(tmpDir, "db1", "cpu")
+	if err := os.MkdirAll(measDir, 0755); err != nil {
+		t.Fatalf("failed to create measurement dir: %v", err)
+	}
+
+	// 创建无效的 shard 目录
+	invalidDir := filepath.Join(measDir, "invalid_name")
+	if err := os.MkdirAll(invalidDir, 0755); err != nil {
+		t.Fatalf("failed to create invalid dir: %v", err)
+	}
+
+	// 应该能正常处理（跳过无效目录）
+	_, err := m.GetShard("db1", "cpu", 1000000000)
+	if err != nil {
+		t.Fatalf("GetShard failed: %v", err)
+	}
+}
+
+func TestShardManager_DeleteShard_CleanupMetaStore(t *testing.T) {
+	// 测试删除 shard 后 MetaStore 是否被清理
+	tmpDir := t.TempDir()
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+
+	// 创建一个 shard
+	base := time.Now().UnixNano()
+	s, _ := m.GetShard("db1", "cpu", base)
+
+	// 写入数据
+	p := &types.Point{
+		Database:    "db1",
+		Measurement: "cpu",
+		Tags:        map[string]string{"host": "server1"},
+		Timestamp:   s.StartTime() + 1000,
+		Fields:     map[string]*types.FieldValue{"value": types.NewFieldValue(int64(1))},
+	}
+	_ = s.Write(p)
+	_ = s.Flush()
+
+	// 获取所有 shards
+	shards := m.GetAllShards()
+	if len(shards) != 1 {
+		t.Errorf("expected 1 shard, got %d", len(shards))
+	}
+
+	// 删除 shard
+	key := "db1/cpu/" + formatInt64(s.StartTime())
+	err := m.DeleteShard(key)
+	if err != nil {
+		t.Fatalf("DeleteShard failed: %v", err)
+	}
+
+	// 获取所有 shards 应该为空
+	shards = m.GetAllShards()
+	if len(shards) != 0 {
+		t.Errorf("expected 0 shards after delete, got %d", len(shards))
+	}
+}
+
+func TestShardManager_GetShard_SameMeasurementDifferentDB(t *testing.T) {
+	// 测试同一 measurement 不同 database
+	tmpDir := t.TempDir()
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+
+	s1, _ := m.GetShard("db1", "cpu", time.Now().UnixNano())
+	s2, _ := m.GetShard("db2", "cpu", time.Now().UnixNano())
+
+	if s1 == s2 {
+		t.Error("different DBs should have different shards")
+	}
+
+	if s1.Measurement() != "cpu" || s2.Measurement() != "cpu" {
+		t.Error("measurement should be cpu for both")
+	}
+}
+
+func TestShardManager_flushLocked_NotCalled(t *testing.T) {
+	// flushLocked 不是公共方法，但可以通过错误场景测试
+	// 由于 flushLocked 是私有的，这里测试 Shard 在异常情况下的行为
+	tmpDir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		MetaStore:   measurement.NewMeasurementMetaStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	})
+
+	// 正常关闭
+	_ = s.Close()
 }

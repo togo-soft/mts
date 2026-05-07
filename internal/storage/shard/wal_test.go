@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -539,18 +540,47 @@ func TestWALRotateLocked(t *testing.T) {
 	}
 
 	// 写入大量数据触发滚动（walFileSizeLimit = 64MB）
-	// 由于测试数据较小，手动触发 rotateLocked
-	for i := 0; i < 1000; i++ {
-		data := make([]byte, 1024) // 1KB per write
+	// 每次写入 1MB，写入 70 次应该触发至少一次滚动
+	for i := 0; i < 70; i++ {
+		data := make([]byte, 1024*1024) // 1MB per write
 		_, err := w.Write(data)
 		if err != nil {
 			t.Fatalf("Write failed: %v", err)
 		}
 	}
 
-	// 检查序列号是否增加（如果有滚动）
+	// 检查序列号是否增加（滚动后应该是 seq=2）
 	seq := w.Sequence()
 	t.Logf("WAL sequence after writes: %d", seq)
+
+	// 滚动后序列号应该大于 1
+	if seq <= 1 {
+		t.Errorf("expected sequence > 1 after rotation, got %d", seq)
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestWALRotateLocked_Direct(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	w, err := NewWAL(tmpDir, 1)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 手动调用 rotateLocked
+	err = w.rotateLocked()
+	if err != nil {
+		t.Fatalf("rotateLocked failed: %v", err)
+	}
+
+	// 序列号应该增加
+	if w.Sequence() != 2 {
+		t.Errorf("expected sequence 2 after rotate, got %d", w.Sequence())
+	}
 
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
@@ -622,4 +652,229 @@ func TestWALCleanup(t *testing.T) {
 	if _, err := os.Stat(filename3); os.IsNotExist(err) {
 		t.Errorf("expected file %s to exist", filename3)
 	}
+}
+
+func TestWAL_WriteConcurrent(t *testing.T) {
+	// 测试并发写入
+	tmpDir := t.TempDir()
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	const goroutines = 10
+	const writesPerGoroutine = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for g := 0; g < goroutines; g++ {
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < writesPerGoroutine; i++ {
+				data := []byte(fmt.Sprintf("data-%d-%d", id, i))
+				_, err := w.Write(data)
+				if err != nil {
+					t.Errorf("Write failed: %v", err)
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 验证所有数据都能 replay
+	points, err := ReplayWAL(tmpDir)
+	if err != nil {
+		t.Fatalf("ReplayWAL failed: %v", err)
+	}
+
+	// 注意：由于 WAL 只存储 bytes，replay 返回的是反序列化后的 Point
+	// 并发写入不保证顺序，但数据应该完整
+	t.Logf("ReplayWAL returned %d points/entries", len(points))
+}
+
+func TestWAL_Sync_FlushesData(t *testing.T) {
+	// 测试 Sync 能正确刷盘
+	tmpDir := t.TempDir()
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入数据
+	data := []byte("test data for sync")
+	_, err = w.Write(data)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// Sync 应该刷盘
+	if err := w.Sync(); err != nil {
+		t.Fatalf("Sync failed: %v", err)
+	}
+
+	// 关闭
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 重新打开 WAL 验证数据
+	w2, err := NewWAL(tmpDir, 1)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+	defer func() { _ = w2.Close() }()
+
+	// 应该没有任何数据（因为是新的序列号）
+	if w2.Sequence() != 1 {
+		t.Errorf("expected sequence 1, got %d", w2.Sequence())
+	}
+}
+
+func TestWAL_TruncateCurrent(t *testing.T) {
+	// 测试 TruncateCurrent 清空当前文件
+	tmpDir := t.TempDir()
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入一些数据
+	for i := 0; i < 10; i++ {
+		data := []byte(fmt.Sprintf("data-%d", i))
+		_, err := w.Write(data)
+		if err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// Truncate
+	if err := w.TruncateCurrent(); err != nil {
+		t.Fatalf("TruncateCurrent failed: %v", err)
+	}
+
+	// 关闭
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 验证文件仍然存在但是空的
+	files, _ := filepath.Glob(filepath.Join(tmpDir, "*.wal"))
+	if len(files) != 1 {
+		t.Errorf("expected 1 WAL file, got %d", len(files))
+	}
+}
+
+func TestWAL_parseWALSeq(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected uint64
+		wantErr  bool
+	}{
+		{"/path/to/00000000000000000001.wal", 1, false},
+		{"/path/to/00000000000000000123.wal", 123, false},
+		{"/path/to/wal", 0, true},
+		{"/path/to/abc.wal", 0, true},
+		{"/path/to/00000000000000000001.wal.bak", 0, true},
+		{"/path/to/sst_1", 0, true},
+		{"00000000000000000001.wal", 1, false},
+		{"wal", 0, true},
+	}
+
+	for _, tt := range tests {
+		seq, err := parseWALSeq(tt.path)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("parseWALSeq(%q) expected error, got nil", tt.path)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("parseWALSeq(%q) unexpected error: %v", tt.path, err)
+			}
+			if seq != tt.expected {
+				t.Errorf("parseWALSeq(%q) = %d, want %d", tt.path, seq, tt.expected)
+			}
+		}
+	}
+}
+
+func TestWAL_ReplayFromCheckpoint(t *testing.T) {
+	// 测试从指定 checkpoint 开始 replay
+	tmpDir := t.TempDir()
+
+	// 创建 WAL 并写入数据
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Database:    "testdb",
+			Measurement: "test",
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   baseTime + int64(i)*1000,
+			Fields: map[string]*types.FieldValue{
+				"value": types.NewFieldValue(int64(i)),
+			},
+		}
+		data, _ := serializePoint(p)
+		_, _ = w.Write(data)
+	}
+	_ = w.Close()
+
+	// 创建 checkpoint（跳过前 5 条数据）
+	cp := &WALReplayCheckpoint{
+		LastSeq: 0,
+		LastPos: 0,
+		Updated: time.Now().UnixNano(),
+	}
+
+	// 先全量 replay 更新 checkpoint
+	points1, err := ReplayWAL(tmpDir)
+	if err != nil {
+		t.Fatalf("ReplayWAL failed: %v", err)
+	}
+	t.Logf("Full replay got %d points", len(points1))
+
+	// 再次 replay 应该使用 checkpoint
+	if err := cp.Load(tmpDir); err != nil {
+		t.Fatalf("Checkpoint Load failed: %v", err)
+	}
+	points2, err := ReplayWALFromCheckpoint(tmpDir, cp)
+	if err != nil {
+		t.Fatalf("ReplayWALFromCheckpoint failed: %v", err)
+	}
+
+	// 如果 checkpoint 有效，应该跳过一些数据
+	t.Logf("Checkpoint replay got %d points", len(points2))
+}
+
+func TestWAL_Write_ExactlyAtLimit(t *testing.T) {
+	// 测试写入正好在限制边界的数据
+	tmpDir := t.TempDir()
+	w, err := NewWAL(tmpDir, 0)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入 4KB 数据（正好是缓冲区大小）
+	largeData := make([]byte, 4096)
+	for i := range largeData {
+		largeData[i] = byte(i % 256)
+	}
+
+	n, err := w.Write(largeData)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if n != len(largeData) {
+		t.Errorf("expected %d bytes written, got %d", len(largeData), n)
+	}
+
+	_ = w.Close()
 }

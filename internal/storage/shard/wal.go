@@ -206,10 +206,31 @@ func (w *WAL) Write(data []byte) (int, error) {
 	need := 4 + len(data)
 
 	// 检查是否需要滚动到新文件
-	if int64(need) > walFileSizeLimit-w.fileSize {
+	// 当剩余空间不足以容纳当前写入时，触发滚动
+	if int64(need) >= walFileSizeLimit-w.fileSize {
 		if err := w.rotateLocked(); err != nil {
 			return 0, err
 		}
+	}
+
+	// 如果单次写入数据大于等于缓冲区大小，直接刷出缓冲区并写入文件
+	if len(data) >= len(w.buf) {
+		if err := w.flushLocked(); err != nil {
+			return 0, err
+		}
+		// 写入长度前缀
+		var lengthBuf [4]byte
+		binary.BigEndian.PutUint32(lengthBuf[:], uint32(len(data)))
+		if _, err := w.file.Write(lengthBuf[:]); err != nil {
+			return 0, err
+		}
+		w.fileSize += 4
+		// 写入数据
+		if _, err := w.file.Write(data); err != nil {
+			return 0, err
+		}
+		w.fileSize += int64(len(data))
+		return len(data), nil
 	}
 
 	if len(w.buf)-w.pos < need {
