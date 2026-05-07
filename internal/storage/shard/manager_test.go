@@ -57,7 +57,9 @@ func TestShardManager_PersistAllMetaStores(t *testing.T) {
 	}
 
 	// 调用 PersistAllMetaStores - 应该成功执行
-	m.PersistAllMetaStores()
+	if err := m.PersistAllMetaStores(); err != nil {
+		t.Errorf("PersistAllMetaStores failed: %v", err)
+	}
 }
 
 func TestShardManager_GetAllShards(t *testing.T) {

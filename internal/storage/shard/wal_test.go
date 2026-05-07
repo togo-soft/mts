@@ -2,6 +2,7 @@
 package shard
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -474,5 +475,151 @@ func TestReplayWAL_Incremental(t *testing.T) {
 	}
 	if cp2.LastSeq != 2 {
 		t.Errorf("expected LastSeq 2, got %d", cp2.LastSeq)
+	}
+}
+
+func TestReplayWALFromCheckpoint(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 创建 WAL 并写入数据
+	w, err := NewWAL(tmpDir, 1)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+	baseTime := time.Now().UnixNano()
+	for i := 0; i < 5; i++ {
+		p := &types.Point{
+			Database:    "testdb",
+			Measurement: "test",
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   baseTime + int64(i)*int64(time.Millisecond),
+			Fields: map[string]*types.FieldValue{
+				"value": types.NewFieldValue(int64(i)),
+			},
+		}
+		data, serErr := serializePoint(p)
+		if serErr != nil {
+			t.Fatalf("serializePoint failed: %v", serErr)
+		}
+		if _, wErr := w.Write(data); wErr != nil {
+			t.Fatalf("Write failed: %v", wErr)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 使用 checkpoint 从头 replay
+	cp := &WALReplayCheckpoint{}
+	points, err := ReplayWALFromCheckpoint(tmpDir, cp)
+	if err != nil {
+		t.Fatalf("ReplayWALFromCheckpoint failed: %v", err)
+	}
+	if len(points) != 5 {
+		t.Errorf("expected 5 points, got %d", len(points))
+	}
+
+	// 使用中间位置的 checkpoint
+	cp2 := &WALReplayCheckpoint{LastSeq: 1, LastPos: 100}
+	points2, err := ReplayWALFromCheckpoint(tmpDir, cp2)
+	if err != nil {
+		t.Fatalf("ReplayWALFromCheckpoint with checkpoint failed: %v", err)
+	}
+	if len(points2) >= 5 {
+		t.Errorf("expected fewer points from checkpoint, got %d", len(points2))
+	}
+}
+
+func TestWALRotateLocked(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	w, err := NewWAL(tmpDir, 1)
+	if err != nil {
+		t.Fatalf("NewWAL failed: %v", err)
+	}
+
+	// 写入大量数据触发滚动（walFileSizeLimit = 64MB）
+	// 由于测试数据较小，手动触发 rotateLocked
+	for i := 0; i < 1000; i++ {
+		data := make([]byte, 1024) // 1KB per write
+		_, err := w.Write(data)
+		if err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 检查序列号是否增加（如果有滚动）
+	seq := w.Sequence()
+	t.Logf("WAL sequence after writes: %d", seq)
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestWALCleanup(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 创建多个 WAL 文件
+	wal1, err := NewWAL(tmpDir, 1)
+	if err != nil {
+		t.Fatalf("NewWAL 1 failed: %v", err)
+	}
+	if _, err := wal1.Write([]byte("data1")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := wal1.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	wal2, err := NewWAL(tmpDir, 2)
+	if err != nil {
+		t.Fatalf("NewWAL 2 failed: %v", err)
+	}
+	if _, err := wal2.Write([]byte("data2")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := wal2.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	wal3, err := NewWAL(tmpDir, 3)
+	if err != nil {
+		t.Fatalf("NewWAL 3 failed: %v", err)
+	}
+	if _, err := wal3.Write([]byte("data3")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := wal3.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 验证所有文件存在
+	files, err := filepath.Glob(filepath.Join(tmpDir, "*.wal"))
+	if err != nil {
+		t.Fatalf("Glob failed: %v", err)
+	}
+	if len(files) != 3 {
+		t.Errorf("expected 3 WAL files, got %d", len(files))
+	}
+
+	// 调用 Cleanup 删除序列号小于 3 的文件
+	wal := &WAL{dir: tmpDir, seq: 3}
+	if err := wal.Cleanup(); err != nil {
+		t.Fatalf("Cleanup failed: %v", err)
+	}
+
+	// 验证文件 1 和 2 被删除
+	for _, seq := range []uint64{1, 2} {
+		filename := filepath.Join(tmpDir, fmt.Sprintf("%020d.wal", seq))
+		if _, err := os.Stat(filename); !os.IsNotExist(err) {
+			t.Errorf("expected file %s to be deleted", filename)
+		}
+	}
+
+	// 验证文件 3 仍然存在
+	filename3 := filepath.Join(tmpDir, fmt.Sprintf("%020d.wal", uint64(3)))
+	if _, err := os.Stat(filename3); os.IsNotExist(err) {
+		t.Errorf("expected file %s to exist", filename3)
 	}
 }

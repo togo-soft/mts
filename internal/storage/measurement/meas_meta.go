@@ -268,7 +268,9 @@ func (m *MeasurementMetaStore) GetSidsByTag(tagKey, tagValue string) []uint64 {
 func (m *MeasurementMetaStore) Close() error {
 	// 如果有持久化路径且有脏数据，先持久化
 	if m.persistPath != "" && m.dirty {
-		_ = m.Persist()
+		if err := m.Persist(); err != nil {
+			return fmt.Errorf("persist before close: %w", err)
+		}
 	}
 
 	m.mu.Lock()

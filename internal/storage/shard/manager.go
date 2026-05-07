@@ -370,7 +370,10 @@ func (m *ShardManager) FlushAll() error {
 // 调用每个 MetaStore 的 Persist 方法，将元数据写入磁盘。
 //
 // 用于 Engine.Close() 时确保所有元数据已持久化。
-func (m *ShardManager) PersistAllMetaStores() {
+//
+// 返回：
+//   - error: 如果任一 MetaStore 持久化失败则返回错误
+func (m *ShardManager) PersistAllMetaStores() error {
 	m.mu.RLock()
 	metaStores := make([]*measurement.MeasurementMetaStore, 0, len(m.metaStores))
 	for _, metaStore := range m.metaStores {
@@ -378,9 +381,13 @@ func (m *ShardManager) PersistAllMetaStores() {
 	}
 	m.mu.RUnlock()
 
+	var firstErr error
 	for _, metaStore := range metaStores {
-		_ = metaStore.Persist()
+		if err := metaStore.Persist(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
+	return firstErr
 }
 
 // GetAllShards 返回所有 Shard 的快照。

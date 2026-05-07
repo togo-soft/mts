@@ -48,17 +48,17 @@ func TestSafeMkdirAll(t *testing.T) {
 			},
 		},
 		{
-			name:    "empty string",
-			path:    "",
-			perm:    0700,
-			wantErr: true,
+			name:     "empty string",
+			path:     "",
+			perm:     0700,
+			wantErr:  true,
 			validate: func(t *testing.T, path string) {},
 		},
 		{
-			name:    "current dir",
-			path:    ".",
-			perm:    0700,
-			wantErr: true,
+			name:     "current dir",
+			path:     ".",
+			perm:     0700,
+			wantErr:  true,
 			validate: func(t *testing.T, path string) {},
 		},
 	}
@@ -117,10 +117,10 @@ func TestSafeCreate(t *testing.T) {
 			},
 		},
 		{
-			name:    "parent traversal at root",
-			path:    "../escape.txt",
-			perm:    0600,
-			wantErr: true,
+			name:     "parent traversal at root",
+			path:     "../escape.txt",
+			perm:     0600,
+			wantErr:  true,
 			validate: func(t *testing.T, path string) {},
 		},
 	}
@@ -265,11 +265,11 @@ func TestSafeOpenFile(t *testing.T) {
 
 func TestPathError(t *testing.T) {
 	tests := []struct {
-		name     string
-		op       string
-		path     string
-		errMsg   string
-		unwraps  bool
+		name    string
+		op      string
+		path    string
+		errMsg  string
+		unwraps bool
 	}{
 		{
 			name:    "open operation",
@@ -330,9 +330,9 @@ func TestErrInvalidPath(t *testing.T) {
 
 func TestIsPathSafe(t *testing.T) {
 	tests := []struct {
-		name  string
-		path  string
-		safe  bool
+		name string
+		path string
+		safe bool
 	}{
 		{name: "simple relative", path: "relative/path", safe: true},
 		{name: "another relative", path: "another/path/here", safe: true},
