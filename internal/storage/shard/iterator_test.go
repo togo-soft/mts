@@ -20,7 +20,7 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -128,7 +128,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -223,7 +223,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -331,7 +331,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -391,7 +391,7 @@ func TestShardIterator_Current(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -440,7 +440,7 @@ func TestShardIterator_Empty(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -470,7 +470,7 @@ func TestShardIterator_Err(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -551,7 +551,7 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -653,7 +653,7 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
@@ -690,7 +690,7 @@ func TestShardIterator_TimeRangeFilter(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 	defer func() { _ = shard.Close() }()
@@ -743,7 +743,7 @@ func TestShardIterator_PointToRowNil(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 	defer func() { _ = shard.Close() }()
@@ -769,7 +769,7 @@ func TestShardIterator_NextLocked_AllExhausted(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
-		MetaStore:   nil,
+		SeriesStore: nil,
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 	defer func() { _ = shard.Close() }()

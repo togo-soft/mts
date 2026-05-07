@@ -1,41 +1,12 @@
 // Package sstable 实现 SSTable（Sorted String Table）存储格式。
-//
-// SSTable 是一种持久化的列式存储格式，特点：
-//   - 数据不可变，只能追加写入
-//   - 按时间戳排序存储
-//   - 按列存储，同一字段的数据连续存放
-//   - 支持 Block 级别的索引，加速查询
-//
-// 文件结构：
-//
-//	{shardDir}/data/sst_{seq}/
-//	├── _timestamps.bin    # 时间戳列（int64 数组）
-//	├── fields/
-//	│   ├── {field1}.bin   # 字段1数据
-//	│   └── {field2}.bin   # 字段2数据
-//	├── _index.bin         # Block 索引
-//	└── _schema.json       # Schema 定义
-//
-// 使用流程：
-//
-//	w := sstable.NewWriter(shardDir, seq)
-//	w.WritePoints(points)
-//	w.Close()
-//
-//	r, _ := sstable.NewReader(dataDir)
-//	rows, _ := r.ReadRange(start, end)
 package sstable
 
 import (
-	"encoding/binary"
-	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 
 	"codeberg.org/micro-ts/mts/internal/storage"
-	"codeberg.org/micro-ts/mts/types"
 )
 
 // FieldType 字段类型
@@ -69,23 +40,19 @@ type Writer struct {
 	blockSize  int
 	dataDir    string
 	timestamp  *os.File
-	sids       *os.File // Sid 列表文件
+	sids       *os.File
 	fields     map[string]*os.File
 	schema     Schema
 	blockIndex *BlockIndex
 
-	// 块缓冲
 	buf      []byte
 	bufPos   int
 	firstTs  int64
 	rowCount uint32
 
-	// Sid 缓冲（用于收集一个 block 的 Sid 数据）
-	sidBuf []uint64
-
-	// 每列的缓冲（用于收集一个 block 的数据）
+	sidBuf     []uint64
 	fieldBufs  map[string][]byte
-	fieldSizes map[string]int // 每行该字段的固定大小
+	fieldSizes map[string]int
 }
 
 // NewBlockIndex 创建空的 BlockIndex
@@ -96,32 +63,11 @@ func NewBlockIndex() *BlockIndex {
 }
 
 // NewWriter 创建 SSTable Writer。
-//
-// 参数：
-//   - shardDir: Shard 数据目录
-//   - seq:      SSTable 序列号
-//   - blockSize: Block 大小（字节），默认 64KB
-//
-// 返回：
-//   - *Writer: 初始化的 Writer
-//   - error:   创建失败时返回错误
-//
-// 目录结构：
-//
-//	shardDir/data/sst_{seq}/
-//	├── _timestamps.bin
-//	├── _sids.bin       # Series IDs
-//	├── fields/
-//	│   ├── {field1}.bin
-//	│   └── {field2}.bin
-//	├── _index.bin
-//	└── _schema.json
 func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 	if blockSize <= 0 {
 		blockSize = BlockSize
 	}
 
-	// 使用 seq 创建独立的子目录，避免不同 SSTable 之间的冲突
 	dataDir := filepath.Join(shardDir, "data", fmt.Sprintf("sst_%d", seq))
 	if err := storage.SafeMkdirAll(dataDir, 0700); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
@@ -158,374 +104,4 @@ func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 		fieldBufs:  make(map[string][]byte),
 		fieldSizes: make(map[string]int),
 	}, nil
-}
-
-// WritePoints 写入一批数据点到 SSTable。
-//
-// 参数：
-//   - points: 要写入的数据点
-//   - tsSidMap: timestamp → sid 映射（用于存储 Sid 信息）
-//
-// 返回：
-//   - error: 写入失败时返回错误
-//
-// 处理流程：
-//
-//  1. 收集所有字段名并推断类型
-//  2. 打开各字段的数据文件
-//  3. 逐个写入数据点（可能触发 block flush）
-//
-// 错误处理：
-//
-//	写入失败返回错误，但已写入的数据不会自动回滚。
-//	建议发现错误后删除不完整的数据目录。
-func (w *Writer) WritePoints(points []*types.Point, tsSidMap map[int64]uint64) error {
-	// 收集所有字段名并检测类型
-	fieldNames := make(map[string]bool)
-	for _, p := range points {
-		for name, val := range p.Fields {
-			fieldNames[name] = true
-			if _, exists := w.schema.Fields[name]; !exists {
-				w.schema.Fields[name] = detectFieldType(val)
-			}
-		}
-	}
-
-	// 打开字段文件
-	for name := range fieldNames {
-		f, err := storage.SafeOpenFile(
-			filepath.Join(w.dataDir, "fields", name+".bin"),
-			os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-		if err != nil {
-			return fmt.Errorf("open field file %s: %w", name, err)
-		}
-		w.fields[name] = f
-
-		// 初始化 field buffer 和计算固定大小
-		w.fieldBufs[name] = make([]byte, 0, BlockSize)
-		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
-	}
-
-	// 写入 points 到 block buffer
-	for _, p := range points {
-		sid := tsSidMap[p.Timestamp]
-		if err := w.writePointWithSid(p, sid); err != nil {
-			return fmt.Errorf("write point (timestamp=%d): %w", p.Timestamp, err)
-		}
-	}
-
-	return nil
-}
-
-// fieldTypeSize 返回字段类型的固定大小
-func (w *Writer) fieldTypeSize(t FieldType) int {
-	switch t {
-	case FieldTypeFloat64, FieldTypeInt64:
-		return 8
-	case FieldTypeBool:
-		return 1
-	case FieldTypeString:
-		return -1 // 变长
-	default:
-		return 8
-	}
-}
-
-// writePointWithSid 将单个 point 写入 block buffer，并记录 Sid
-func (w *Writer) writePointWithSid(p *types.Point, sid uint64) error {
-	// 检查是否需要 flush block
-	if w.bufPos >= BlockSize {
-		if err := w.flushBlock(); err != nil {
-			return err
-		}
-	}
-
-	// 记录第一个时间戳
-	if w.rowCount == 0 {
-		w.firstTs = p.Timestamp
-	}
-
-	// 编码并写入 timestamp
-	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(p.Timestamp))
-	copy(w.buf[w.bufPos:w.bufPos+8], tsBuf[:])
-	w.bufPos += 8
-
-	// 写入各字段到各自的 buffer
-	for name := range w.fields {
-		val, ok := p.Fields[name]
-		if !ok {
-			// 字段不存在，写入零值
-			val = w.zeroValue(w.schema.Fields[name])
-		}
-		w.appendFieldValue(name, val)
-	}
-
-	// 收集 Sid
-	w.sidBuf = append(w.sidBuf, sid)
-
-	w.rowCount++
-	return nil
-}
-
-// zeroValue 返回类型的零值
-func (w *Writer) zeroValue(t FieldType) *types.FieldValue {
-	switch t {
-	case FieldTypeFloat64:
-		return types.NewFieldValue(float64(0))
-	case FieldTypeInt64:
-		return types.NewFieldValue(int64(0))
-	case FieldTypeBool:
-		return types.NewFieldValue(false)
-	case FieldTypeString:
-		return types.NewFieldValue("")
-	default:
-		return types.NewFieldValue(float64(0))
-	}
-}
-
-// appendFieldValue 将字段值追加到 field buffer
-func (w *Writer) appendFieldValue(name string, val any) {
-	buf := w.fieldBufs[name]
-
-	if val == nil {
-		// 写入零值
-		buf = w.appendZeroValue(buf, w.schema.Fields[name])
-		w.fieldBufs[name] = buf
-		return
-	}
-
-	// 处理 *types.FieldValue 类型
-	if fv, ok := val.(*types.FieldValue); ok {
-		if fv == nil || fv.Value == nil {
-			buf = w.appendZeroValue(buf, w.schema.Fields[name])
-			w.fieldBufs[name] = buf
-			return
-		}
-		switch v := fv.Value.(type) {
-		case *types.FieldValue_FloatValue:
-			var b [8]byte
-			binary.BigEndian.PutUint64(b[:], math.Float64bits(v.FloatValue))
-			buf = append(buf, b[:]...)
-		case *types.FieldValue_IntValue:
-			var b [8]byte
-			binary.BigEndian.PutUint64(b[:], uint64(v.IntValue))
-			buf = append(buf, b[:]...)
-		case *types.FieldValue_StringValue:
-			var lenBuf [4]byte
-			binary.BigEndian.PutUint32(lenBuf[:], uint32(len(v.StringValue)))
-			buf = append(buf, lenBuf[:]...)
-			buf = append(buf, v.StringValue...)
-		case *types.FieldValue_BoolValue:
-			if v.BoolValue {
-				buf = append(buf, 1)
-			} else {
-				buf = append(buf, 0)
-			}
-		}
-		w.fieldBufs[name] = buf
-		return
-	}
-
-	// 处理裸类型（向后兼容，理论上不应再使用）
-	switch v := val.(type) {
-	case float64:
-		var b [8]byte
-		binary.BigEndian.PutUint64(b[:], math.Float64bits(v))
-		buf = append(buf, b[:]...)
-	case int64:
-		var b [8]byte
-		binary.BigEndian.PutUint64(b[:], uint64(v))
-		buf = append(buf, b[:]...)
-	case string:
-		var lenBuf [4]byte
-		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(v)))
-		buf = append(buf, lenBuf[:]...)
-		buf = append(buf, v...)
-	case bool:
-		if v {
-			buf = append(buf, 1)
-		} else {
-			buf = append(buf, 0)
-		}
-	}
-	w.fieldBufs[name] = buf
-}
-
-// appendZeroValue 追加类型的零值到 buffer
-func (w *Writer) appendZeroValue(buf []byte, t FieldType) []byte {
-	switch t {
-	case FieldTypeFloat64, FieldTypeInt64:
-		var b [8]byte
-		buf = append(buf, b[:]...)
-	case FieldTypeBool:
-		buf = append(buf, 0)
-	case FieldTypeString:
-		var lenBuf [4]byte
-		buf = append(buf, lenBuf[:]...)
-	default:
-		var b [8]byte
-		buf = append(buf, b[:]...)
-	}
-	return buf
-}
-
-// flushBlock 将当前 block 缓冲写入文件
-func (w *Writer) flushBlock() error {
-	if w.bufPos == 0 && w.rowCount == 0 {
-		return nil
-	}
-
-	// 获取当前文件偏移量
-	info, err := w.timestamp.Stat()
-	if err != nil {
-		return fmt.Errorf("stat timestamp file: %w", err)
-	}
-	offset := uint32(info.Size())
-
-	// 写入 timestamps block
-	if _, err := w.timestamp.Write(w.buf[:w.bufPos]); err != nil {
-		return fmt.Errorf("write timestamp block: %w", err)
-	}
-
-	// 写入 Sids block
-	for _, sid := range w.sidBuf {
-		var sidBuf [8]byte
-		binary.BigEndian.PutUint64(sidBuf[:], sid)
-		if _, err := w.sids.Write(sidBuf[:]); err != nil {
-			return fmt.Errorf("write sid block: %w", err)
-		}
-	}
-	w.sidBuf = w.sidBuf[:0] // 清空 Sid buffer
-
-	// 写入各字段 block
-	for name, buf := range w.fieldBufs {
-		if _, err := w.fields[name].Write(buf); err != nil {
-			return fmt.Errorf("write field block %s: %w", name, err)
-		}
-		// 清空 buffer
-		w.fieldBufs[name] = w.fieldBufs[name][:0]
-	}
-
-	// 记录 block 索引
-	// 当前 block 的行数 = bufPos / 8 (每个 timestamp 8 字节)
-	blockRowCount := uint32(w.bufPos / 8)
-	// 从 buffer 中提取最后一个 timestamp（位于 bufPos - 8 位置）
-	lastTs := int64(binary.BigEndian.Uint64(w.buf[w.bufPos-8:]))
-	w.blockIndex.Add(w.firstTs, lastTs, offset, blockRowCount)
-
-	// 重置
-	w.bufPos = 0
-	w.rowCount = 0
-	w.firstTs = 0
-
-	return nil
-}
-
-// Close 关闭 Writer，完成 SSTable 写入。
-//
-// 返回：
-//   - error: 关闭失败时返回错误
-//
-// 关闭流程：
-//
-//  1. Flush 剩余 block 数据
-//  2. 写入 schema.json
-//  3. 写入 _index.bin
-//  4. 关闭各文件句柄
-//
-// 原子性：
-//
-//	如果关闭过程中出错，SSTable 可能处于不完整状态。
-//	完整的数据恢复需要结合 WAL 重放。
-func (w *Writer) Close() error {
-	if err := w.flushBlock(); err != nil {
-		return fmt.Errorf("flush block: %w", err)
-	}
-	if err := w.writeSchema(); err != nil {
-		return fmt.Errorf("write schema: %w", err)
-	}
-	if err := w.writeBlockIndex(); err != nil {
-		return fmt.Errorf("write block index: %w", err)
-	}
-	if w.timestamp != nil {
-		if err := w.timestamp.Close(); err != nil {
-			return fmt.Errorf("close timestamp file: %w", err)
-		}
-	}
-	if w.sids != nil {
-		if err := w.sids.Close(); err != nil {
-			return fmt.Errorf("close sids file: %w", err)
-		}
-	}
-	for name, f := range w.fields {
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close field file %s: %w", name, err)
-		}
-	}
-	return nil
-}
-
-// writeBlockIndex 写入 block index 文件
-func (w *Writer) writeBlockIndex() error {
-	indexFile := filepath.Join(w.dataDir, "_index.bin")
-	return w.blockIndex.Write(indexFile)
-}
-
-// writeSchema 写入 schema 文件
-func (w *Writer) writeSchema() error {
-	schemaFile, err := storage.SafeCreate(filepath.Join(w.dataDir, "_schema.json"), 0600)
-	if err != nil {
-		return fmt.Errorf("create schema file: %w", err)
-	}
-	defer func() {
-		_ = schemaFile.Close()
-	}()
-
-	data, err := json.Marshal(w.schema)
-	if err != nil {
-		return fmt.Errorf("marshal schema: %w", err)
-	}
-	if _, err := schemaFile.Write(data); err != nil {
-		return fmt.Errorf("write schema file: %w", err)
-	}
-	return nil
-}
-
-// detectFieldType 检测字段类型
-func detectFieldType(val any) FieldType {
-	if val == nil {
-		return FieldTypeFloat64
-	}
-
-	// 处理 *types.FieldValue 类型
-	if fv, ok := val.(*types.FieldValue); ok {
-		if fv == nil || fv.Value == nil {
-			return FieldTypeFloat64
-		}
-		switch fv.Value.(type) {
-		case *types.FieldValue_FloatValue:
-			return FieldTypeFloat64
-		case *types.FieldValue_IntValue:
-			return FieldTypeInt64
-		case *types.FieldValue_StringValue:
-			return FieldTypeString
-		case *types.FieldValue_BoolValue:
-			return FieldTypeBool
-		}
-		return FieldTypeFloat64
-	}
-
-	// 处理裸类型（向后兼容）
-	switch val.(type) {
-	case float64:
-		return FieldTypeFloat64
-	case int64:
-		return FieldTypeInt64
-	case string:
-		return FieldTypeString
-	case bool:
-		return FieldTypeBool
-	}
-	return FieldTypeFloat64
 }

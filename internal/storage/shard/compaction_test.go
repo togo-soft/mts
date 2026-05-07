@@ -105,7 +105,7 @@ func TestCompactionManager_ShouldCompact_NoData(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -134,7 +134,7 @@ func TestCompactionManager_ShouldCompact_WithSSTables(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -178,7 +178,7 @@ func TestCompactionManager_ShouldCompactWithLock(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -207,7 +207,7 @@ func TestCompactionManager_CollectSSTables_Empty(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -238,7 +238,7 @@ func TestCompactionManager_CollectSSTables_WithData(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -283,7 +283,7 @@ func TestCompactionManager_IsSSTableInWrite(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -321,7 +321,7 @@ func TestCompactionManager_MarkUnmarkSSTableWriting(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -364,7 +364,7 @@ func TestCompactionManager_MarkSSTableWriting_CreateDir(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -398,7 +398,7 @@ func TestCompactionManager_Compact_NoSSTables(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -431,7 +431,7 @@ func TestCompactionManager_Compact_LessThanTwoSSTables(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -476,7 +476,7 @@ func TestCompactionManager_VerifyOutput_NotExist(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -500,7 +500,7 @@ func TestCompactionManager_VerifyOutput_NotDirectory(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -528,7 +528,7 @@ func TestCompactionManager_VerifyOutput_MissingFiles(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -556,7 +556,7 @@ func TestCompactionManager_VerifyOutput_Success(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -608,7 +608,7 @@ func TestCompactionManager_TryAcquireReleaseCompactLock(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -654,7 +654,7 @@ func TestCompactionManager_ResetTimer(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: cfg,
 	}
@@ -688,7 +688,7 @@ func TestCompactionManager_Stop(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: cfg,
 	}
@@ -719,7 +719,7 @@ func TestCompactionManager_StartPeriodicCheck_NilInterval(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: cfg,
 	}
@@ -750,7 +750,7 @@ func TestCompactionManager_StartPeriodicCheck(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: cfg,
 	}
@@ -783,7 +783,7 @@ func TestCompactionManager_DoPeriodicCompaction(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: cfg,
 	}
@@ -814,7 +814,7 @@ func TestCompactionManager_DoPeriodicCompaction_AlreadyRunning(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: cfg,
 	}
@@ -873,7 +873,7 @@ func TestCompactionManager_CalculateShardSize_NoData(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -901,7 +901,7 @@ func TestCompactionManager_CalculateShardSize_WithData(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -941,7 +941,7 @@ func TestShard_NextSSTSeq(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -976,7 +976,7 @@ func TestCompactionManager_Compact_WithMultipleSSTables(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount:    10,
@@ -1046,7 +1046,7 @@ func TestCompactionManager_Commit(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -1109,7 +1109,7 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -1179,7 +1179,7 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -1342,7 +1342,7 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -1400,7 +1400,7 @@ func TestCompactionManager_shouldCompactLocked_True(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount:    2, // 低阈值触发 compaction
@@ -1448,7 +1448,7 @@ func TestCompactionManager_shouldCompactLocked_ShardSizeExceedsLimit(t *testing.
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount:    2,
@@ -1497,7 +1497,7 @@ func TestCompactionManager_Merge_Deduplication(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -1621,7 +1621,7 @@ func TestCompactionManager_Merge_Error(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -1656,7 +1656,7 @@ func TestCompactionManager_Compact_MaxBatch(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount:    10,
@@ -1716,7 +1716,7 @@ func TestCompactionManager_ShouldCompact_CollectError(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount: 2,
@@ -1752,7 +1752,7 @@ func TestCompactionManager_Compact_Concurrent(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount: 10,
@@ -1822,7 +1822,7 @@ func TestCompactionManager_CollectSSTables_PartialError(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -1872,7 +1872,7 @@ func TestCompactionManager_markSSTableWriting_Error(t *testing.T) {
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -1915,7 +1915,7 @@ func TestCompactionManager_TryAcquireReleaseCompactLock_AlreadyLocked(t *testing
 		StartTime:     0,
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
-		MetaStore:     measurement.NewMeasurementMetaStore(),
+		SeriesStore:   measurement.NewMeasurementMetaStore(),
 		MemTableCfg:   DefaultMemTableConfig(),
 		CompactionCfg: DefaultCompactionConfig(),
 	}
@@ -1960,7 +1960,7 @@ func TestCompactionManager_doPeriodicCompaction_NotNeeded(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount: 10, // 高阈值，不会触发
@@ -2007,7 +2007,7 @@ func TestCompactionManager_Compact_VerifyInputFilesDeleted(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 		CompactionCfg: &CompactionConfig{
 			MaxSSTableCount: 10,

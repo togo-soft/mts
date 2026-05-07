@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestShardManager_GetShard(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()))
 
 	start := time.Now().UnixNano()
 
@@ -28,7 +29,7 @@ func TestShardManager_GetShard(t *testing.T) {
 }
 
 func TestShardManager_GetShard_TimeWindow(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()))
 
 	// 1小时时间窗口
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano()
@@ -48,9 +49,9 @@ func TestShardManager_GetShard_TimeWindow(t *testing.T) {
 	}
 }
 
-func TestShardManager_PersistAllMetaStores(t *testing.T) {
+func TestShardManager_PersistAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建一个 shard，这会自动创建 MetaStore
 	_, err := m.GetShard("db1", "cpu", time.Now().UnixNano())
@@ -58,15 +59,15 @@ func TestShardManager_PersistAllMetaStores(t *testing.T) {
 		t.Fatalf("GetShard failed: %v", err)
 	}
 
-	// 调用 PersistAllMetaStores - 应该成功执行
-	if err := m.PersistAllMetaStores(); err != nil {
-		t.Errorf("PersistAllMetaStores failed: %v", err)
+	// 调用 PersistAll - 应该成功执行
+	if err := m.PersistAll(); err != nil {
+		t.Errorf("PersistAll failed: %v", err)
 	}
 }
 
 func TestShardManager_GetAllShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 初始应该为空
 	shards := m.GetAllShards()
@@ -86,7 +87,7 @@ func TestShardManager_GetAllShards(t *testing.T) {
 
 func TestShardManager_DeleteShard(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建一个 shard
 	base := time.Now().UnixNano()
@@ -113,7 +114,7 @@ func TestShardManager_DeleteShard(t *testing.T) {
 }
 
 func TestShardManager_DeleteShard_NotFound(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()))
 
 	// 删除不存在的 shard 应该成功
 	err := m.DeleteShard("nonexistent/key")
@@ -124,7 +125,7 @@ func TestShardManager_DeleteShard_NotFound(t *testing.T) {
 
 func TestShardManager_DeleteShard_WithData(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建一个 shard 并写入数据
 	base := time.Now().UnixNano()
@@ -167,7 +168,7 @@ func TestShardManager_DeleteShard_WithData(t *testing.T) {
 
 func TestShardManager_GetAllShards_MultipleShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建多个 shard
 	_, _ = m.GetShard("db1", "cpu", time.Now().UnixNano())
@@ -182,7 +183,7 @@ func TestShardManager_GetAllShards_MultipleShards(t *testing.T) {
 }
 
 func TestRetentionService_NewRetentionService(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()))
 	retention := NewRetentionService(m, time.Hour, time.Minute)
 	if retention == nil {
 		t.Error("NewRetentionService should not return nil")
@@ -190,7 +191,7 @@ func TestRetentionService_NewRetentionService(t *testing.T) {
 }
 
 func TestRetentionService_StartStop(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(t.TempDir(), time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()))
 	retention := NewRetentionService(m, time.Hour, time.Minute)
 
 	// Start
@@ -203,7 +204,7 @@ func TestRetentionService_StartStop(t *testing.T) {
 
 func TestRetentionService_Cleanup(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, 500*time.Millisecond, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, 500*time.Millisecond, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建 shard
 	oldTime := time.Now().Add(-2 * time.Second).UnixNano()
@@ -223,7 +224,7 @@ func TestRetentionService_Cleanup(t *testing.T) {
 
 func TestRetentionService_Cleanup_NoExpiredShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建 shard
 	_, _ = m.GetShard("db1", "cpu", time.Now().UnixNano())
@@ -248,7 +249,7 @@ func TestShard_DB_Measurement_Dir(t *testing.T) {
 		StartTime:   1000,
 		EndTime:     2000,
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -306,7 +307,7 @@ func TestDatabaseMetaStore_MeasurementExists(t *testing.T) {
 func TestShardManager_GetShard_DiscoverExisting(t *testing.T) {
 	// 测试发现已存在的 shard 目录
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 手动创建一个 shard 目录结构
 	shardDir := filepath.Join(tmpDir, "db1", "cpu", "0_3600000000000")
@@ -331,7 +332,7 @@ func TestShardManager_GetShard_DiscoverExisting(t *testing.T) {
 func TestShardManager_GetShard_DiscoverMultipleExisting(t *testing.T) {
 	// 测试发现多个已存在的 shard
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 手动创建多个 shard 目录结构
 	baseTime := int64(3600000000000) // 1 hour in ns
@@ -357,7 +358,7 @@ func TestShardManager_GetShard_DiscoverMultipleExisting(t *testing.T) {
 func TestShardManager_GetShard_InvalidDirectory(t *testing.T) {
 	// 测试处理无效目录名
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 手动创建包含无效目录名的目录结构
 	measDir := filepath.Join(tmpDir, "db1", "cpu")
@@ -381,7 +382,7 @@ func TestShardManager_GetShard_InvalidDirectory(t *testing.T) {
 func TestShardManager_DeleteShard_CleanupMetaStore(t *testing.T) {
 	// 测试删除 shard 后 MetaStore 是否被清理
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建一个 shard
 	base := time.Now().UnixNano()
@@ -421,7 +422,7 @@ func TestShardManager_DeleteShard_CleanupMetaStore(t *testing.T) {
 func TestShardManager_GetShard_SameMeasurementDifferentDB(t *testing.T) {
 	// 测试同一 measurement 不同 database
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil)
+	m := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	s1, _ := m.GetShard("db1", "cpu", time.Now().UnixNano())
 	s2, _ := m.GetShard("db2", "cpu", time.Now().UnixNano())
@@ -446,10 +447,19 @@ func TestShardManager_flushLocked_NotCalled(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		MetaStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: measurement.NewMeasurementMetaStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 
 	// 正常关闭
 	_ = s.Close()
+}
+
+func newTestMgr(t *testing.T, dir string) *metadata.Manager {
+	t.Helper()
+	mgr, err := metadata.NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mgr
 }
