@@ -56,7 +56,6 @@ func isPathSafe(path string) bool {
 // 安全检查：
 //
 //	路径不能包含 .. 路径遍历组件。
-//	路径不能是绝对路径。
 func SafeMkdirAll(path string, perm uint32) error {
 	if !isPathSafe(path) {
 		return &PathError{Op: "mkdir", Path: path, Err: ErrInvalidPath}
@@ -91,7 +90,6 @@ func SafeMkdirAll(path string, perm uint32) error {
 // 安全检查：
 //
 //	路径不能包含 .. 路径遍历组件。
-//	路径不能是绝对路径。
 func SafeCreate(path string, perm uint32) (*os.File, error) {
 	if !isPathSafe(path) {
 		return nil, &PathError{Op: "create", Path: path, Err: ErrInvalidPath}
@@ -126,7 +124,6 @@ func SafeCreate(path string, perm uint32) (*os.File, error) {
 // 安全检查：
 //
 //	路径不能包含 .. 路径遍历组件。
-//	路径不能是绝对路径。
 //
 // 使用示例：
 //

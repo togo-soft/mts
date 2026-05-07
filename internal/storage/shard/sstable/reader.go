@@ -470,6 +470,8 @@ func (r *Reader) readRangeOptimized(dataDir string, startTime, endTime int64) ([
 	}
 
 	// 读取所有字段文件
+	// TODO: 当前读取全量字段数据（io.ReadAll），对于宽表（大量字段）场景内存开销大。
+	// 可优化为只读取匹配行对应 block 的字节范围（利用 block 偏移量计算字段文件的 offset）。
 	entries, err := os.ReadDir(filepath.Join(dataDir, "fields"))
 	if err != nil {
 		return nil, err

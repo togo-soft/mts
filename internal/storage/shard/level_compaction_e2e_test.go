@@ -114,8 +114,8 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	})
 
 	// 验证 L0 有 2 个 parts
-	if len(lcm.manifest.GetLevel(0).Parts) != 2 {
-		t.Fatalf("expected 2 parts in L0, got %d", len(lcm.manifest.GetLevel(0).Parts))
+	if len(lcm.manifest.getLevel(0).Parts) != 2 {
+		t.Fatalf("expected 2 parts in L0, got %d", len(lcm.manifest.getLevel(0).Parts))
 	}
 
 	// 执行 compaction
@@ -136,13 +136,13 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	}
 
 	// 验证 L0 已被清空（源文件已删除）
-	if len(lcm.manifest.GetLevel(0).Parts) != 0 {
-		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.manifest.GetLevel(0).Parts))
+	if len(lcm.manifest.getLevel(0).Parts) != 0 {
+		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.manifest.getLevel(0).Parts))
 	}
 
 	// 验证 L1 有数据
-	if len(lcm.manifest.GetLevel(1).Parts) != 1 {
-		t.Errorf("expected 1 part in L1, got %d", len(lcm.manifest.GetLevel(1).Parts))
+	if len(lcm.manifest.getLevel(1).Parts) != 1 {
+		t.Errorf("expected 1 part in L1, got %d", len(lcm.manifest.getLevel(1).Parts))
 	}
 
 	// 验证 manifest 已保存
@@ -421,13 +421,13 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 	}
 
 	// 验证 L0 已被清空
-	if len(lcm.manifest.GetLevel(0).Parts) != 0 {
-		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.manifest.GetLevel(0).Parts))
+	if len(lcm.manifest.getLevel(0).Parts) != 0 {
+		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.manifest.getLevel(0).Parts))
 	}
 
 	// 验证 L1 有新数据
-	if len(lcm.manifest.GetLevel(1).Parts) != 1 {
-		t.Errorf("expected 1 part in L1, got %d", len(lcm.manifest.GetLevel(1).Parts))
+	if len(lcm.manifest.getLevel(1).Parts) != 1 {
+		t.Errorf("expected 1 part in L1, got %d", len(lcm.manifest.getLevel(1).Parts))
 	}
 }
 
@@ -512,7 +512,7 @@ func TestLevelCompactionE2E_HasOverlap(t *testing.T) {
 	lcm.manifest.AddPart(1, PartInfo{Name: "l1_1", Size: 1000, MinTime: 1500, MaxTime: 2500})
 
 	// 收集重叠 parts
-	targets := []PartInfo{lcm.manifest.GetLevel(0).Parts[0]}
+	targets := []PartInfo{lcm.manifest.getLevel(0).Parts[0]}
 	overlaps := lcm.collectOverlapParts(0, targets)
 
 	// 验证重叠检测

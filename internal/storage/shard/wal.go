@@ -4,7 +4,9 @@ package shard
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"os"
@@ -817,7 +819,7 @@ func replayWALFile(path string, startPos int64) ([]*types.Point, int64, error) {
 		lengthBuf := make([]byte, 4)
 		n, err := file.Read(lengthBuf)
 		if err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			_ = file.Close()
@@ -846,7 +848,7 @@ func replayWALFile(path string, startPos int64) ([]*types.Point, int64, error) {
 		for read < size {
 			n, err := file.Read(data[read:])
 			if err != nil {
-				if err.Error() == "EOF" {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				_ = file.Close()

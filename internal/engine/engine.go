@@ -403,17 +403,10 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 // collectQueryResults 流式收集查询结果
 func (e *Engine) collectQueryResults(ctx context.Context, qit *query.QueryIterator, req *types.QueryRangeRequest) ([]*types.PointRow, int, int, bool, error) {
 	var pointRows []*types.PointRow
-	targetCount := int(req.Limit) + int(req.Offset)
-	hasExplicitLimit := req.Limit > 0
-
-	// 如果没有指定 limit，不设置目标数量上限（使用最大 int）
-	if !hasExplicitLimit {
-		targetCount = int(^uint(0) >> 1) // MaxInt
-	}
+	hasLimit := req.Limit > 0
 
 	skipped := 0
 	collected := 0
-	hasLimit := req.Limit > 0
 
 	for qit.Next(ctx) {
 		row := qit.Points()
@@ -427,18 +420,13 @@ func (e *Engine) collectQueryResults(ctx context.Context, qit *query.QueryIterat
 		}
 		pointRows = append(pointRows, row)
 		collected++
-		// 已收集足够的行（仅在指定了 limit 时提前停止）
+		// 已收集足够的行
 		if hasLimit && collected >= int(req.Limit) {
-			break
-		}
-		// 也检查是否已达到目标数量上限
-		if collected >= targetCount-int(req.Offset) {
 			break
 		}
 	}
 
 	// 检查是否有更多数据
-	// 流式语义：如果收集满 limit 行，认为可能还有更多数据
 	hasMore := hasLimit && collected >= int(req.Limit)
 
 	return pointRows, skipped, collected, hasMore, nil

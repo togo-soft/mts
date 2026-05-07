@@ -43,7 +43,7 @@ func TestLevelManifest_NewLevelManifest(t *testing.T) {
 
 	// 验证层次已创建
 	for i := 0; i < 5; i++ {
-		l := manifest.GetLevel(i)
+		l := manifest.getLevel(i)
 		if l == nil {
 			t.Errorf("level %d should exist", i)
 			continue
@@ -120,7 +120,7 @@ func TestLevelManifest_AddRemovePart(t *testing.T) {
 	// 添加
 	manifest.AddPart(0, part)
 
-	l0 := manifest.GetLevel(0)
+	l0 := manifest.getLevel(0)
 	if len(l0.Parts) != 1 {
 		t.Errorf("expected 1 part, got %d", len(l0.Parts))
 	}
@@ -161,12 +161,12 @@ func TestLevelManifest_SaveLoad(t *testing.T) {
 	}
 
 	// 验证
-	l0 := manifest2.GetLevel(0)
+	l0 := manifest2.getLevel(0)
 	if len(l0.Parts) != 2 {
 		t.Errorf("expected 2 parts in L0, got %d", len(l0.Parts))
 	}
 
-	l1 := manifest2.GetLevel(1)
+	l1 := manifest2.getLevel(1)
 	if len(l1.Parts) != 1 {
 		t.Errorf("expected 1 part in L1, got %d", len(l1.Parts))
 	}
@@ -589,7 +589,7 @@ func TestLevelCompactionManager_CollectOverlapParts(t *testing.T) {
 	lcm.manifest.AddPart(1, PartInfo{Name: "l1_2", Size: 1000, MinTime: 5000, MaxTime: 6000})
 
 	// 选择 l0_1 作为目标
-	targets := []PartInfo{lcm.manifest.GetLevel(0).Parts[0]}
+	targets := []PartInfo{lcm.manifest.getLevel(0).Parts[0]}
 
 	// 收集重叠 parts
 	overlaps := lcm.collectOverlapParts(0, targets)
@@ -687,7 +687,7 @@ func TestLevelManifest_RemoveParts(t *testing.T) {
 	manifest.AddPart(0, PartInfo{Name: "sst_00000000000000000002", Size: 200, MinTime: 2000, MaxTime: 3000})
 	manifest.AddPart(0, PartInfo{Name: "sst_00000000000000000003", Size: 300, MinTime: 3000, MaxTime: 4000})
 
-	l0 := manifest.GetLevel(0)
+	l0 := manifest.getLevel(0)
 	if len(l0.Parts) != 3 {
 		t.Fatalf("expected 3 parts, got %d", len(l0.Parts))
 	}

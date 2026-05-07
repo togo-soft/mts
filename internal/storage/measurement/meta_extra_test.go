@@ -221,14 +221,14 @@ func TestTagsEqual_EdgeCases(t *testing.T) {
 
 	// nil map (copyTags 返回 nil)
 	var nilMap map[string]string
-	if copyTags(nilMap) != nil {
+	if CopyTags(nilMap) != nil {
 		t.Error("copyTags of nil should return nil")
 	}
 }
 
 func TestCopyTags(t *testing.T) {
 	original := map[string]string{"host": "server1", "region": "us"}
-	copied := copyTags(original)
+	copied := CopyTags(original)
 
 	if !tagsEqual(original, copied) {
 		t.Error("copy should be equal to original")

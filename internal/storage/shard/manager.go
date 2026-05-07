@@ -381,13 +381,16 @@ func (m *ShardManager) PersistAllMetaStores() error {
 	}
 	m.mu.RUnlock()
 
-	var firstErr error
+	var errs []error
 	for _, metaStore := range metaStores {
-		if err := metaStore.Persist(); err != nil && firstErr == nil {
-			firstErr = err
+		if err := metaStore.Persist(); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	return firstErr
+	if len(errs) > 0 {
+		return fmt.Errorf("persist metastores: %d errors: %v", len(errs), errs)
+	}
+	return nil
 }
 
 // GetAllShards 返回所有 Shard 的快照。

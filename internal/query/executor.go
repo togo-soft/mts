@@ -14,6 +14,7 @@ package query
 
 import (
 	"context"
+	"fmt"
 
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -61,15 +62,5 @@ func NewExecutor(engine any) *Executor {
 //	基础实现仅返回空结果，不报错。
 //	后续需要与存储引擎集成以实际查询数据。
 func (e *Executor) Execute(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
-	// 基础实现：返回空结果
-	// 完整实现需要在 engine 注入后完成
-	return &types.QueryRangeResponse{
-		Database:    req.Database,
-		Measurement: req.Measurement,
-		StartTime:   req.StartTime,
-		EndTime:     req.EndTime,
-		TotalCount:  0,
-		HasMore:     false,
-		Rows:        []*types.Row{},
-	}, nil
+	return nil, fmt.Errorf("query executor not implemented: use Engine.Query instead")
 }

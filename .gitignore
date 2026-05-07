@@ -1,3 +1,22 @@
 .idea
 .vscode
 .claude
+
+# e2e test build artifacts
+compaction_test
+grpc_write_query
+integrity
+persistence_test
+retention_test
+simple_integrity
+wal_test
+write_1k
+write_10k
+write_100k
+write_1m
+query_1k
+query_10k
+query_100k
+query_1m
+check_fields
+check_schema

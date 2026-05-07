@@ -74,8 +74,12 @@ func NewFieldValue(v any) *FieldValue {
 	switch val := v.(type) {
 	case int64:
 		return &FieldValue{Value: &FieldValue_IntValue{IntValue: val}}
+	case int:
+		return &FieldValue{Value: &FieldValue_IntValue{IntValue: int64(val)}}
 	case float64:
 		return &FieldValue{Value: &FieldValue_FloatValue{FloatValue: val}}
+	case float32:
+		return &FieldValue{Value: &FieldValue_FloatValue{FloatValue: float64(val)}}
 	case string:
 		return &FieldValue{Value: &FieldValue_StringValue{StringValue: val}}
 	case bool:

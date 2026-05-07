@@ -3,13 +3,14 @@ package query
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"codeberg.org/micro-ts/mts/types"
 )
 
-func TestQueryExecutor_Execute(t *testing.T) {
+func TestQueryExecutor_Execute_NotImplemented(t *testing.T) {
 	executor := NewExecutor(nil)
 
 	req := &types.QueryRangeRequest{
@@ -22,48 +23,43 @@ func TestQueryExecutor_Execute(t *testing.T) {
 	}
 
 	resp, err := executor.Execute(context.TODO(), req)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
+	if err == nil {
+		t.Fatal("expected error for unimplemented executor")
 	}
-
-	if resp == nil {
-		t.Fatalf("expected non-nil response")
+	if !strings.Contains(err.Error(), "not implemented") {
+		t.Errorf("expected 'not implemented' in error, got: %v", err)
+	}
+	if resp != nil {
+		t.Errorf("expected nil response, got %+v", resp)
 	}
 }
 
-func TestQueryExecutor_Execute_BasicFields(t *testing.T) {
+func TestQueryExecutor_NewExecutor(t *testing.T) {
+	executor := NewExecutor(nil)
+	if executor == nil {
+		t.Fatal("expected non-nil executor")
+	}
+}
+
+func TestQueryExecutor_Execute_WithContext(t *testing.T) {
 	executor := NewExecutor(nil)
 
-	now := time.Now()
 	req := &types.QueryRangeRequest{
 		Database:    "testdb",
 		Measurement: "memory",
-		StartTime:   now.UnixNano() - int64(2*time.Hour),
-		EndTime:     now.UnixNano(),
+		StartTime:   time.Now().UnixNano() - int64(2*time.Hour),
+		EndTime:     time.Now().UnixNano(),
 		Fields:      []string{"used", "free"},
 		Limit:       50,
 	}
 
-	resp, err := executor.Execute(context.TODO(), req)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if resp.Database != req.Database {
-		t.Errorf("expected Database %s, got %s", req.Database, resp.Database)
-	}
-	if resp.Measurement != req.Measurement {
-		t.Errorf("expected Measurement %s, got %s", req.Measurement, resp.Measurement)
-	}
-	if resp.StartTime != req.StartTime {
-		t.Errorf("expected StartTime %d, got %d", req.StartTime, resp.StartTime)
-	}
-	if resp.EndTime != req.EndTime {
-		t.Errorf("expected EndTime %d, got %d", req.EndTime, resp.EndTime)
+	_, err := executor.Execute(context.TODO(), req)
+	if err == nil {
+		t.Fatal("expected error for unimplemented executor")
 	}
 }
 
-func TestQueryExecutor_Execute_EmptyResult(t *testing.T) {
+func TestQueryExecutor_Execute_EmptyReq(t *testing.T) {
 	executor := NewExecutor(nil)
 
 	req := &types.QueryRangeRequest{
@@ -75,18 +71,8 @@ func TestQueryExecutor_Execute_EmptyResult(t *testing.T) {
 		Limit:       10,
 	}
 
-	resp, err := executor.Execute(context.TODO(), req)
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	if resp.TotalCount != 0 {
-		t.Errorf("expected TotalCount 0, got %d", resp.TotalCount)
-	}
-	if resp.HasMore {
-		t.Error("expected HasMore to be false")
-	}
-	if len(resp.Rows) != 0 {
-		t.Errorf("expected empty Rows, got %d rows", len(resp.Rows))
+	_, err := executor.Execute(context.TODO(), req)
+	if err == nil {
+		t.Fatal("expected error for unimplemented executor")
 	}
 }
