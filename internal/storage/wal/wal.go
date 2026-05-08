@@ -26,8 +26,8 @@ const (
 // Config 是 WAL 实例的配置。
 type Config struct {
 	Dir          string
-	SegmentSize  int64         // 默认 64MB
-	MaxSegments  int           // 0 = 无限制
+	SegmentSize  int64 // 默认 64MB
+	MaxSegments  int   // 0 = 无限制
 	SyncMode     SyncMode
 	SyncInterval time.Duration // SyncPeriodic 的间隔，默认 1 秒
 	Logger       *slog.Logger
@@ -119,7 +119,7 @@ func (w *WAL) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.seg.size+int64(len(record)) > w.cfg.SegmentSize {
+	if w.seg.size+int64(w.bufPos)+int64(len(record)) > w.cfg.SegmentSize {
 		if err := w.rotateLocked(); err != nil {
 			return 0, err
 		}
@@ -169,7 +169,7 @@ func (w *WAL) WriteBatch(data [][]byte) (int, error) {
 		record := make([]byte, recordSize)
 		record = EncodeRecord(record, TypePointData, d)
 
-		if w.seg.size+int64(len(record)) > w.cfg.SegmentSize {
+		if w.seg.size+int64(w.bufPos)+int64(len(record)) > w.cfg.SegmentSize {
 			if err := w.rotateLocked(); err != nil {
 				return total, err
 			}

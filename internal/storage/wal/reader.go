@@ -65,7 +65,8 @@ func readRecords(file *os.File, startPos int64, fn func(payload []byte) error) (
 		}
 		pos += int64(payloadLen)
 
-		recordBodySize := 4 + int64(recordHeaderSize) + int64(payloadLen)
+		// recordHeaderSize 已包含 CRC32(4) + type(1) + length(4)，无需再加 4
+		recordBodySize := int64(recordHeaderSize) + int64(payloadLen)
 		padding := pad8(int(recordBodySize))
 		if padding > 0 {
 			if _, err := file.Seek(int64(padding), io.SeekCurrent); err != nil {

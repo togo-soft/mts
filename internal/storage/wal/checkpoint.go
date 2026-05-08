@@ -50,15 +50,3 @@ func loadCheckpoint(dir string) (*Checkpoint, error) {
 	}
 	return cp, nil
 }
-
-// removeCheckpoint 删除 checkpoint 文件。
-func removeCheckpoint(dir string) error {
-	path := checkpointPath(dir)
-	if err := os.Remove(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
