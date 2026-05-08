@@ -6,6 +6,7 @@
 //	Record: CRC32(4B) + Type(1B) + Length(4B) + Payload(N) + Padding(0-7B)
 //
 // 文件命名: <generation>_<segment>.wal
+//
 //	generation: 16位 hex (Unix秒)
 //	segment:    8位 hex (序号)
 package wal
@@ -57,9 +58,9 @@ func pad8(length int) int {
 func encodeSegmentHeader(dst []byte, segmentNum uint32) {
 	binary.BigEndian.PutUint32(dst[0:4], magicNumber)
 	binary.BigEndian.PutUint16(dst[4:6], currentVersion)
-	binary.BigEndian.PutUint16(dst[6:8], 0)               // flags
+	binary.BigEndian.PutUint16(dst[6:8], 0) // flags
 	binary.BigEndian.PutUint32(dst[8:12], segmentNum)
-	binary.BigEndian.PutUint16(dst[12:14], 0)              // reserved
+	binary.BigEndian.PutUint16(dst[12:14], 0) // reserved
 }
 
 // decodeSegmentHeader 解码 segment 文件头。
