@@ -59,12 +59,12 @@ func NewCompactionTask(inputFiles []string, outputPath string) *CompactionTask {
 
 // CompactionProgress 描述 compaction 进度。
 type CompactionProgress struct {
-	InputFiles  []string
-	OutputFile  string
-	Progress    int // 0-100
-	Status      string
-	StartedAt   time.Time
-	Err         error
+	InputFiles []string
+	OutputFile string
+	Progress   int // 0-100
+	Status     string
+	StartedAt  time.Time
+	Err        error
 }
 
 // CompactionManager 管理 Shard 的 Compaction。
