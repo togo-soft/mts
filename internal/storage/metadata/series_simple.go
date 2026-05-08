@@ -95,7 +95,7 @@ func marshalTags(tags map[string]string) ([]byte, error) {
 // unmarshalTags 从 JSON 反序列化 tags。
 func unmarshalTags(data []byte) (map[string]string, error) {
 	tags := make(map[string]string)
-	if err := json.Unmarshal(data, tags); err != nil {
+	if err := json.Unmarshal(data, &tags); err != nil {
 		return nil, err
 	}
 	return tags, nil

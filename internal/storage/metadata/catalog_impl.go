@@ -7,6 +7,7 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+	berrors "go.etcd.io/bbolt/errors"
 )
 
 // ===================================
@@ -37,7 +38,7 @@ func (c *catalogStore) CreateDatabase(name string) error {
 func (c *catalogStore) DropDatabase(name string) error {
 	return c.db.Update(func(tx *bolt.Tx) error {
 		if err := tx.DeleteBucket([]byte(name)); err != nil {
-			if err == bolt.ErrBucketNotFound {
+			if err == berrors.ErrBucketNotFound {
 				return fmt.Errorf("database %q not found", name)
 			}
 			return fmt.Errorf("delete database bucket: %w", err)
@@ -100,7 +101,7 @@ func (c *catalogStore) DropMeasurement(database, name string) error {
 			return fmt.Errorf("database %q not found", database)
 		}
 		if err := dbBucket.DeleteBucket([]byte(name)); err != nil {
-			if err == bolt.ErrBucketNotFound {
+			if err == berrors.ErrBucketNotFound {
 				return fmt.Errorf("measurement %q not found", name)
 			}
 			return fmt.Errorf("delete measurement bucket: %w", err)
