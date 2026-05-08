@@ -20,3 +20,4 @@ query_100k
 query_1m
 check_fields
 check_schema
+.worktrees
