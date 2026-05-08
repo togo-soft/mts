@@ -46,6 +46,16 @@ func (m *Manager) Series() SeriesStore { return m.series }
 // Shards 返回 ShardIndex 子系统。
 func (m *Manager) Shards() ShardIndex { return m.shardIndex }
 
+// ListAllDatabases 返回所有数据库名称。
+func (m *Manager) ListAllDatabases() []string {
+	return m.catalog.ListDatabases()
+}
+
+// ListMeasurements 返回指定数据库下的所有 measurement。
+func (m *Manager) ListMeasurements(database string) ([]string, error) {
+	return m.catalog.ListMeasurements(database)
+}
+
 // GetOrCreateSeriesStore 创建绑定 db/meas 的 MeasSeriesStore，供 ShardManager 使用。
 func (m *Manager) GetOrCreateSeriesStore(db, meas string) *MeasSeriesStore {
 	return NewMeasSeriesStore(m.series, db, meas)
