@@ -112,8 +112,8 @@ func (e *Engine) Close() error {
 
 	_ = e.shardManager.FlushAll()
 
-	if err := e.shardManager.PersistAll(); err != nil {
-		return fmt.Errorf("persist metadata: %w", err)
+	if err := e.manager.Sync(); err != nil {
+		return fmt.Errorf("sync metadata: %w", err)
 	}
 
 	if err := e.manager.Close(); err != nil {
