@@ -562,22 +562,10 @@ func Test6_WALRestartRecovery() error {
 	}
 	defer func() { _ = db2.Close() }()
 
-	// 由于 MTS 架构限制，需要先写入一条数据触发 Shard 发现
-	// WAL replay 会在此时恢复第一次会话的数据
-	triggerTime := session1BaseTime + 200*int64(time.Millisecond) // 跳过第一次数据的时间范围
-	triggerPoint := &types.Point{
-		Database:    dbName,
-		Measurement: measurement,
-		Tags:        map[string]string{"host": "trigger"},
-		Timestamp:   triggerTime,
-		Fields: map[string]*types.FieldValue{
-			"usage": types.NewFieldValue(float64(100.0)),
-		},
-	}
-	if err := db2.Write(context.Background(), triggerPoint); err != nil {
-		return fmt.Errorf("write trigger point: %w", err)
-	}
-	fmt.Printf("      写入触发点，时间: %d（触发 Shard 发现和 WAL Replay）\n", triggerTime)
+	// Shard 发现和 WAL replay 在 engine 初始化时自动完成
+	// 无需触发写入点
+	fmt.Printf("      等待 Shard 发现和 WAL Replay 完成...\n")
+	time.Sleep(500 * time.Millisecond) // 等待后台发现完成
 
 	session2BaseTime := time.Now().UnixNano()
 	fmt.Printf("Step 5: 第二次会话 - 写入 100 条新数据\n")
