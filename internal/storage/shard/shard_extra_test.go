@@ -413,85 +413,6 @@ func TestMemTable_FlushMultipleTimes(t *testing.T) {
 	}
 }
 
-func TestWAL_NewWALWithLogger(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	wal, err := NewWAL(tmpDir, 0)
-	if err != nil {
-		t.Fatalf("NewWAL failed: %v", err)
-	}
-
-	if wal.Sequence() != 0 {
-		t.Errorf("expected sequence 0, got %d", wal.Sequence())
-	}
-
-	if err := wal.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-}
-
-func TestWAL_WriteAndSync(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	wal, err := NewWAL(tmpDir, 0)
-	if err != nil {
-		t.Fatalf("NewWAL failed: %v", err)
-	}
-
-	// 写入数据
-	data := []byte("test data")
-	n, err := wal.Write(data)
-	if err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-	if n != len(data) {
-		t.Errorf("expected written %d bytes, got %d", len(data), n)
-	}
-
-	// Sync
-	if err := wal.Sync(); err != nil {
-		t.Fatalf("Sync failed: %v", err)
-	}
-
-	if err := wal.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-}
-
-func TestWAL_ReplayMultipleFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// 创建多个 WAL 文件
-	for seq := 0; seq < 3; seq++ {
-		wal, err := NewWAL(tmpDir, uint64(seq))
-		if err != nil {
-			t.Fatalf("NewWAL failed: %v", err)
-		}
-
-		for i := 0; i < 3; i++ {
-			data := []byte{byte(seq), byte(i)}
-			if _, err := wal.Write(data); err != nil {
-				t.Fatalf("Write failed: %v", err)
-			}
-		}
-
-		if err := wal.Close(); err != nil {
-			t.Fatalf("Close failed: %v", err)
-		}
-	}
-
-	// Replay - 每个文件有3个point，共9个
-	points, err := ReplayWAL(tmpDir)
-	if err != nil {
-		t.Fatalf("ReplayWAL failed: %v", err)
-	}
-
-	// 验证是否读到了数据
-	if len(points) == 0 {
-		t.Log("ReplayWAL returned 0 points - this may be due to file format mismatch")
-	}
-}
-
 func TestSerializePoint(t *testing.T) {
 	p := &types.Point{
 		Timestamp: 1000000000,
@@ -779,46 +700,6 @@ func TestShard_Flush_AfterMultipleWrites(t *testing.T) {
 	}
 
 	_ = s.Close()
-}
-
-func TestWAL_ReplayWalReplayingCorruptedFiles(t *testing.T) {
-	// 测试 replay 时遇到损坏的 WAL 文件
-	tmpDir := t.TempDir()
-
-	// 创建 WAL
-	w, err := NewWAL(tmpDir, 0)
-	if err != nil {
-		t.Fatalf("NewWAL failed: %v", err)
-	}
-
-	// 写入一些正常数据
-	for i := 0; i < 5; i++ {
-		p := &types.Point{
-			Timestamp: int64(i) * 1000,
-			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
-		}
-		data, _ := serializePoint(p)
-		_, _ = w.Write(data)
-	}
-	_ = w.Close()
-
-	// 创建损坏的 WAL 文件
-	corruptedWAL := filepath.Join(tmpDir, padSeq(1)+".wal")
-	if err := os.WriteFile(corruptedWAL, []byte("corrupted data"), 0600); err != nil {
-		t.Fatalf("failed to create corrupted WAL: %v", err)
-	}
-
-	// Replay 应该能跳过损坏的文件继续处理
-	points, err := ReplayWAL(tmpDir)
-	if err != nil {
-		t.Fatalf("ReplayWAL failed: %v", err)
-	}
-
-	// 应该能恢复第一个 WAL 的数据
-	if len(points) != 5 {
-		t.Errorf("expected 5 points from valid WAL, got %d", len(points))
-	}
 }
 
 // TestShard_LevelCompaction_NewShard creates Shard with LevelCompactionConfig.

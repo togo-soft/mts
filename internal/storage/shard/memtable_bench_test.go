@@ -4,7 +4,29 @@ package shard
 import (
 	"testing"
 	"time"
+
+	"codeberg.org/micro-ts/mts/types"
 )
+
+// createBenchPoint 创建典型的时间序列数据点。
+func createBenchPoint() *types.Point {
+	return &types.Point{
+		Database:    "testdb",
+		Measurement: "cpu",
+		Tags: map[string]string{
+			"host":   "server1",
+			"region": "us-west",
+			"env":    "prod",
+		},
+		Timestamp: 1234567890000000000,
+		Fields: map[string]*types.FieldValue{
+			"usage":       types.NewFieldValue(float64(85.5)),
+			"temperature": types.NewFieldValue(int64(65)),
+			"status":      types.NewFieldValue("active"),
+			"flag":        types.NewFieldValue(true),
+		},
+	}
+}
 
 // BenchmarkMemTableWrite 测试 MemTable 写入性能
 // 1000 tps 写入， MemTable 是热路径

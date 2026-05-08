@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
+	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -171,10 +172,26 @@ func TestShard_WriteWithWAL(t *testing.T) {
 	}
 
 	// 验证 WAL 写入
-	points, err := ReplayWAL(filepath.Join(tmpDir, "wal"))
+	w, err := wal.Open(wal.Config{
+		Dir: filepath.Join(tmpDir, "wal"),
+	})
 	if err != nil {
-		t.Fatalf("ReplayWAL failed: %v", err)
+		t.Fatalf("wal.Open failed: %v", err)
 	}
+
+	var points []*types.Point
+	err = w.Replay(func(data []byte) error {
+		p, err := deserializePoint(data)
+		if err != nil {
+			return nil
+		}
+		points = append(points, p)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WAL replay failed: %v", err)
+	}
+	_ = w.Close()
 	if len(points) != 1 {
 		t.Errorf("expected 1 point in WAL, got %d", len(points))
 	}

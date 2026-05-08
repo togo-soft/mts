@@ -105,12 +105,7 @@ func (s *Shard) Close() error {
 			delete(s.tsSidMap, ts)
 		}
 
-		// 4. 停止 WAL 定期同步 goroutine
-		if s.wal != nil && s.walDone != nil {
-			close(s.walDone)
-		}
-
-		// 5. 关闭 WAL
+		// 4. 关闭 WAL
 		if s.wal != nil {
 			if closeErr := s.wal.Close(); closeErr != nil {
 				err = fmt.Errorf("close wal: %w", closeErr)

@@ -20,10 +20,13 @@
 package shard
 
 import (
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"codeberg.org/micro-ts/mts/internal/storage/wal"
 )
 
 // SeriesStore 是 Shard 所需的 Series 操作接口。
@@ -100,8 +103,7 @@ type Shard struct {
 	endTime         int64
 	dir             string
 	memTable        *MemTable
-	wal             *WAL
-	walDone         chan struct{} // WAL 定期同步停止信号
+	wal             *wal.WAL
 	flushDone       chan struct{} // MemTable 定期刷盘停止信号
 	flushTicker     *time.Ticker
 	flushWg         sync.WaitGroup
@@ -144,41 +146,22 @@ func NewShard(cfg ShardConfig) *Shard {
 
 	// 创建 WAL
 	walDir := filepath.Join(cfg.Dir, "wal")
-	wal, err := NewWALWithLogger(walDir, 0, logger)
+	w, err := wal.Open(wal.Config{
+		Dir:          walDir,
+		SegmentSize:  64 * 1024 * 1024,
+		MaxSegments:  5,
+		SyncMode:     wal.SyncPeriodic,
+		SyncInterval: time.Minute,
+		Logger:       logger,
+	})
 	if err != nil {
-		// 如果 WAL 创建失败，使用 nil wal
-		wal = nil
-		logger.Warn("failed to create WAL, writes will not be durable",
-			"walDir", walDir,
-			"error", err)
+		w = nil
+		logger.Warn("failed to open WAL, writes will not be durable",
+			"walDir", walDir, "error", err)
 	}
 
 	// 创建空的 MemTable
 	memTable := NewMemTable(cfg.MemTableCfg)
-
-	// 从 WAL 恢复数据到 MemTable
-	if wal != nil {
-		points, err := ReplayWAL(walDir)
-		if err != nil {
-			logger.Error("failed to replay WAL, some data may be lost",
-				"walDir", walDir,
-				"error", err)
-		} else {
-			for _, p := range points {
-				if writeErr := memTable.Write(p); writeErr != nil {
-					logger.Error("failed to replay WAL point, skipping",
-						"walDir", walDir,
-						"timestamp", p.Timestamp,
-						"error", writeErr)
-				}
-			}
-			if len(points) > 0 {
-				logger.Info("replayed WAL data into MemTable",
-					"walDir", walDir,
-					"pointCount", len(points))
-			}
-		}
-	}
 
 	// 创建 Shard 实例
 	shard := &Shard{
@@ -188,8 +171,7 @@ func NewShard(cfg ShardConfig) *Shard {
 		endTime:     cfg.EndTime,
 		dir:         cfg.Dir,
 		memTable:    memTable,
-		wal:         wal,
-		walDone:     make(chan struct{}),
+		wal:         w,
 		flushDone:   make(chan struct{}),
 		seriesStore: cfg.SeriesStore,
 		sidCache:    make(map[uint64]map[string]string),
@@ -210,11 +192,6 @@ func NewShard(cfg ShardConfig) *Shard {
 				"error", err)
 			shard.levelCompaction = nil
 		}
-	}
-
-	// 启动 WAL 定期同步（如果 WAL 存在）
-	if wal != nil {
-		go wal.StartPeriodicSync(time.Minute, shard.walDone)
 	}
 
 	// 启动定期 Compaction 检查（如果启用了）
@@ -338,4 +315,32 @@ func (s *Shard) doPeriodicFlush() {
 	if err != nil {
 		slog.Error("periodic flush failed", "error", err)
 	}
+}
+
+// ReplayWAL 重放 WAL 数据恢复到 MemTable。
+// 应在 Shard 构建后由 ShardManager 调用。
+func (s *Shard) ReplayWAL() error {
+	if s.wal == nil {
+		return nil
+	}
+
+	return s.wal.Replay(func(data []byte) error {
+		point, err := deserializePoint(data)
+		if err != nil {
+			slog.Warn("WAL replay: failed to deserialize point, skipping", "error", err)
+			return nil
+		}
+
+		sid, err := s.seriesStore.AllocateSID(point.Tags)
+		if err != nil {
+			return fmt.Errorf("WAL replay: allocate SID: %w", err)
+		}
+		s.sidCache[sid] = copyTagsMap(point.Tags)
+		s.tsSidMap[point.Timestamp] = sid
+
+		if err := s.memTable.Write(point); err != nil {
+			return fmt.Errorf("WAL replay: write to memtable: %w", err)
+		}
+		return nil
+	})
 }
