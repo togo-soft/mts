@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/micro-ts/mts/internal/storage/measurement"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -249,7 +248,7 @@ func TestShard_DB_Measurement_Dir(t *testing.T) {
 		StartTime:   1000,
 		EndTime:     2000,
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -266,41 +265,51 @@ func TestShard_DB_Measurement_Dir(t *testing.T) {
 	}
 }
 
-func TestMeasurementMetaStore_SetPersistPath(t *testing.T) {
-	m := measurement.NewMeasurementMetaStore()
-	path := "/tmp/test/meta.json"
-	m.SetPersistPath(path)
+func TestSimpleSeriesStore_BasicAllocate(t *testing.T) {
+	m := metadata.NewSimpleSeriesStore()
+	tags := map[string]string{"host": "server1", "region": "us"}
 
-	// 调用 Persist 不应该出错（路径不存在会创建）
-	err := m.Persist()
+	sid, err := m.AllocateSID(tags)
 	if err != nil {
-		t.Errorf("Persist failed: %v", err)
+		t.Fatal("AllocateSID failed:", err)
+	}
+	if sid != 0 {
+		t.Errorf("expected SID 0, got %d", sid)
+	}
+
+	// 再次分配相同 tags 应返回相同 SID
+	sid2, err := m.AllocateSID(tags)
+	if err != nil {
+		t.Fatal("second AllocateSID failed:", err)
+	}
+	if sid2 != sid {
+		t.Errorf("expected same SID %d, got %d", sid, sid2)
 	}
 }
 
-func TestMeasurementMetaStore_Persist_NoPath(t *testing.T) {
-	m := measurement.NewMeasurementMetaStore()
-	// persistPath 为空，Persist 应该直接返回
-	err := m.Persist()
-	if err != nil {
-		t.Errorf("Persist with no path should succeed, got: %v", err)
+func TestSimpleSeriesStore_GetTags(t *testing.T) {
+	m := metadata.NewSimpleSeriesStore()
+	tags := map[string]string{"host": "server1", "region": "us"}
+
+	sid, _ := m.AllocateSID(tags)
+	got, ok := m.GetTagsBySID(sid)
+	if !ok {
+		t.Fatal("GetTagsBySID returned false")
+	}
+	if got["host"] != "server1" {
+		t.Errorf("expected host=server1, got %s", got["host"])
+	}
+	if got["region"] != "us" {
+		t.Errorf("expected region=us, got %s", got["region"])
 	}
 }
 
-func TestDatabaseMetaStore_MeasurementExists(t *testing.T) {
-	dbMeta := measurement.NewDatabaseMetaStore()
+func TestSimpleSeriesStore_GetTagsNotFound(t *testing.T) {
+	m := metadata.NewSimpleSeriesStore()
 
-	// 初始不存在
-	if dbMeta.MeasurementExists("cpu") {
-		t.Error("cpu should not exist initially")
-	}
-
-	// 创建
-	dbMeta.GetOrCreate("cpu")
-
-	// 现在存在
-	if !dbMeta.MeasurementExists("cpu") {
-		t.Error("cpu should exist after GetOrCreate")
+	_, ok := m.GetTagsBySID(999)
+	if ok {
+		t.Error("expected false for nonexistent SID")
 	}
 }
 
@@ -447,7 +456,7 @@ func TestShardManager_flushLocked_NotCalled(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	})
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/micro-ts/mts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 )
 
 func TestLevelConfig_DefaultLevelConfigs(t *testing.T) {
@@ -201,7 +201,7 @@ func TestLevelCompactionManager_NewLevelCompactionManager(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -229,7 +229,7 @@ func TestLevelCompactionManager_ShouldCompact_Empty(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -254,7 +254,7 @@ func TestLevelCompactionManager_IsOldFormat(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -279,7 +279,7 @@ func TestLevelCompactionManager_Recover_NoCheckpoint(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -424,7 +424,7 @@ func TestLevelCompactionManager_LevelMaxSize(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -455,7 +455,7 @@ func TestLevelCompactionManager_SelectPartsForMerge(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -495,7 +495,7 @@ func TestLevelCompactionManager_Compact_NoParts(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -528,7 +528,7 @@ func TestLevelCompactionManager_Compact_LessThanTwoParts(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -570,7 +570,7 @@ func TestLevelCompactionManager_CollectOverlapParts(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -609,7 +609,7 @@ func TestLevelCompactionManager_StartStop(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -648,7 +648,7 @@ func TestLevelCompactionManager_MigrateFromOldFormat(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -715,7 +715,7 @@ func TestLevelCompactionManager_LevelMaxSize_Extended(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -747,7 +747,7 @@ func TestLevelCompactionManager_ShouldCompactLevel_WithParts(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -781,7 +781,7 @@ func TestLevelCompactionManager_DoPeriodicCompaction(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -832,7 +832,7 @@ func TestLevelCompactionManager_Recover_WithCheckpoint(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -886,7 +886,7 @@ func TestLevelCompactionManager_Recover_WithIncompleteOutput(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
@@ -916,7 +916,7 @@ func TestLevelCompactionManager_NextSeq(t *testing.T) {
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: DefaultMemTableConfig(),
 	}
 
