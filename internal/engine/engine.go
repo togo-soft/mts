@@ -115,7 +115,7 @@ func (e *Engine) Close() error {
 	// 等待 WAL replay 完成
 	e.shardManager.WaitForDiscovery()
 
-	_ = e.shardManager.FlushAll()
+	_ = e.shardManager.CloseAll()
 
 	if err := e.manager.Sync(); err != nil {
 		return fmt.Errorf("sync metadata: %w", err)

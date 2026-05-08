@@ -295,6 +295,24 @@ func (m *ShardManager) FlushAll() error {
 	return firstErr
 }
 
+// CloseAll 关闭所有 Shard，释放资源。
+func (m *ShardManager) CloseAll() error {
+	m.mu.RLock()
+	shards := make([]*Shard, 0, len(m.shards))
+	for _, s := range m.shards {
+		shards = append(shards, s)
+	}
+	m.mu.RUnlock()
+
+	var firstErr error
+	for _, s := range shards {
+		if err := s.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // PersistAll 持久化所有元数据到磁盘（通过 Manager）。
 func (m *ShardManager) PersistAll() error {
 	return m.manager.Sync()
