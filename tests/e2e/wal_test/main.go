@@ -504,6 +504,118 @@ func Test5_WALMultipleShards() error {
 	return nil
 }
 
+// Test6_WALRestartRecovery 测试重启后数据累积
+//
+// 测试场景：
+// 1. 创建 MTS，MemTable 刷盘间隔 5 秒，最大 100 条
+// 2. 写入 100 条数据后关闭（数据在 WAL 中）
+// 3. 重新创建 MTS（相同配置）
+// 4. 写入 100 条新数据
+// 5. 查询期望得到 200 条数据（第一次的 100 条 + 第二次的 100 条）
+func Test6_WALRestartRecovery() error {
+	fmt.Println("\n=== 测试 6: WAL 重启恢复后数据累积 ===")
+
+	tmpDir := filepath.Join(os.TempDir(), "microts_wal_restart_recovery_test")
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// MemTable 配置：刷盘间隔 5 秒，最大 100 条
+	// 这样写入 100 条后不会立即刷盘，数据保留在 WAL 中
+	dbCfg := microts.Config{
+		DataDir:       tmpDir,
+		ShardDuration: time.Hour,
+		MemTableCfg: &microts.MemTableConfig{
+			MaxSize:           64 * 1024 * 1024,
+			MaxCount:          100,                           // 最大 100 条
+			IdleDurationNanos: int64(5 * time.Second),        // 5 秒空闲触发刷盘
+		},
+	}
+
+	dbName := "testdb"
+	measurement := "cpu"
+
+	// ============ 第一次会话 ============
+	fmt.Printf("Step 1: 第一次会话 - 打开数据库\n")
+	db1, err := microts.Open(dbCfg)
+	if err != nil {
+		return fmt.Errorf("open db1: %w", err)
+	}
+
+	session1BaseTime := time.Now().UnixNano()
+	fmt.Printf("Step 2: 第一次会话 - 写入 100 条数据\n")
+	if err := writeTestPoints(db1, dbName, measurement, session1BaseTime, 100, time.Millisecond); err != nil {
+		_ = db1.Close()
+		return fmt.Errorf("write session1 points: %w", err)
+	}
+	fmt.Printf("      写入 %d 条数据，时间范围: [%d, %d]\n", 100, session1BaseTime, session1BaseTime+100*int64(time.Millisecond))
+
+	fmt.Printf("Step 3: 第一次会话 - 关闭数据库\n")
+	if err := db1.Close(); err != nil {
+		return fmt.Errorf("close db1: %w", err)
+	}
+
+	// ============ 第二次会话 ============
+	fmt.Printf("Step 4: 第二次会话 - 重新打开数据库（相同配置）\n")
+	db2, err := microts.Open(dbCfg)
+	if err != nil {
+		return fmt.Errorf("open db2: %w", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	// 由于 MTS 架构限制，需要先写入一条数据触发 Shard 发现
+	// WAL replay 会在此时恢复第一次会话的数据
+	triggerTime := session1BaseTime + 200*int64(time.Millisecond) // 跳过第一次数据的时间范围
+	triggerPoint := &types.Point{
+		Database:    dbName,
+		Measurement: measurement,
+		Tags:        map[string]string{"host": "trigger"},
+		Timestamp:   triggerTime,
+		Fields: map[string]*types.FieldValue{
+			"usage": types.NewFieldValue(float64(100.0)),
+		},
+	}
+	if err := db2.Write(context.Background(), triggerPoint); err != nil {
+		return fmt.Errorf("write trigger point: %w", err)
+	}
+	fmt.Printf("      写入触发点，时间: %d（触发 Shard 发现和 WAL Replay）\n", triggerTime)
+
+	session2BaseTime := time.Now().UnixNano()
+	fmt.Printf("Step 5: 第二次会话 - 写入 100 条新数据\n")
+	if err := writeTestPoints(db2, dbName, measurement, session2BaseTime, 100, time.Millisecond); err != nil {
+		return fmt.Errorf("write session2 points: %w", err)
+	}
+	fmt.Printf("      写入 %d 条数据，时间范围: [%d, %d]\n", 100, session2BaseTime, session2BaseTime+100*int64(time.Millisecond))
+
+	// ============ 验证 ============
+	fmt.Printf("Step 6: 验证数据完整性\n")
+
+	// 查询第一次的数据
+	oldCount, err := queryAndCount(db2, dbName, measurement, session1BaseTime, session1BaseTime+100*int64(time.Millisecond))
+	if err != nil {
+		return fmt.Errorf("query old data failed: %w", err)
+	}
+	fmt.Printf("      第一次数据查询结果: %d 条\n", oldCount)
+
+	// 查询第二次的数据
+	newCount, err := queryAndCount(db2, dbName, measurement, session2BaseTime, session2BaseTime+100*int64(time.Millisecond))
+	if err != nil {
+		return fmt.Errorf("query new data failed: %w", err)
+	}
+	fmt.Printf("      第二次数据查询结果: %d 条\n", newCount)
+
+	// 期望总共 200 条数据
+	expectedTotal := 200
+	actualTotal := oldCount + newCount
+	fmt.Printf("      期望总数: %d 条, 实际总数: %d 条\n", expectedTotal, actualTotal)
+
+	if actualTotal != expectedTotal {
+		return fmt.Errorf("data count mismatch: expected %d, got %d (old=%d, new=%d)", expectedTotal, actualTotal, oldCount, newCount)
+	}
+
+	fmt.Printf("=== 测试 6 通过: WAL 重启恢复后数据累积正常 ===\n")
+	return nil
+}
+
 // ============================================================================
 // 主函数
 // ============================================================================
@@ -525,6 +637,7 @@ func main() {
 		{"WAL Replay 机制", Test3_WALReplay},
 		{"WAL 清理", Test4_WALCleanup},
 		{"多 Shard 场景", Test5_WALMultipleShards},
+		{"WAL 重启恢复后数据累积", Test6_WALRestartRecovery},
 	}
 
 	for _, tc := range tests {

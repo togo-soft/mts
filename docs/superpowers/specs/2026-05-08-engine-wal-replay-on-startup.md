@@ -22,22 +22,24 @@ engine.New()
 
 在 `internal/storage/shard/manager.go` 中：
 
-**新增方法 `discoverAndReplayWAL()`**
-
-在 `NewShardManager()` 构造函数末尾调用，遍历 catalog 获取所有 db/measurement，通过 shardIndex 获取已注册 shard 并进行 WAL replay。
+**新增私有方法 `discoverAndReplayWAL()`（后台运行）**
 
 ```go
 func NewShardManager(...) *ShardManager {
     sm := &ShardManager{...}
-    // 末尾触发主动发现
-    if err := sm.discoverAndReplayWAL(); err != nil {
-        slog.Warn("failed to discover and replay WAL", "error", err)
-    }
+    // 后台触发主动发现，不阻塞构造函数
+    sm.discoveryWg.Add(1)
+    go func() {
+        defer sm.discoveryWg.Done()
+        if err := sm.discoverAndReplayWAL(); err != nil {
+            slog.Warn("failed to discover and replay WAL", "error", err)
+        }
+    }()
     return sm
 }
 ```
 
-**新增私有方法 `discoverAndReplayWAL()`**
+**discoverAndReplayWAL 实现**
 
 ```go
 func (m *ShardManager) discoverAndReplayWAL() error {
@@ -51,9 +53,19 @@ func (m *ShardManager) discoverAndReplayWAL() error {
             shards := m.manager.Shards().ListShards(db, meas)
             for _, info := range shards {
                 // 4. 创建 Shard 实例并回放 WAL
+                m.mu.Lock()
+                key := m.makeKey(db, meas, info.StartTime)
+                if _, ok := m.shards[key]; ok {
+                    m.mu.Unlock()
+                    continue
+                }
+                m.mu.Unlock()
+
                 s := m.loadShardFromIndex(db, meas, info)
                 if s != nil {
-                    m.shards[s.key()] = s
+                    m.mu.Lock()
+                    m.shards[key] = s
+                    m.mu.Unlock()
                 }
             }
         }
@@ -103,6 +115,42 @@ func (m *Manager) ListMeasurements(database string) ([]string, error)
 ```
 
 实现复用到 `catalogStore.ListDatabases()` 和 `catalogStore.ListMeasurements()`。
+
+## 并发安全
+
+- `discoverAndReplayWAL` 在后台 goroutine 运行，不阻塞引擎启动
+- 访问 `m.shards` 时需要加锁保护
+- 发现 shard 时检查是否已存在，避免重复创建
+- `discoverShardsLocked` 遍历文件系统发现 shard 时，仍使用原有逻辑（按需发现）
+
+## Shutdown 处理
+
+Engine Close 时需要等待后台 WAL replay 完成：
+
+```go
+func (e *Engine) Close() error {
+    // ... 现有逻辑 ...
+    e.queryWg.Wait()  // 现有等待查询完成的逻辑
+
+    // 新增：等待 WAL replay 完成
+    e.shardManager.WaitForDiscovery()
+    return nil
+}
+```
+
+在 `ShardManager` 中增加：
+
+```go
+type ShardManager struct {
+    // ... 现有字段 ...
+    discoveryDone chan struct{}
+    discoveryWg   sync.WaitGroup
+}
+
+func (m *ShardManager) WaitForDiscovery() {
+    m.discoveryWg.Wait()
+}
+```
 
 ## 错误处理
 

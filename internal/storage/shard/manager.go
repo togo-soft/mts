@@ -131,7 +131,10 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 
 func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 	metaKey := db + "/" + measurementName
+
+	m.mu.Lock()
 	m.discoveredMeasurements[metaKey] = true
+	m.mu.Unlock()
 
 	measurementDir := filepath.Join(m.dir, db, measurementName)
 	entries, err := os.ReadDir(measurementDir)
@@ -190,25 +193,24 @@ func (m *ShardManager) discoverAndReplayWAL() error {
 	databases := m.manager.ListAllDatabases()
 	for _, db := range databases {
 		// 2. 遍历每个 db 的 measurement
-		measurements, _ := m.manager.ListMeasurements(db)
+		measurements, err := m.manager.ListMeasurements(db)
+		if err != nil {
+			slog.Warn("failed to list measurements", "db", db, "error", err)
+		}
 		for _, meas := range measurements {
 			// 3. 查询 shardIndex 获取已注册 shard
 			shards := m.manager.Shards().ListShards(db, meas)
 			for _, info := range shards {
-				// 4. 检查是否已存在
-				m.mu.Lock()
-				key := m.makeKey(db, meas, info.StartTime)
-				if _, ok := m.shards[key]; ok {
-					m.mu.Unlock()
-					continue
-				}
-				m.mu.Unlock()
-
-				// 5. 创建 Shard 实例并回放 WAL
+				// 4. 创建 Shard 实例并回放 WAL
 				s := m.loadShardFromIndex(db, meas, info)
 				if s != nil {
+					// 5. 双检查确保并发安全
 					m.mu.Lock()
-					m.shards[key] = s
+					if _, ok := m.shards[m.makeKey(db, meas, info.StartTime)]; ok {
+						m.mu.Unlock()
+						continue
+					}
+					m.shards[m.makeKey(db, meas, info.StartTime)] = s
 					m.mu.Unlock()
 				}
 			}
