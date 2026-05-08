@@ -28,11 +28,13 @@ type ShardManager struct {
 	shards                 map[string]*Shard
 	discoveredMeasurements map[string]bool
 	mu                     sync.RWMutex
+	discoveryDone          chan struct{}
+	discoveryWg            sync.WaitGroup
 }
 
 // NewShardManager 创建新的 Shard 管理器。
 func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memtable.MemTableConfig, compactionCfg *compaction.CompactionConfig, mgr *metadata.Manager) *ShardManager {
-	return &ShardManager{
+	sm := &ShardManager{
 		dir:                    dir,
 		shardDuration:          shardDuration,
 		memTableCfg:            memTableCfg,
@@ -40,7 +42,20 @@ func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memta
 		manager:                mgr,
 		shards:                 make(map[string]*Shard),
 		discoveredMeasurements: make(map[string]bool),
+		discoveryDone:          make(chan struct{}),
 	}
+
+	// 后台触发主动发现，不阻塞构造函数
+	sm.discoveryWg.Add(1)
+	go func() {
+		defer sm.discoveryWg.Done()
+		if err := sm.discoverAndReplayWAL(); err != nil {
+			slog.Warn("failed to discover and replay WAL", "error", err)
+		}
+		close(sm.discoveryDone)
+	}()
+
+	return sm
 }
 
 // GetShard 获取或创建指定时间戳对应的 Shard。
@@ -168,6 +183,60 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 		}
 		m.shards[key] = shard
 	}
+}
+
+func (m *ShardManager) discoverAndReplayWAL() error {
+	// 1. 遍历 catalog 获取所有 db
+	databases := m.manager.ListAllDatabases()
+	for _, db := range databases {
+		// 2. 遍历每个 db 的 measurement
+		measurements, _ := m.manager.ListMeasurements(db)
+		for _, meas := range measurements {
+			// 3. 查询 shardIndex 获取已注册 shard
+			shards := m.manager.Shards().ListShards(db, meas)
+			for _, info := range shards {
+				// 4. 检查是否已存在
+				m.mu.Lock()
+				key := m.makeKey(db, meas, info.StartTime)
+				if _, ok := m.shards[key]; ok {
+					m.mu.Unlock()
+					continue
+				}
+				m.mu.Unlock()
+
+				// 5. 创建 Shard 实例并回放 WAL
+				s := m.loadShardFromIndex(db, meas, info)
+				if s != nil {
+					m.mu.Lock()
+					m.shards[key] = s
+					m.mu.Unlock()
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (m *ShardManager) loadShardFromIndex(db, measurement string, info metadata.ShardInfo) *Shard {
+	seriesStore := m.manager.GetOrCreateSeriesStore(db, measurement)
+	s := NewShard(ShardConfig{
+		DB:            db,
+		Measurement:   measurement,
+		StartTime:     info.StartTime,
+		EndTime:       info.EndTime,
+		Dir:           info.DataDir,
+		SeriesStore:   seriesStore,
+		MemTableCfg:   m.memTableCfg,
+		CompactionCfg: m.compactionCfg,
+	})
+	if err := s.ReplayWAL(); err != nil {
+		slog.Warn("failed to replay WAL for discovered shard", "key", info.ID, "error", err)
+	}
+	return s
+}
+
+func (m *ShardManager) WaitForDiscovery() {
+	m.discoveryWg.Wait()
 }
 
 func (m *ShardManager) calcShardStart(timestamp int64) int64 {
