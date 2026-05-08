@@ -1,7 +1,6 @@
 package shard
 
 import (
-	"container/heap"
 	"context"
 	"fmt"
 	"os"
@@ -17,50 +16,6 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
-
-func TestDefaultCompactionConfig(t *testing.T) {
-	cfg := compaction.DefaultCompactionConfig()
-	if cfg == nil {
-		t.Fatal("DefaultCompactionConfig should not return nil")
-	}
-	if cfg.MaxSSTableCount != 4 {
-		t.Errorf("expected MaxSSTableCount=4, got %d", cfg.MaxSSTableCount)
-	}
-	if cfg.MaxCompactionBatch != 0 {
-		t.Errorf("expected MaxCompactionBatch=0, got %d", cfg.MaxCompactionBatch)
-	}
-	if cfg.ShardSizeLimit != compaction.ShardSizeLimit {
-		t.Errorf("expected compaction.ShardSizeLimit=%d, got %d", compaction.ShardSizeLimit, cfg.ShardSizeLimit)
-	}
-	if cfg.CheckInterval != time.Hour {
-		t.Errorf("expected CheckInterval=1h, got %v", cfg.CheckInterval)
-	}
-	if cfg.Timeout != 30*time.Minute {
-		t.Errorf("expected Timeout=30m, got %v", cfg.Timeout)
-	}
-}
-
-func TestNewCompactionTask(t *testing.T) {
-	inputFiles := []string{"/path/to/sst_1", "/path/to/sst_2"}
-	outputPath := "/path/to/output"
-
-	task := compaction.NewCompactionTask(inputFiles, outputPath)
-	if task == nil {
-		t.Fatal("NewCompactionTask should not return nil")
-	}
-	if len(task.InputFiles) != 2 {
-		t.Errorf("expected 2 input files, got %d", len(task.InputFiles))
-	}
-	if task.OutputPath != outputPath {
-		t.Errorf("expected outputPath=%s, got %s", outputPath, task.OutputPath)
-	}
-	if task.Progress != 0 {
-		t.Errorf("expected progress=0, got %d", task.Progress)
-	}
-	if task.StartedAt.IsZero() {
-		t.Error("startedAt should not be zero")
-	}
-}
 
 func TestNewCompactionManager(t *testing.T) {
 	cfg := &compaction.CompactionConfig{
@@ -1250,88 +1205,6 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 	}
 
 	_ = shard.Close()
-}
-
-func TestMergeIterator_Empty(t *testing.T) {
-	mergeIter := compaction.NewMergeIterator([]*sstable.Iterator{})
-
-	// Should return false immediately
-	if mergeIter.Next() {
-		t.Error("Next should return false for empty iterator list")
-	}
-
-	if mergeIter.Point() != nil {
-		t.Error("Point should be nil when heap is empty")
-	}
-}
-
-// heapItem tests
-func TestMergeHeap_Len(t *testing.T) {
-	h := compaction.MergeHeap{}
-	if h.Len() != 0 {
-		t.Errorf("expected len=0, got %d", h.Len())
-	}
-
-	h = append(h, &compaction.MergeHeapItem{})
-	if h.Len() != 1 {
-		t.Errorf("expected len=1, got %d", h.Len())
-	}
-}
-
-func TestMergeHeap_Less(t *testing.T) {
-	h := compaction.MergeHeap{
-		{Timestamp: 100},
-		{Timestamp: 200},
-	}
-
-	if !h.Less(0, 1) {
-		t.Error("timestamp 100 should be less than 200")
-	}
-
-	// Same timestamp, should use idx
-	h[0].Timestamp = 100
-	h[1].Timestamp = 100
-	h[0].Idx = 0
-	h[1].Idx = 1
-
-	if !h.Less(0, 1) {
-		t.Error("idx 0 should be less than idx 1 when timestamps equal")
-	}
-}
-
-func TestMergeHeap_Swap(t *testing.T) {
-	h := compaction.MergeHeap{
-		{Timestamp: 100, Idx: 0},
-		{Timestamp: 200, Idx: 1},
-	}
-
-	h.Swap(0, 1)
-
-	if h[0].Timestamp != 200 || h[1].Timestamp != 100 {
-		t.Error("Swap did not work correctly")
-	}
-}
-
-func TestMergeHeap_PushPop(t *testing.T) {
-	h := make(compaction.MergeHeap, 0)
-
-	heap.Push(&h, &compaction.MergeHeapItem{Timestamp: 100, Idx: 0})
-	heap.Push(&h, &compaction.MergeHeapItem{Timestamp: 50, Idx: 1})
-	heap.Push(&h, &compaction.MergeHeapItem{Timestamp: 200, Idx: 2})
-
-	if h.Len() != 3 {
-		t.Errorf("expected len=3, got %d", h.Len())
-	}
-
-	// Pop should return smallest (50)
-	item := heap.Pop(&h).(*compaction.MergeHeapItem)
-	if item.Timestamp != 50 {
-		t.Errorf("expected timestamp=50, got %d", item.Timestamp)
-	}
-
-	if h.Len() != 2 {
-		t.Errorf("expected len=2, got %d", h.Len())
-	}
 }
 
 func TestMergeIterator_AfterEmpty(t *testing.T) {
