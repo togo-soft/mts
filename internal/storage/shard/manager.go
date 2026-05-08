@@ -201,7 +201,7 @@ func (m *ShardManager) FlushAll() error {
 
 // PersistAll 持久化所有元数据到磁盘（通过 Manager）。
 func (m *ShardManager) PersistAll() error {
-	return m.manager.Persist()
+	return m.manager.Sync()
 }
 
 // GetAllShards 返回所有 Shard 的快照。
