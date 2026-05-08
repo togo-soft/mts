@@ -98,6 +98,17 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		slog.Warn("failed to replay WAL for new shard", "key", key, "error", err)
 	}
 	m.shards[key] = s
+
+	// 注册到 shardIndex
+	if err := m.manager.Shards().RegisterShard(db, measurementName, metadata.ShardInfo{
+		ID:        key,
+		StartTime: startTime,
+		EndTime:   endTime,
+		DataDir:   shardDir,
+	}); err != nil {
+		slog.Warn("failed to register shard", "key", key, "error", err)
+	}
+
 	return s, nil
 }
 
