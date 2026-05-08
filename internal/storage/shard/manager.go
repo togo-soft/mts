@@ -209,6 +209,7 @@ func (m *ShardManager) discoverAndReplayWAL() error {
 			slog.Warn("failed to list measurements", "db", db, "error", err)
 		}
 		for _, meas := range measurements {
+			metaKey := db + "/" + meas
 			// 3. 查询 shardIndex 获取已注册 shard
 			shards := m.manager.Shards().ListShards(db, meas)
 			for _, info := range shards {
@@ -225,6 +226,10 @@ func (m *ShardManager) discoverAndReplayWAL() error {
 					m.mu.Unlock()
 				}
 			}
+			// 标记已发现，避免重复发现导致 WAL 数据丢失
+			m.mu.Lock()
+			m.discoveredMeasurements[metaKey] = true
+			m.mu.Unlock()
 		}
 	}
 	return nil
