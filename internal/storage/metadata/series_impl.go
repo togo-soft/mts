@@ -260,26 +260,35 @@ func (s *seriesStore) rebuildCache() error {
 			if len(dbName) > 0 && dbName[0] == '_' {
 				return nil
 			}
-			return dbBucket.ForEach(func(measName []byte, measBucket *bolt.Bucket) error {
+			cur := dbBucket.Cursor()
+			for k, v := cur.First(); k != nil; k, v = cur.Next() {
+				if v != nil {
+					continue
+				}
+				measBucket := dbBucket.Bucket(k)
+				if measBucket == nil {
+					continue
+				}
+				measName := string(k)
 				seriesBucket := measBucket.Bucket([]byte("series"))
 				if seriesBucket == nil {
-					return nil
+					continue
 				}
-				c := seriesBucket.Cursor()
-				for k, v := c.First(); k != nil; k, v = c.Next() {
-					if len(k) == 0 || k[0] == '_' {
+				sc := seriesBucket.Cursor()
+				for sk, sv := sc.First(); sk != nil; sk, sv = sc.Next() {
+					if len(sk) == 0 || sk[0] == '_' {
 						continue
 					}
-					sid := decodeSIDKey(k)
-					tags, err := unmarshalTags(v)
+					sid := decodeSIDKey(sk)
+					tags, err := unmarshalTags(sv)
 					if err != nil {
 						continue
 					}
-					ck := s.cacheKey(string(dbName), string(measName), sid)
+					ck := s.cacheKey(string(dbName), measName, sid)
 					s.cache.Store(ck, tags)
 				}
-				return nil
-			})
+			}
+			return nil
 		})
 	})
 }
