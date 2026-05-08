@@ -639,7 +639,7 @@ func TestLevelCompactionManager_MigrateFromOldFormat(t *testing.T) {
 
 	// 创建旧的扁平结构 SSTable 目录
 	oldSstDir := filepath.Join(dataDir, "sst_00000000000000000001")
-	_ = os.MkdirAll(oldSstDir, 0755)
+	_ = os.MkdirAll(oldSstDir, 0700)
 
 	// 创建 shard
 	cfg := ShardConfig{
@@ -788,13 +788,25 @@ func TestLevelCompactionManager_DoPeriodicCompaction(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := &LevelCompactionConfig{
-		Enabled:       true,
-		CheckInterval: 10 * time.Millisecond,
-		Timeout:       time.Minute,
-	}
+	lcmCfg := DefaultLevelCompactionConfig()
+	lcmCfg.CheckInterval = 10 * time.Millisecond
 
 	lcm, _ := NewLevelCompactionManager(shard, lcmCfg)
+
+	// 添加 12 个 L0 parts 以触发 ShouldCompact
+	for i := 0; i < 12; i++ {
+		lcm.manifest.AddPart(0, PartInfo{
+			Name:    fmt.Sprintf("sst_%020d", i),
+			Size:    1 * 1024 * 1024,
+			MinTime: int64(i) * 1000,
+			MaxTime: int64(i+1) * 1000,
+		})
+	}
+
+	// 验证 ShouldCompact 返回 true
+	if !lcm.ShouldCompact() {
+		t.Fatal("ShouldCompact should return true with 12 L0 parts")
+	}
 
 	// 启动定期检查
 	lcm.StartPeriodicCheck()
@@ -934,5 +946,66 @@ func TestLevelCompactionManager_NextSeq(t *testing.T) {
 	}
 	if seq2 != seq1+1 {
 		t.Error("NextSeq should increment by 1")
+	}
+}
+
+func TestLevelCompactionManager_SaveManifest(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := ShardConfig{
+		DB:          "testdb",
+		Measurement: "test",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	}
+
+	shard := NewShard(cfg)
+	defer func() { _ = shard.Close() }()
+
+	lcmCfg := DefaultLevelCompactionConfig()
+	lcm, _ := NewLevelCompactionManager(shard, lcmCfg)
+
+	// Add a part
+	lcm.AddPart(0, PartInfo{
+		Name: "test_part",
+		Size: 1024,
+	})
+
+	// SaveManifest should succeed
+	err := lcm.SaveManifest()
+	if err != nil {
+		t.Fatalf("SaveManifest failed: %v", err)
+	}
+}
+
+func TestLevelCompactionManager_Config(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := ShardConfig{
+		DB:          "testdb",
+		Measurement: "test",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: DefaultMemTableConfig(),
+	}
+
+	shard := NewShard(cfg)
+	defer func() { _ = shard.Close() }()
+
+	lcmCfg := DefaultLevelCompactionConfig()
+	lcm, _ := NewLevelCompactionManager(shard, lcmCfg)
+
+	// Config should return the same config
+	returnedCfg := lcm.Config()
+	if returnedCfg != lcmCfg {
+		t.Error("Config should return the same config instance")
+	}
+	if returnedCfg == nil {
+		t.Error("Config should not return nil")
 	}
 }

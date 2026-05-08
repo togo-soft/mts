@@ -291,7 +291,7 @@ func TestLevelCompactionE2E_OldFormatMigration(t *testing.T) {
 
 	// 创建旧的扁平结构 SSTable
 	oldSstDir := filepath.Join(dataDir, "sst_00000000000000000001")
-	if err := os.MkdirAll(oldSstDir, 0755); err != nil {
+	if err := os.MkdirAll(oldSstDir, 0700); err != nil {
 		t.Fatalf("failed to create old SSTable dir: %v", err)
 	}
 

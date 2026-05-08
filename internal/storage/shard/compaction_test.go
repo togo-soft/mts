@@ -293,7 +293,7 @@ func TestCompactionManager_IsSSTableInWrite(t *testing.T) {
 
 	// Create a fake SSTable directory
 	sstDir := filepath.Join(tmpDir, "data", "sst_test")
-	_ = os.MkdirAll(sstDir, 0755)
+	_ = os.MkdirAll(sstDir, 0700)
 
 	// Should not be in write state initially
 	if cm.isSSTableInWrite(sstDir) {
@@ -331,7 +331,7 @@ func TestCompactionManager_MarkUnmarkSSTableWriting(t *testing.T) {
 
 	// Create a fake SSTable directory
 	sstDir := filepath.Join(tmpDir, "data", "sst_test")
-	_ = os.MkdirAll(sstDir, 0755)
+	_ = os.MkdirAll(sstDir, 0700)
 
 	// Mark as writing
 	err := cm.markSSTableWriting(sstDir)
@@ -538,7 +538,7 @@ func TestCompactionManager_VerifyOutput_MissingFiles(t *testing.T) {
 
 	// Create directory without required files
 	outputPath := filepath.Join(tmpDir, "output")
-	_ = os.MkdirAll(outputPath, 0755)
+	_ = os.MkdirAll(outputPath, 0700)
 
 	err := cm.verifyOutput(outputPath)
 	if err == nil {
@@ -838,7 +838,7 @@ func TestDirSize(t *testing.T) {
 
 	// Create a directory with some files
 	subDir := filepath.Join(tmpDir, "subdir")
-	_ = os.MkdirAll(subDir, 0755)
+	_ = os.MkdirAll(subDir, 0700)
 
 	// Write some test files
 	_ = os.WriteFile(filepath.Join(subDir, "file1.txt"), []byte("hello"), 0644)
@@ -2066,4 +2066,106 @@ func TestCompactionManager_Compact_VerifyInputFilesDeleted(t *testing.T) {
 	}
 
 	_ = shard.Close()
+}
+
+func TestCompactionManager_GetProgress_NoTask(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := ShardConfig{
+		DB:            "testdb",
+		Measurement:   "test",
+		StartTime:     0,
+		EndTime:       time.Hour.Nanoseconds(),
+		Dir:           tmpDir,
+		SeriesStore:   metadata.NewSimpleSeriesStore(),
+		MemTableCfg:   DefaultMemTableConfig(),
+		CompactionCfg: DefaultCompactionConfig(),
+	}
+
+	shard := NewShard(cfg)
+	cm := shard.compaction
+
+	// No task running, should return nil
+	progress := cm.GetProgress()
+	if progress != nil {
+		t.Error("GetProgress should return nil when no task is running")
+	}
+
+	_ = shard.Close()
+}
+
+func TestCompactionManager_reportProgress(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := ShardConfig{
+		DB:            "testdb",
+		Measurement:   "test",
+		StartTime:     0,
+		EndTime:       time.Hour.Nanoseconds(),
+		Dir:           tmpDir,
+		SeriesStore:   metadata.NewSimpleSeriesStore(),
+		MemTableCfg:   DefaultMemTableConfig(),
+		CompactionCfg: DefaultCompactionConfig(),
+	}
+
+	shard := NewShard(cfg)
+	defer func() { _ = shard.Close() }()
+	cm := shard.compaction
+
+	// Set a mock current task
+	cm.mu.Lock()
+	cm.currentTask = &CompactionProgress{
+		Status:   "running",
+		Progress: 0,
+	}
+	cm.mu.Unlock()
+
+	// Report progress
+	cm.reportProgress(50)
+
+	// Verify progress was updated
+	cm.mu.Lock()
+	if cm.currentTask.Progress != 50 {
+		t.Errorf("expected Progress=50, got %d", cm.currentTask.Progress)
+	}
+	cm.mu.Unlock()
+
+	// Test with nil task (should not panic)
+	cm.mu.Lock()
+	cm.currentTask = nil
+	cm.mu.Unlock()
+	cm.reportProgress(100) // Should not panic
+}
+
+func TestSSTableRef_IsUnused(t *testing.T) {
+	ref := &SSTableRef{}
+
+	// Initially unused (refCnt=0)
+	if !ref.IsUnused() {
+		t.Error("new ref should be unused")
+	}
+
+	// Acquire makes it used
+	ref.Acquire()
+	if ref.IsUnused() {
+		t.Error("ref should not be unused after Acquire")
+	}
+
+	// Release makes it unused again
+	ref.Release()
+	if !ref.IsUnused() {
+		t.Error("ref should be unused after Release")
+	}
+
+	// Multiple acquires/releases
+	ref.Acquire()
+	ref.Acquire()
+	ref.Acquire()
+	if ref.IsUnused() {
+		t.Error("ref should not be unused with count=3")
+	}
+	ref.Release()
+	ref.Release()
+	ref.Release()
+	if !ref.IsUnused() {
+		t.Error("ref should be unused after all releases")
+	}
 }

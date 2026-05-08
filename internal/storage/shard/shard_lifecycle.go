@@ -2,6 +2,7 @@ package shard
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
@@ -11,9 +12,11 @@ import (
 //
 // 关闭流程：
 //
-//  1. 刷盘 MemTable 数据到 SSTable
-//  2. 关闭 WAL
-//  3. 清理 tsSidMap 和 sstSeq
+//  1. 使用 sync.Once 确保 Close 只执行一次
+//  2. 停止 MemTable 定期刷盘检查（需要先于 s.mu 获取，以避免死锁）
+//  3. 刷盘 MemTable 数据到 SSTable
+//  4. 关闭 WAL
+//  5. 清理 tsSidMap 和 sstSeq
 //
 // 错误处理：
 //
@@ -21,83 +24,111 @@ import (
 //	如果刷盘成功但 WAL 关闭失败，数据已在 SSTable 中，不会丢失。
 //	关闭后 Shard 不可再使用。
 func (s *Shard) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 1. 先刷写 MemTable 到 SSTable
-	// 如果使用 Level Compaction，调用 flushLocked 以保持一致的处理逻辑
-	if s.levelCompaction != nil {
-		if err := s.flushLocked(); err != nil {
-			// 即使失败也要继续关闭 WAL
-			if s.wal != nil {
-				_ = s.wal.Close()
-			}
-			return fmt.Errorf("flush memtable: %w", err)
+	var err error
+	s.closeOnce.Do(func() {
+		// 1. 先停止 MemTable 定期刷盘检查，避免与 s.mu 形成死锁
+		// 注意：这里需要在获取 s.mu 之前停止定时任务，因为 doPeriodicFlush
+		// 会尝试获取 s.mu，如果我们在持有 s.mu 时等待 flushWg，
+		// 而定时任务恰好在执行 doPeriodicFlush，会导致死锁。
+		if s.flushDone != nil {
+			close(s.flushDone)
+			s.flushWg.Wait()
 		}
-	} else {
-		// 平坦 Compaction 的刷盘逻辑
-		points := s.memTable.Flush()
-		if len(points) > 0 {
-			w, err := sstable.NewWriter(s.dir, s.sstSeq, 0)
-			if err != nil {
-				// 即使 writer 创建失败，也要继续关闭 WAL
-				if s.wal != nil {
-					_ = s.wal.Close()
-				}
-				return fmt.Errorf("create sstable writer: %w", err)
-			}
-			s.sstSeq++
 
-			if err := w.WritePoints(points, s.tsSidMap); err != nil {
-				_ = w.Close()
-				if s.wal != nil {
-					_ = s.wal.Close()
-				}
-				return fmt.Errorf("write points to sstable: %w", err)
-			}
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-			if err := w.Close(); err != nil {
+		// 2. 先刷写 MemTable 到 SSTable
+		// 如果使用 Level Compaction，调用 flushLocked 以保持一致的处理逻辑
+		if s.levelCompaction != nil {
+			if flushErr := s.flushLocked(); flushErr != nil {
+				// 即使失败也要继续关闭 WAL
 				if s.wal != nil {
-					_ = s.wal.Close()
+					if closeErr := s.wal.Close(); closeErr != nil {
+						slog.Warn("wal close failed after memtable flush error",
+							"flushErr", flushErr, "walCloseErr", closeErr)
+					}
 				}
-				return fmt.Errorf("close sstable writer: %w", err)
+				err = fmt.Errorf("flush memtable: %w", flushErr)
+				return
 			}
+		} else {
+			// 平坦 Compaction 的刷盘逻辑
+			points := s.memTable.Flush()
+			if len(points) > 0 {
+				w, wErr := sstable.NewWriter(s.dir, s.sstSeq, 0)
+				if wErr != nil {
+					// 即使 writer 创建失败，也要继续关闭 WAL
+					if s.wal != nil {
+						if closeErr := s.wal.Close(); closeErr != nil {
+							slog.Warn("wal close failed after writer create error",
+								"writerErr", wErr, "walCloseErr", closeErr)
+						}
+					}
+					err = fmt.Errorf("create sstable writer: %w", wErr)
+					return
+				}
+				s.sstSeq++
 
-			// 清理已刷盘的 timestamp→sid 映射
-			for _, p := range points {
-				delete(s.tsSidMap, p.Timestamp)
+				if writeErr := w.WritePoints(points, s.tsSidMap); writeErr != nil {
+					_ = w.Close()
+					if s.wal != nil {
+						if closeErr := s.wal.Close(); closeErr != nil {
+							slog.Warn("wal close failed after write error",
+								"writeErr", writeErr, "walCloseErr", closeErr)
+						}
+					}
+					err = fmt.Errorf("write points to sstable: %w", writeErr)
+					return
+				}
+
+				if closeErr := w.Close(); closeErr != nil {
+					if s.wal != nil {
+						if walCloseErr := s.wal.Close(); walCloseErr != nil {
+							slog.Warn("wal close failed after writer close error",
+								"writerCloseErr", closeErr, "walCloseErr", walCloseErr)
+						}
+					}
+					err = fmt.Errorf("close sstable writer: %w", closeErr)
+					return
+				}
+
+				// 清理已刷盘的 timestamp→sid 映射
+				for _, p := range points {
+					delete(s.tsSidMap, p.Timestamp)
+				}
 			}
 		}
-	}
 
-	// 2. 清理剩余的 tsSidMap（不再需要）
-	for ts := range s.tsSidMap {
-		delete(s.tsSidMap, ts)
-	}
-
-	// 3. 停止 WAL 定期同步 goroutine
-	if s.wal != nil && s.walDone != nil {
-		close(s.walDone)
-	}
-
-	// 4. 关闭 WAL
-	if s.wal != nil {
-		if err := s.wal.Close(); err != nil {
-			return fmt.Errorf("close wal: %w", err)
+		// 3. 清理剩余的 tsSidMap（不再需要）
+		for ts := range s.tsSidMap {
+			delete(s.tsSidMap, ts)
 		}
-	}
 
-	// 5. 停止 Compaction Manager
-	if s.compaction != nil {
-		s.compaction.Stop()
-	}
+		// 4. 停止 WAL 定期同步 goroutine
+		if s.wal != nil && s.walDone != nil {
+			close(s.walDone)
+		}
 
-	// 6. 停止 Level Compaction Manager
-	if s.levelCompaction != nil {
-		s.levelCompaction.Stop()
-	}
+		// 5. 关闭 WAL
+		if s.wal != nil {
+			if closeErr := s.wal.Close(); closeErr != nil {
+				err = fmt.Errorf("close wal: %w", closeErr)
+				return
+			}
+		}
 
-	return nil
+		// 6. 停止 Compaction Manager
+		if s.compaction != nil {
+			s.compaction.Stop()
+		}
+
+		// 7. 停止 Level Compaction Manager
+		if s.levelCompaction != nil {
+			s.levelCompaction.Stop()
+		}
+	})
+	return err
 }
 
 // DataDir 返回 Shard 的数据目录。

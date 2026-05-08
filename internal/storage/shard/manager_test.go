@@ -320,7 +320,7 @@ func TestShardManager_GetShard_DiscoverExisting(t *testing.T) {
 
 	// 手动创建一个 shard 目录结构
 	shardDir := filepath.Join(tmpDir, "db1", "cpu", "0_3600000000000")
-	if err := os.MkdirAll(shardDir, 0755); err != nil {
+	if err := os.MkdirAll(shardDir, 0700); err != nil {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
@@ -349,7 +349,7 @@ func TestShardManager_GetShard_DiscoverMultipleExisting(t *testing.T) {
 		start := baseTime * int64(i)
 		end := start + baseTime
 		shardDir := filepath.Join(tmpDir, "db1", "cpu", fmt.Sprintf("%d_%d", start, end))
-		if err := os.MkdirAll(shardDir, 0755); err != nil {
+		if err := os.MkdirAll(shardDir, 0700); err != nil {
 			t.Fatalf("failed to create shard dir: %v", err)
 		}
 	}
@@ -371,13 +371,13 @@ func TestShardManager_GetShard_InvalidDirectory(t *testing.T) {
 
 	// 手动创建包含无效目录名的目录结构
 	measDir := filepath.Join(tmpDir, "db1", "cpu")
-	if err := os.MkdirAll(measDir, 0755); err != nil {
+	if err := os.MkdirAll(measDir, 0700); err != nil {
 		t.Fatalf("failed to create measurement dir: %v", err)
 	}
 
 	// 创建无效的 shard 目录
 	invalidDir := filepath.Join(measDir, "invalid_name")
-	if err := os.MkdirAll(invalidDir, 0755); err != nil {
+	if err := os.MkdirAll(invalidDir, 0700); err != nil {
 		t.Fatalf("failed to create invalid dir: %v", err)
 	}
 

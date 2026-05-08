@@ -1625,3 +1625,238 @@ func TestShard_DurationMethod(t *testing.T) {
 
 	_ = s.Close()
 }
+
+func TestShard_PeriodicFlushCheck_IdleTimeout(t *testing.T) {
+	// 测试定时刷盘检查 - 空闲超时触发
+	tmpDir := t.TempDir()
+
+	cfg := &MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          3000,
+		IdleDurationNanos: 100 * int64(time.Millisecond), // 100ms 空闲触发
+	}
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: cfg,
+	})
+
+	// 写入一些数据，但不触发任何刷盘条件
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 此时 MemTable 有数据，但不应该触发刷盘
+	count := s.memTable.Count()
+	if count != 10 {
+		t.Errorf("expected 10 entries in memtable, got %d", count)
+	}
+
+	// 等待空闲超时触发（100ms + 一些缓冲时间）
+	time.Sleep(200 * time.Millisecond)
+
+	// 验证定时刷盘已触发
+	count = s.memTable.Count()
+	if count != 0 {
+		t.Errorf("expected 0 entries after periodic flush, got %d", count)
+	}
+
+	_ = s.Close()
+}
+
+func TestShard_PeriodicFlushCheck_CloseStopsTicker(t *testing.T) {
+	// 测试 Close 正确停止定时刷盘
+	tmpDir := t.TempDir()
+
+	cfg := &MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          3000,
+		IdleDurationNanos: 50 * int64(time.Millisecond),
+	}
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: cfg,
+	})
+
+	// 写入数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 关闭 shard
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// 验证 flushDone 已关闭
+	select {
+	case <-s.flushDone:
+		// expected
+	default:
+		t.Error("flushDone should be closed after Close")
+	}
+}
+
+func TestShard_PeriodicFlushCheck_DefaultInterval(t *testing.T) {
+	// 测试默认检查间隔（IdleDuration 为 0 时）
+	tmpDir := t.TempDir()
+
+	cfg := &MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          3000,
+		IdleDurationNanos: 0, // 禁用空闲超时
+	}
+
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: cfg,
+	})
+
+	// 写入数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 由于 IdleDuration 为 0，默认使用 10 秒间隔
+	// 空闲超时不会触发，但我们可以通过关闭来验证 ticker 正常工作
+
+	_ = s.Close()
+}
+
+func TestShard_triggerBackgroundCompaction_LevelCompaction(t *testing.T) {
+	// 测试 triggerBackgroundCompaction 触发 level compaction
+	tmpDir := t.TempDir()
+
+	cfg := DefaultLevelCompactionConfig()
+	cfg.CheckInterval = time.Hour // 避免自动 compaction 干扰
+
+	s := NewShard(ShardConfig{
+		DB:                 "db1",
+		Measurement:        "cpu",
+		StartTime:          0,
+		EndTime:            time.Hour.Nanoseconds(),
+		Dir:                tmpDir,
+		SeriesStore:        metadata.NewSimpleSeriesStore(),
+		MemTableCfg:        DefaultMemTableConfig(),
+		LevelCompactionCfg: cfg,
+	})
+
+	// 添加 10+ L0 parts 让 ShouldCompact 返回 true
+	for i := 0; i < 12; i++ {
+		s.levelCompaction.AddPart(0, PartInfo{
+			Name:    fmt.Sprintf("sst_%020d", i),
+			Size:    1 * 1024 * 1024,
+			MinTime: int64(i) * 1000,
+			MaxTime: int64(i+1) * 1000,
+		})
+	}
+
+	// 写入一些数据到 MemTable
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 验证 ShouldCompact 返回 true
+	if !s.levelCompaction.ShouldCompact() {
+		t.Fatal("ShouldCompact should return true with 12 L0 parts")
+	}
+
+	// 调用 flushLocked，它会在末尾调用 triggerBackgroundCompaction
+	err := s.flushLocked()
+	if err != nil {
+		t.Fatalf("flushLocked failed: %v", err)
+	}
+
+	// 等待一小段时间让后台 goroutine 启动
+	time.Sleep(50 * time.Millisecond)
+
+	_ = s.Close()
+}
+
+func TestShard_triggerBackgroundCompaction_LevelCompactionNoTrigger(t *testing.T) {
+	// 测试 triggerBackgroundCompaction 在不需要 compaction 时不触发
+	tmpDir := t.TempDir()
+
+	cfg := DefaultLevelCompactionConfig()
+	cfg.CheckInterval = time.Hour
+
+	s := NewShard(ShardConfig{
+		DB:                 "db1",
+		Measurement:        "cpu",
+		StartTime:          0,
+		EndTime:            time.Hour.Nanoseconds(),
+		Dir:                tmpDir,
+		SeriesStore:        metadata.NewSimpleSeriesStore(),
+		MemTableCfg:        DefaultMemTableConfig(),
+		LevelCompactionCfg: cfg,
+	})
+
+	// 不添加任何 L0 parts，ShouldCompact 应返回 false
+	if s.levelCompaction.ShouldCompact() {
+		t.Fatal("ShouldCompact should return false with 0 L0 parts")
+	}
+
+	// 写入一些数据
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: int64(i) * 1e7,
+			Tags:      map[string]string{"host": "server1"},
+			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+	}
+
+	// 调用 flushLocked，不会触发 background compaction
+	err := s.flushLocked()
+	if err != nil {
+		t.Fatalf("flushLocked failed: %v", err)
+	}
+
+	_ = s.Close()
+}

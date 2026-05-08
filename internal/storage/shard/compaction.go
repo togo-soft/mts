@@ -200,7 +200,7 @@ func (cm *CompactionManager) isSSTableInWrite(sstPath string) bool {
 
 // markSSTableWriting 开始写入标记。
 func (cm *CompactionManager) markSSTableWriting(sstPath string) error {
-	if err := os.MkdirAll(sstPath, 0755); err != nil {
+	if err := os.MkdirAll(sstPath, 0700); err != nil {
 		return err
 	}
 	writingFlag := filepath.Join(sstPath, ".writing")

@@ -102,6 +102,10 @@ type Shard struct {
 	memTable        *MemTable
 	wal             *WAL
 	walDone         chan struct{} // WAL 定期同步停止信号
+	flushDone       chan struct{} // MemTable 定期刷盘停止信号
+	flushTicker     *time.Ticker
+	flushWg         sync.WaitGroup
+	closeOnce       sync.Once // 防止 Close 重复调用
 	seriesStore     SeriesStore
 	sidCache        map[uint64]map[string]string // sid → tags 缓存
 	tsSidMap        map[int64]uint64             // timestamp → sid 映射
@@ -186,6 +190,7 @@ func NewShard(cfg ShardConfig) *Shard {
 		memTable:    memTable,
 		wal:         wal,
 		walDone:     make(chan struct{}),
+		flushDone:   make(chan struct{}),
 		seriesStore: cfg.SeriesStore,
 		sidCache:    make(map[uint64]map[string]string),
 		tsSidMap:    make(map[int64]uint64),
@@ -221,6 +226,9 @@ func NewShard(cfg ShardConfig) *Shard {
 	if shard.levelCompaction != nil {
 		shard.levelCompaction.StartPeriodicCheck()
 	}
+
+	// 启动 MemTable 定期刷盘检查
+	shard.startPeriodicFlushCheck()
 
 	return shard
 }
@@ -273,4 +281,61 @@ func (s *Shard) ContainsTime(ts int64) bool {
 //   - time.Duration: 时间窗口长度
 func (s *Shard) Duration() time.Duration {
 	return time.Duration(s.endTime - s.startTime)
+}
+
+// startPeriodicFlushCheck 启动 MemTable 定期刷盘检查。
+//
+// 检查逻辑：
+//
+//   - 定期检查 MemTable 是否满足刷盘条件
+//   - 检查间隔为 IdleDuration/2，最小为 100ms，最大为 30 秒
+//   - 如果 IdleDuration 为 0，使用默认间隔 10 秒
+//
+// 注意：
+//
+//	此方法在 Shard 启动时自动调用，无需手动调用。
+func (s *Shard) startPeriodicFlushCheck() {
+	idleDuration := s.memTable.idleTimeout
+	var interval time.Duration
+	if idleDuration > 0 {
+		interval = idleDuration / 2
+		// 确保间隔在合理范围内
+		if interval < 100*time.Millisecond {
+			interval = 100 * time.Millisecond
+		} else if interval > 30*time.Second {
+			interval = 30 * time.Second
+		}
+	} else {
+		// 默认间隔
+		interval = 10 * time.Second
+	}
+
+	s.flushTicker = time.NewTicker(interval)
+	s.flushWg.Add(1)
+	go func() {
+		defer s.flushWg.Done()
+		for {
+			select {
+			case <-s.flushTicker.C:
+				s.doPeriodicFlush()
+			case <-s.flushDone:
+				s.flushTicker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+// doPeriodicFlush 定时执行的 MemTable 刷盘检查。
+func (s *Shard) doPeriodicFlush() {
+	if !s.memTable.ShouldFlush() {
+		return
+	}
+
+	s.mu.Lock()
+	err := s.flushLocked()
+	s.mu.Unlock()
+	if err != nil {
+		slog.Error("periodic flush failed", "error", err)
+	}
 }

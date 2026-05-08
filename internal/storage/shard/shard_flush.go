@@ -53,9 +53,13 @@ func (s *Shard) flushLocked() error {
 	}
 
 	if err := w.WritePoints(points, s.tsSidMap); err != nil {
-		_ = w.Close()
+		if closeErr := w.Close(); closeErr != nil {
+			slog.Warn("failed to close sstable writer after write error", "error", closeErr)
+		}
 		if s.compaction != nil && !s.levelCompactionEnabled() {
-			_ = s.compaction.unmarkSSTableWriting(sstPath)
+			if unmarkErr := s.compaction.unmarkSSTableWriting(sstPath); unmarkErr != nil {
+				slog.Warn("failed to unmark sstable after write error", "error", unmarkErr)
+			}
 		}
 		return fmt.Errorf("write points to sstable: %w", err)
 	}
@@ -66,7 +70,9 @@ func (s *Shard) flushLocked() error {
 
 	if err := w.Close(); err != nil {
 		if s.compaction != nil && !s.levelCompactionEnabled() {
-			_ = s.compaction.unmarkSSTableWriting(sstPath)
+			if unmarkErr := s.compaction.unmarkSSTableWriting(sstPath); unmarkErr != nil {
+				slog.Warn("failed to unmark sstable after close error", "error", unmarkErr)
+			}
 		}
 		return fmt.Errorf("close sstable writer: %w", err)
 	}
@@ -104,7 +110,9 @@ func (s *Shard) flushLocked() error {
 	}
 
 	if s.wal != nil {
-		_ = s.wal.TruncateCurrent()
+		if err := s.wal.TruncateCurrent(); err != nil {
+			slog.Warn("wal truncate failed after flush", "error", err)
+		}
 	}
 
 	for i := range points {

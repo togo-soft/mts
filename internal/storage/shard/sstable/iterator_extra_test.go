@@ -1325,7 +1325,7 @@ func TestIterator_LoadAllData_FieldsDirError(t *testing.T) {
 	// 创建一个临时的 sstable 目录但删除 fields 子目录
 	tmpDir2 := t.TempDir()
 	dataDir := filepath.Join(tmpDir2, "data", "sst_0")
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		t.Fatalf("MkdirAll failed: %v", err)
 	}
 	// 写入 timestamps 文件但不创建 fields 目录

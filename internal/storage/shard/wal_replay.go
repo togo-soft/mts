@@ -112,6 +112,10 @@ func replayWALFile(path string, startPos int64) ([]*types.Point, int64, error) {
 		}
 		if n != 4 {
 			_ = file.Close()
+			// 如果读取不完整且不是 EOF，说明文件被截断或损坏
+			if n > 0 && !errors.Is(err, io.EOF) {
+				return points, pos, fmt.Errorf("incomplete read: expected 4 bytes, got %d: %w", n, io.ErrUnexpectedEOF)
+			}
 			break
 		}
 		pos += 4
@@ -144,7 +148,7 @@ func replayWALFile(path string, startPos int64) ([]*types.Point, int64, error) {
 
 		if read != size {
 			_ = file.Close()
-			break
+			return points, pos, fmt.Errorf("incomplete WAL record: expected %d bytes, got %d", size, read)
 		}
 
 		p, err := deserializePoint(data)
