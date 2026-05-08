@@ -1,137 +1,157 @@
 package metadata
 
 import (
+	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
-	"sync"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 // ===================================
-// inMemoryShardIndex — ShardIndex 的内存实现
+// shardIndex — bbolt 版 ShardIndex
 // ===================================
 
-type inMemoryShardIndex struct {
-	m      *Manager
-	mu     sync.RWMutex
-	shards map[string][]ShardInfo // "db/meas" -> []ShardInfo
+type shardIndex struct {
+	db *bolt.DB
 }
 
-type shardIndexData struct {
-	Shards []ShardInfo `json:"shards"`
+func newShardIndex(db *bolt.DB) *shardIndex {
+	return &shardIndex{db: db}
 }
 
-func newInMemoryShardIndex(m *Manager) *inMemoryShardIndex {
-	return &inMemoryShardIndex{
-		m:      m,
-		shards: make(map[string][]ShardInfo),
-	}
-}
-
-func (idx *inMemoryShardIndex) measKey(database, measurement string) string {
-	return database + "/" + measurement
-}
-
-func (idx *inMemoryShardIndex) loadLocked(db, meas string) error {
-	path := filepath.Join(idx.m.metaDir, db, meas, "shards.json")
-	var data shardIndexData
-	if err := atomicRead(path, &data); err != nil {
-		return err
-	}
-	if len(data.Shards) > 0 {
-		idx.shards[idx.measKey(db, meas)] = data.Shards
-	}
-	return nil
-}
-
-func (idx *inMemoryShardIndex) persistLocked(db, meas string) error {
-	key := idx.measKey(db, meas)
-	shards, ok := idx.shards[key]
-	if !ok || len(shards) == 0 {
-		return nil
-	}
-	path := filepath.Join(idx.m.metaDir, db, meas, "shards.json")
-	return atomicWrite(path, shardIndexData{Shards: shards})
-}
-
-func (idx *inMemoryShardIndex) RegisterShard(database, measurement string, info ShardInfo) error {
-	key := idx.measKey(database, measurement)
-
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
-	for _, s := range idx.shards[key] {
-		if s.ID == info.ID {
+func (idx *shardIndex) RegisterShard(database, measurement string, info ShardInfo) error {
+	return idx.db.Update(func(tx *bolt.Tx) error {
+		measBucket, err := ensureMeasBuckets(tx, database, measurement)
+		if err != nil {
+			return err
+		}
+		shardsBucket, err := ensureSubBucket(measBucket, "shards")
+		if err != nil {
+			return err
+		}
+		if shardsBucket.Get([]byte(info.ID)) != nil {
 			return fmt.Errorf("shard %q already registered", info.ID)
 		}
-	}
-
-	idx.shards[key] = append(idx.shards[key], info)
-
-	sort.Slice(idx.shards[key], func(i, j int) bool {
-		return idx.shards[key][i].StartTime < idx.shards[key][j].StartTime
+		data, err := json.Marshal(info)
+		if err != nil {
+			return fmt.Errorf("marshal shard info: %w", err)
+		}
+		return shardsBucket.Put([]byte(info.ID), data)
 	})
-
-	idx.m.markDirty()
-	return nil
 }
 
-func (idx *inMemoryShardIndex) UnregisterShard(database, measurement string, shardID string) error {
-	key := idx.measKey(database, measurement)
-
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
-	shards := idx.shards[key]
-	for i, s := range shards {
-		if s.ID == shardID {
-			idx.shards[key] = append(shards[:i], shards[i+1:]...)
-			idx.m.markDirty()
-			return nil
+func (idx *shardIndex) UnregisterShard(database, measurement, shardID string) error {
+	return idx.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
 		}
-	}
-	return fmt.Errorf("shard %q not found", shardID)
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return fmt.Errorf("measurement %q not found", measurement)
+		}
+		shardsBucket := measBucket.Bucket([]byte("shards"))
+		if shardsBucket == nil {
+			return fmt.Errorf("shard %q not found", shardID)
+		}
+		if shardsBucket.Get([]byte(shardID)) == nil {
+			return fmt.Errorf("shard %q not found", shardID)
+		}
+		return shardsBucket.Delete([]byte(shardID))
+	})
 }
 
-func (idx *inMemoryShardIndex) QueryShards(database, measurement string, startTime, endTime int64) []ShardInfo {
-	key := idx.measKey(database, measurement)
-
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-
+func (idx *shardIndex) QueryShards(database, measurement string, startTime, endTime int64) []ShardInfo {
 	var result []ShardInfo
-	for _, s := range idx.shards[key] {
-		if s.StartTime < endTime && s.EndTime > startTime {
-			result = append(result, s)
-		}
-	}
-	return result
-}
-
-func (idx *inMemoryShardIndex) ListShards(database, measurement string) []ShardInfo {
-	key := idx.measKey(database, measurement)
-
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-
-	result := make([]ShardInfo, len(idx.shards[key]))
-	copy(result, idx.shards[key])
-	return result
-}
-
-func (idx *inMemoryShardIndex) UpdateShardStats(database, measurement, shardID string, sstableCount int, totalSize int64) error {
-	key := idx.measKey(database, measurement)
-
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
-	for i, s := range idx.shards[key] {
-		if s.ID == shardID {
-			idx.shards[key][i].SSTableCount = sstableCount
-			idx.shards[key][i].TotalSize = totalSize
-			idx.m.markDirty()
+	_ = idx.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
 			return nil
 		}
-	}
-	return fmt.Errorf("shard %q not found", shardID)
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return nil
+		}
+		shardsBucket := measBucket.Bucket([]byte("shards"))
+		if shardsBucket == nil {
+			return nil
+		}
+		return shardsBucket.ForEach(func(_, v []byte) error {
+			var info ShardInfo
+			if err := json.Unmarshal(v, &info); err != nil {
+				return nil
+			}
+			if info.StartTime < endTime && info.EndTime > startTime {
+				result = append(result, info)
+			}
+			return nil
+		})
+	})
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StartTime < result[j].StartTime
+	})
+	return result
+}
+
+func (idx *shardIndex) ListShards(database, measurement string) []ShardInfo {
+	var result []ShardInfo
+	_ = idx.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return nil
+		}
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return nil
+		}
+		shardsBucket := measBucket.Bucket([]byte("shards"))
+		if shardsBucket == nil {
+			return nil
+		}
+		return shardsBucket.ForEach(func(_, v []byte) error {
+			var info ShardInfo
+			if err := json.Unmarshal(v, &info); err != nil {
+				return nil
+			}
+			result = append(result, info)
+			return nil
+		})
+	})
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StartTime < result[j].StartTime
+	})
+	return result
+}
+
+func (idx *shardIndex) UpdateShardStats(database, measurement, shardID string, sstableCount int, totalSize int64) error {
+	return idx.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return fmt.Errorf("measurement %q not found", measurement)
+		}
+		shardsBucket := measBucket.Bucket([]byte("shards"))
+		if shardsBucket == nil {
+			return fmt.Errorf("shard %q not found", shardID)
+		}
+		raw := shardsBucket.Get([]byte(shardID))
+		if raw == nil {
+			return fmt.Errorf("shard %q not found", shardID)
+		}
+		var info ShardInfo
+		if err := json.Unmarshal(raw, &info); err != nil {
+			return fmt.Errorf("unmarshal shard: %w", err)
+		}
+		info.SSTableCount = sstableCount
+		info.TotalSize = totalSize
+		data, err := json.Marshal(info)
+		if err != nil {
+			return fmt.Errorf("marshal shard: %w", err)
+		}
+		return shardsBucket.Put([]byte(shardID), data)
+	})
 }

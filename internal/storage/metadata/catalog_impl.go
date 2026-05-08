@@ -1,248 +1,240 @@
 package metadata
 
 import (
+	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"time"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 // ===================================
-// shimCatalog — Catalog 的包装实现
+// catalogStore — bbolt 版 Catalog
 // ===================================
 
-type shimCatalog struct {
-	m        *Manager
-	manifest manifestData
+type catalogStore struct {
+	db *bolt.DB
 }
 
-func newShimCatalog(m *Manager) *shimCatalog {
-	return &shimCatalog{
-		m: m,
-		manifest: manifestData{
-			Version:   1,
-			Databases: make(map[string]dbManifest),
-		},
-	}
+func newCatalogStore(db *bolt.DB) *catalogStore {
+	return &catalogStore{db: db}
 }
 
-func (c *shimCatalog) loadLocked() error {
-	return atomicRead(filepath.Join(c.m.metaDir, "manifest.json"), &c.manifest)
-}
-
-func (c *shimCatalog) persistLocked() error {
-	return atomicWrite(filepath.Join(c.m.metaDir, "manifest.json"), &c.manifest)
-}
-
-func (c *shimCatalog) ensureDBLocked(name string) *dbManifest {
-	if db, ok := c.manifest.Databases[name]; ok {
-		return &db
-	}
-	db := dbManifest{
-		Measurements: make(map[string]measManifest),
-		CreatedAt:    time.Now().UnixNano(),
-	}
-	c.manifest.Databases[name] = db
-	c.m.markDirty()
-	return &db
-}
-
-func (c *shimCatalog) CreateDatabase(name string) error {
+func (c *catalogStore) CreateDatabase(name string) error {
 	if name == "" {
 		return fmt.Errorf("database name is empty")
 	}
-
-	c.m.mu.Lock()
-	defer c.m.mu.Unlock()
-
-	if _, ok := c.manifest.Databases[name]; ok {
+	return c.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(name))
+		if err != nil {
+			return fmt.Errorf("create database bucket: %w", err)
+		}
 		return nil
-	}
-	c.manifest.Databases[name] = dbManifest{
-		Measurements: make(map[string]measManifest),
-		CreatedAt:    time.Now().UnixNano(),
-	}
-	c.m.getOrCreateDBMetaLocked(name)
-	c.m.markDirty()
-	return nil
+	})
 }
 
-func (c *shimCatalog) DropDatabase(name string) error {
-	c.m.mu.Lock()
-	defer c.m.mu.Unlock()
-
-	dbMeta, ok := c.m.dbMeta[name]
-	if !ok {
-		return fmt.Errorf("database %q not found", name)
-	}
-	_ = dbMeta.Close()
-	delete(c.m.dbMeta, name)
-	delete(c.manifest.Databases, name)
-	c.m.markDirty()
-	return nil
+func (c *catalogStore) DropDatabase(name string) error {
+	return c.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket([]byte(name)); err != nil {
+			if err == bolt.ErrBucketNotFound {
+				return fmt.Errorf("database %q not found", name)
+			}
+			return fmt.Errorf("delete database bucket: %w", err)
+		}
+		return nil
+	})
 }
 
-func (c *shimCatalog) ListDatabases() []string {
-	c.m.mu.RLock()
-	defer c.m.mu.RUnlock()
-
-	names := make([]string, 0, len(c.manifest.Databases))
-	for name := range c.manifest.Databases {
-		names = append(names, name)
-	}
+func (c *catalogStore) ListDatabases() []string {
+	var names []string
+	_ = c.db.View(func(tx *bolt.Tx) error {
+		return tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
+			if len(name) == 0 || name[0] == '_' {
+				return nil
+			}
+			names = append(names, string(name))
+			return nil
+		})
+	})
 	sort.Strings(names)
 	return names
 }
 
-func (c *shimCatalog) DatabaseExists(name string) bool {
-	c.m.mu.RLock()
-	defer c.m.mu.RUnlock()
-	_, ok := c.manifest.Databases[name]
-	return ok
+func (c *catalogStore) DatabaseExists(name string) bool {
+	exists := false
+	_ = c.db.View(func(tx *bolt.Tx) error {
+		exists = tx.Bucket([]byte(name)) != nil
+		return nil
+	})
+	return exists
 }
 
-func (c *shimCatalog) CreateMeasurement(database, name string) error {
+func (c *catalogStore) CreateMeasurement(database, name string) error {
 	if database == "" {
 		return fmt.Errorf("database name is empty")
 	}
 	if name == "" {
 		return fmt.Errorf("measurement name is empty")
 	}
-
-	c.m.mu.Lock()
-	defer c.m.mu.Unlock()
-
-	_ = c.m.getOrCreateDBMetaLocked(database)
-	db := c.ensureDBLocked(database)
-	if _, ok := db.Measurements[name]; ok {
+	return c.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		if dbBucket.Bucket([]byte(name)) != nil {
+			return nil // 已存在
+		}
+		_, err := dbBucket.CreateBucket([]byte(name))
+		if err != nil {
+			return fmt.Errorf("create measurement bucket: %w", err)
+		}
 		return nil
-	}
-	db.Measurements[name] = measManifest{
-		SchemaVersion: 0,
-		CreatedAt:     time.Now().UnixNano(),
-	}
-	c.m.getOrCreateDBMetaLocked(database).GetOrCreate(name)
-	c.m.markDirty()
-	return nil
+	})
 }
 
-func (c *shimCatalog) DropMeasurement(database, name string) error {
-	c.m.mu.Lock()
-	defer c.m.mu.Unlock()
-
-	if _, ok := c.manifest.Databases[database]; !ok {
-		return fmt.Errorf("database %q not found", database)
-	}
-
-	dbMeta := c.m.dbMeta[database]
-	if !dbMeta.DropMeasurement(name) {
-		return fmt.Errorf("measurement %q not found in database %q", name, database)
-	}
-	delete(c.manifest.Databases[database].Measurements, name)
-	c.m.markDirty()
-	return nil
+func (c *catalogStore) DropMeasurement(database, name string) error {
+	return c.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		if err := dbBucket.DeleteBucket([]byte(name)); err != nil {
+			if err == bolt.ErrBucketNotFound {
+				return fmt.Errorf("measurement %q not found", name)
+			}
+			return fmt.Errorf("delete measurement bucket: %w", err)
+		}
+		return nil
+	})
 }
 
-func (c *shimCatalog) ListMeasurements(database string) ([]string, error) {
-	c.m.mu.RLock()
-	defer c.m.mu.RUnlock()
-
-	dbMeta, ok := c.m.dbMeta[database]
-	if !ok {
-		return nil, fmt.Errorf("database %q not found", database)
+func (c *catalogStore) ListMeasurements(database string) ([]string, error) {
+	var names []string
+	err := c.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		cur := dbBucket.Cursor()
+		for k, v := cur.First(); k != nil; k, v = cur.Next() {
+			if v == nil {
+				names = append(names, string(k))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return dbMeta.ListMeasurements(), nil
+	sort.Strings(names)
+	return names, nil
 }
 
-func (c *shimCatalog) MeasurementExists(database, name string) bool {
-	c.m.mu.RLock()
-	defer c.m.mu.RUnlock()
-
-	dbMeta, ok := c.m.dbMeta[database]
-	if !ok {
-		return false
-	}
-	return dbMeta.MeasurementExists(name)
+func (c *catalogStore) MeasurementExists(database, name string) bool {
+	exists := false
+	_ = c.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return nil
+		}
+		exists = dbBucket.Bucket([]byte(name)) != nil
+		return nil
+	})
+	return exists
 }
 
-func (c *shimCatalog) GetRetention(database, measurement string) (time.Duration, error) {
-	c.m.mu.RLock()
-	defer c.m.mu.RUnlock()
-
-	db, ok := c.manifest.Databases[database]
-	if !ok {
-		return 0, fmt.Errorf("database %q not found", database)
-	}
-	meas, ok := db.Measurements[measurement]
-	if !ok {
-		return 0, fmt.Errorf("measurement %q not found", measurement)
-	}
-	return time.Duration(meas.RetentionNs), nil
+func (c *catalogStore) GetRetention(database, measurement string) (time.Duration, error) {
+	var d time.Duration
+	err := c.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return fmt.Errorf("measurement %q not found", measurement)
+		}
+		raw := measBucket.Get([]byte("_retention"))
+		if raw != nil {
+			d = time.Duration(decodeUint64(raw))
+		}
+		return nil
+	})
+	return d, err
 }
 
-func (c *shimCatalog) SetRetention(database, measurement string, d time.Duration) error {
-	c.m.mu.Lock()
-	defer c.m.mu.Unlock()
-
-	db, ok := c.manifest.Databases[database]
-	if !ok {
-		return fmt.Errorf("database %q not found", database)
-	}
-	meas, ok := db.Measurements[measurement]
-	if !ok {
-		return fmt.Errorf("measurement %q not found", measurement)
-	}
-	meas.RetentionNs = int64(d)
-	db.Measurements[measurement] = meas
-	c.m.markDirty()
-	return nil
+func (c *catalogStore) SetRetention(database, measurement string, d time.Duration) error {
+	return c.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return fmt.Errorf("measurement %q not found", measurement)
+		}
+		return measBucket.Put([]byte("_retention"), encodeUint64(uint64(d)))
+	})
 }
 
-func (c *shimCatalog) GetSchema(database, measurement string) (*Schema, error) {
-	c.m.mu.RLock()
-	defer c.m.mu.RUnlock()
-
-	db, ok := c.manifest.Databases[database]
-	if !ok {
-		return nil, fmt.Errorf("database %q not found", database)
+func (c *catalogStore) GetSchema(database, measurement string) (*Schema, error) {
+	var s Schema
+	err := c.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return fmt.Errorf("measurement %q not found", measurement)
+		}
+		raw := measBucket.Get([]byte("_schema"))
+		if raw == nil {
+			return nil
+		}
+		return json.Unmarshal(raw, &s)
+	})
+	if err != nil {
+		return nil, err
 	}
-	if _, ok := db.Measurements[measurement]; !ok {
-		return nil, fmt.Errorf("measurement %q not found", measurement)
+	if s.Version == 0 {
+		return nil, nil
 	}
-	return c.m.schema[database+"/"+measurement], nil
+	return &s, nil
 }
 
-func (c *shimCatalog) SetSchema(database, measurement string, s *Schema) error {
+func (c *catalogStore) SetSchema(database, measurement string, s *Schema) error {
 	if s == nil {
 		return fmt.Errorf("schema is nil")
 	}
-
-	c.m.mu.Lock()
-	defer c.m.mu.Unlock()
-
-	db, ok := c.manifest.Databases[database]
-	if !ok {
-		return fmt.Errorf("database %q not found", database)
-	}
-	meas, ok := db.Measurements[measurement]
-	if !ok {
-		return fmt.Errorf("measurement %q not found", measurement)
-	}
-
-	existing := c.m.schema[database+"/"+measurement]
-	if existing != nil {
-		if err := validateSchemaUpdate(existing, s); err != nil {
-			return err
+	return c.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
 		}
-	}
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return fmt.Errorf("measurement %q not found", measurement)
+		}
 
-	s.UpdatedAt = time.Now().UnixNano()
-	c.m.schema[database+"/"+measurement] = s
+		// 校验兼容性
+		if raw := measBucket.Get([]byte("_schema")); raw != nil {
+			var existing Schema
+			if err := json.Unmarshal(raw, &existing); err == nil {
+				if err := validateSchemaUpdate(&existing, s); err != nil {
+					return err
+				}
+			}
+		}
 
-	meas.SchemaVersion++
-	db.Measurements[measurement] = meas
-	c.m.markDirty()
-	return nil
+		s.UpdatedAt = time.Now().UnixNano()
+		data, err := json.Marshal(s)
+		if err != nil {
+			return fmt.Errorf("marshal schema: %w", err)
+		}
+		return measBucket.Put([]byte("_schema"), data)
+	})
 }
 
 // validateSchemaUpdate 校验 schema 更新是否兼容。
