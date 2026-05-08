@@ -112,6 +112,9 @@ func (e *Engine) Close() error {
 
 	e.queryWg.Wait()
 
+	// 等待 WAL replay 完成
+	e.shardManager.WaitForDiscovery()
+
 	_ = e.shardManager.FlushAll()
 
 	if err := e.manager.Sync(); err != nil {
