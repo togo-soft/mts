@@ -605,6 +605,7 @@ func TestEngine_CreateMeasurement(t *testing.T) {
 	}()
 
 	// 创建 measurement
+	engine.CreateDatabase("db1")
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}
@@ -633,6 +634,7 @@ func TestEngine_DropMeasurement(t *testing.T) {
 	}()
 
 	// 创建 measurement
+	engine.CreateDatabase("db1")
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}

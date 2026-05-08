@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codeberg.org/micro-ts/mts/internal/storage/measurement"
+	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -40,7 +40,7 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
@@ -100,7 +100,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir0,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 	s1 := shard.NewShard(shard.ShardConfig{
@@ -109,7 +109,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 		StartTime:   3600 * 1e9,
 		EndTime:     7200 * 1e9,
 		Dir:         shardDir1,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
@@ -176,7 +176,7 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
@@ -234,7 +234,7 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
@@ -296,7 +296,7 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
@@ -356,7 +356,7 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
@@ -415,7 +415,7 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
@@ -475,7 +475,7 @@ func TestQueryIterator_Close(t *testing.T) {
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore:   measurement.NewMeasurementMetaStore(),
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: shard.DefaultMemTableConfig(),
 	})
 
