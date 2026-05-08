@@ -1,4 +1,4 @@
-package shard
+package compaction
 
 import (
 	"encoding/json"
@@ -37,8 +37,7 @@ func (ts *TombstoneSet) HasTombstones() bool {
 	return ts != nil && len(ts.Tombstones) > 0
 }
 
-// loadTombstones 从 Part 目录加载删除标记。
-func loadTombstones(partPath string) (*TombstoneSet, error) {
+func LoadTombstones(partPath string) (*TombstoneSet, error) {
 	tombstonePath := filepath.Join(partPath, "_tombstones.json")
 	data, err := os.ReadFile(tombstonePath)
 	if err != nil {
@@ -55,8 +54,7 @@ func loadTombstones(partPath string) (*TombstoneSet, error) {
 	return &ts, nil
 }
 
-// saveTombstones 保存删除标记到 Part 目录。
-func saveTombstones(partPath string, ts *TombstoneSet) error {
+func SaveTombstones(partPath string, ts *TombstoneSet) error {
 	if !ts.HasTombstones() {
 		return nil
 	}
@@ -83,8 +81,7 @@ func saveTombstones(partPath string, ts *TombstoneSet) error {
 	return nil
 }
 
-// removeTombstones 删除 Part 目录下的删除标记文件。
-func removeTombstones(partPath string) error {
+func RemoveTombstones(partPath string) error {
 	tombstonePath := filepath.Join(partPath, "_tombstones.json")
 	err := os.Remove(tombstonePath)
 	if err != nil && !os.IsNotExist(err) {
@@ -101,14 +98,14 @@ func (lcm *LevelCompactionManager) CompactTombstones() error {
 	retentionPeriod := lcm.config.TombstoneRetention
 	now := time.Now().Unix()
 
-	for _, l := range lcm.manifest.levels {
+	for _, l := range lcm.Manifest.levels {
 		for _, p := range l.Parts {
 			if p.DeletedAt > 0 {
 				continue
 			}
 
-			partPath := filepath.Join(lcm.manifest.GetLevelPath(l.Level), p.Name)
-			ts, err := loadTombstones(partPath)
+			partPath := filepath.Join(lcm.Manifest.GetLevelPath(l.Level), p.Name)
+			ts, err := LoadTombstones(partPath)
 			if err != nil {
 				return fmt.Errorf("load tombstones for %s: %w", p.Name, err)
 			}
@@ -127,9 +124,9 @@ func (lcm *LevelCompactionManager) CompactTombstones() error {
 				continue
 			}
 			if len(active) == 0 {
-				_ = removeTombstones(partPath)
+				_ = RemoveTombstones(partPath)
 			} else {
-				_ = saveTombstones(partPath, &TombstoneSet{Tombstones: active})
+				_ = SaveTombstones(partPath, &TombstoneSet{Tombstones: active})
 			}
 		}
 	}

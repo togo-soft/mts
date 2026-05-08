@@ -37,7 +37,7 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/internal/query"
-	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -215,9 +215,9 @@ func Open(cfg Config) (*DB, error) {
 	}
 
 	// 默认 Compaction 配置
-	var compactionCfg *shard.CompactionConfig
+	var compactionCfg *compaction.CompactionConfig
 	if cfg.CompactionCfg != nil {
-		compactionCfg = &shard.CompactionConfig{
+		compactionCfg = &compaction.CompactionConfig{
 			MaxSSTableCount:    cfg.CompactionCfg.MaxSSTableCount,
 			MaxCompactionBatch: cfg.CompactionCfg.MaxCompactionBatch,
 			ShardSizeLimit:     cfg.CompactionCfg.ShardSizeLimit,

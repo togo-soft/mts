@@ -3,6 +3,7 @@ package shard
 import (
 	"sync"
 
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -38,10 +39,10 @@ type ShardIterator struct {
 	startTime int64 // 查询起始时间（包含）
 	endTime   int64 // 查询结束时间（不包含）
 
-	memIter *MemTableIterator // MemTable 迭代器
-	rows    []*types.PointRow // SSTable 预读取的数据
-	rowIdx  int               // 当前在 rows 中的位置
-	err     error             // 迭代过程中的错误
+	memIter *memtable.MemTableIterator // MemTable 迭代器
+	rows    []*types.PointRow          // SSTable 预读取的数据
+	rowIdx  int                        // 当前在 rows 中的位置
+	err     error                      // 迭代过程中的错误
 
 	// 当前 peek
 	memRow *types.PointRow

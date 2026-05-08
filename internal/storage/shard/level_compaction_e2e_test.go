@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
@@ -73,14 +75,14 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -100,13 +102,13 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	sst2 := createTestSSTableInLevel(t, tmpDir, 0, 2, points2)
 
 	// 添加到 manifest
-	lcm.manifest.AddPart(0, PartInfo{
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
 		Name:    sst1,
 		Size:    1024,
 		MinTime: 1000000000,
 		MaxTime: 2000000000,
 	})
-	lcm.manifest.AddPart(0, PartInfo{
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
 		Name:    sst2,
 		Size:    1024,
 		MinTime: 1500000000,
@@ -114,8 +116,8 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	})
 
 	// 验证 L0 有 2 个 parts
-	if len(lcm.manifest.getLevel(0).Parts) != 2 {
-		t.Fatalf("expected 2 parts in L0, got %d", len(lcm.manifest.getLevel(0).Parts))
+	if len(lcm.Manifest.GetLevel(0).Parts) != 2 {
+		t.Fatalf("expected 2 parts in L0, got %d", len(lcm.Manifest.GetLevel(0).Parts))
 	}
 
 	// 执行 compaction
@@ -136,17 +138,17 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	}
 
 	// 验证 L0 已被清空（源文件已删除）
-	if len(lcm.manifest.getLevel(0).Parts) != 0 {
-		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.manifest.getLevel(0).Parts))
+	if len(lcm.Manifest.GetLevel(0).Parts) != 0 {
+		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.Manifest.GetLevel(0).Parts))
 	}
 
 	// 验证 L1 有数据
-	if len(lcm.manifest.getLevel(1).Parts) != 1 {
-		t.Errorf("expected 1 part in L1, got %d", len(lcm.manifest.getLevel(1).Parts))
+	if len(lcm.Manifest.GetLevel(1).Parts) != 1 {
+		t.Errorf("expected 1 part in L1, got %d", len(lcm.Manifest.GetLevel(1).Parts))
 	}
 
 	// 验证 manifest 已保存
-	if err := lcm.manifest.Save(); err != nil {
+	if err := lcm.Manifest.Save(); err != nil {
 		t.Fatalf("failed to save manifest: %v", err)
 	}
 }
@@ -162,14 +164,14 @@ func TestLevelCompactionE2E_L1ToL2(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -187,13 +189,13 @@ func TestLevelCompactionE2E_L1ToL2(t *testing.T) {
 	sst2 := createTestSSTableInLevel(t, tmpDir, 1, 101, points2)
 
 	// 添加到 L1 manifest
-	lcm.manifest.AddPart(1, PartInfo{
+	lcm.Manifest.AddPart(1, compaction.PartInfo{
 		Name:    sst1,
 		Size:    1024,
 		MinTime: 1000000000,
 		MaxTime: 2000000000,
 	})
-	lcm.manifest.AddPart(1, PartInfo{
+	lcm.Manifest.AddPart(1, compaction.PartInfo{
 		Name:    sst2,
 		Size:    1024,
 		MinTime: 1500000000,
@@ -205,7 +207,7 @@ func TestLevelCompactionE2E_L1ToL2(t *testing.T) {
 	// 这里我们直接测试 selectPartsForMerge 和 collectOverlapParts
 
 	// 收集重叠 parts
-	selected := lcm.selectPartsForMerge(1)
+	selected := lcm.SelectPartsForMerge(1)
 	if len(selected) < 2 {
 		t.Fatalf("expected at least 2 selected parts for L1, got %d", len(selected))
 	}
@@ -213,7 +215,7 @@ func TestLevelCompactionE2E_L1ToL2(t *testing.T) {
 	// 验证 ShouldCompact 能检测到 L1 需要 compaction
 	if !lcm.ShouldCompact() {
 		// L1 可能没有达到容量限制，添加更多 parts
-		lcm.manifest.AddPart(1, PartInfo{Name: "sst_999", Size: 50 * 1024 * 1024, MinTime: 3000000000, MaxTime: 4000000000})
+		lcm.Manifest.AddPart(1, compaction.PartInfo{Name: "sst_999", Size: 50 * 1024 * 1024, MinTime: 3000000000, MaxTime: 4000000000})
 		if !lcm.ShouldCompact() {
 			t.Log("L1 may not trigger compaction without exceeding size limit")
 		}
@@ -237,14 +239,14 @@ func TestLevelCompactionE2E_CheckpointRecovery(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	_ = shard.Close() // 关闭以便重新创建
 
 	// 手动创建一个 checkpoint
-	cp := &CompactionCheckpoint{
+	cp := &compaction.CompactionCheckpoint{
 		Version:    1,
 		Level:      0,
 		InputParts: []string{"sst_1", "sst_2"},
@@ -267,8 +269,8 @@ func TestLevelCompactionE2E_CheckpointRecovery(t *testing.T) {
 	shard2 := NewShard(cfg)
 	defer func() { _ = shard2.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm2, err := NewLevelCompactionManager(shard2, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm2, err := compaction.NewLevelCompactionManager(shard2, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -308,14 +310,14 @@ func TestLevelCompactionE2E_OldFormatMigration(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -358,14 +360,14 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -386,13 +388,13 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 	sst2 := createTestSSTableInLevel(t, tmpDir, 0, 2, points2)
 
 	// 添加到 manifest
-	lcm.manifest.AddPart(0, PartInfo{
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
 		Name:    sst1,
 		Size:    1024,
 		MinTime: 1000000000,
 		MaxTime: 3000000000,
 	})
-	lcm.manifest.AddPart(0, PartInfo{
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
 		Name:    sst2,
 		Size:    1024,
 		MinTime: 2500000000,
@@ -421,13 +423,13 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 	}
 
 	// 验证 L0 已被清空
-	if len(lcm.manifest.getLevel(0).Parts) != 0 {
-		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.manifest.getLevel(0).Parts))
+	if len(lcm.Manifest.GetLevel(0).Parts) != 0 {
+		t.Errorf("L0 should be empty after compaction, got %d parts", len(lcm.Manifest.GetLevel(0).Parts))
 	}
 
 	// 验证 L1 有新数据
-	if len(lcm.manifest.getLevel(1).Parts) != 1 {
-		t.Errorf("expected 1 part in L1, got %d", len(lcm.manifest.getLevel(1).Parts))
+	if len(lcm.Manifest.GetLevel(1).Parts) != 1 {
+		t.Errorf("expected 1 part in L1, got %d", len(lcm.Manifest.GetLevel(1).Parts))
 	}
 }
 
@@ -442,26 +444,26 @@ func TestLevelCompactionE2E_SelectPartsForMerge(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
 
 	// 添加多个不同大小的 parts
-	lcm.manifest.AddPart(0, PartInfo{Name: "small1", Size: 100, MinTime: 1000, MaxTime: 2000})
-	lcm.manifest.AddPart(0, PartInfo{Name: "small2", Size: 200, MinTime: 2000, MaxTime: 3000})
-	lcm.manifest.AddPart(0, PartInfo{Name: "medium", Size: 500, MinTime: 3000, MaxTime: 4000})
-	lcm.manifest.AddPart(0, PartInfo{Name: "large", Size: 1000, MinTime: 4000, MaxTime: 5000})
+	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "small1", Size: 100, MinTime: 1000, MaxTime: 2000})
+	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "small2", Size: 200, MinTime: 2000, MaxTime: 3000})
+	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "medium", Size: 500, MinTime: 3000, MaxTime: 4000})
+	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "large", Size: 1000, MinTime: 4000, MaxTime: 5000})
 
 	// 选择要合并的 parts
-	selected := lcm.selectPartsForMerge(0)
+	selected := lcm.SelectPartsForMerge(0)
 
 	// 应该选择小文件优先
 	if len(selected) == 0 {
@@ -492,28 +494,28 @@ func TestLevelCompactionE2E_HasOverlap(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
 
 	// 添加 L0 parts
-	lcm.manifest.AddPart(0, PartInfo{Name: "l0_1", Size: 100, MinTime: 1000, MaxTime: 2000})
-	lcm.manifest.AddPart(0, PartInfo{Name: "l0_2", Size: 100, MinTime: 2000, MaxTime: 3000})
+	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "l0_1", Size: 100, MinTime: 1000, MaxTime: 2000})
+	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "l0_2", Size: 100, MinTime: 2000, MaxTime: 3000})
 
 	// 添加 L1 parts
-	lcm.manifest.AddPart(1, PartInfo{Name: "l1_1", Size: 1000, MinTime: 1500, MaxTime: 2500})
+	lcm.Manifest.AddPart(1, compaction.PartInfo{Name: "l1_1", Size: 1000, MinTime: 1500, MaxTime: 2500})
 
 	// 收集重叠 parts
-	targets := []PartInfo{lcm.manifest.getLevel(0).Parts[0]}
-	overlaps := lcm.collectOverlapParts(0, targets)
+	targets := []compaction.PartInfo{lcm.Manifest.GetLevel(0).Parts[0]}
+	overlaps := lcm.CollectOverlapParts(0, targets)
 
 	// 验证重叠检测
 	foundL0 := false
@@ -546,19 +548,19 @@ func TestLevelCompactionE2E_PeriodicCompaction(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := &LevelCompactionConfig{
+	lcmCfg := &compaction.LevelCompactionConfig{
 		Enabled:       true,
 		CheckInterval: 10 * time.Millisecond, // 非常短的间隔用于测试
 		Timeout:       time.Minute,
 	}
 
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -587,14 +589,14 @@ func TestLevelCompactionE2E_EmptyManifest(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -629,20 +631,20 @@ func TestLevelCompactionE2E_MultipleLevels(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := DefaultLevelCompactionConfig()
-	lcm, err := NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
 
 	// 验证各层容量配置
-	levelConfigs := lcm.config.LevelConfigs
+	levelConfigs := lcm.Config().LevelConfigs
 
 	if levelConfigs[0].MaxSize != 10*1024*1024 {
 		t.Errorf("L0 MaxSize should be 10MB, got %d", levelConfigs[0].MaxSize)
@@ -658,16 +660,16 @@ func TestLevelCompactionE2E_MultipleLevels(t *testing.T) {
 	}
 
 	// 验证 levelMaxSize
-	if size := lcm.levelMaxSize(0); size != 10*1024*1024 {
+	if size := lcm.LevelMaxSize(0); size != 10*1024*1024 {
 		t.Errorf("L0 levelMaxSize should be 10MB, got %d", size)
 	}
-	if size := lcm.levelMaxSize(1); size != 100*1024*1024 {
+	if size := lcm.LevelMaxSize(1); size != 100*1024*1024 {
 		t.Errorf("L1 levelMaxSize should be 100MB, got %d", size)
 	}
-	if size := lcm.levelMaxSize(2); size != 1024*1024*1024 {
+	if size := lcm.LevelMaxSize(2); size != 1024*1024*1024 {
 		t.Errorf("L2 levelMaxSize should be 1GB, got %d", size)
 	}
-	if size := lcm.levelMaxSize(99); size != 0 {
+	if size := lcm.LevelMaxSize(99); size != 0 {
 		t.Errorf("invalid level should return 0, got %d", size)
 	}
 }

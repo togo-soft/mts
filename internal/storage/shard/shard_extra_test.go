@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -23,7 +25,7 @@ func TestShardIterator_PointToRow(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	p := &types.Point{
@@ -73,7 +75,7 @@ func TestShardIterator_FilterRow(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	p := &types.Point{
@@ -121,7 +123,7 @@ func TestShard_NextSstRow(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 先写入一些数据并 flush 到 SSTable
@@ -169,7 +171,7 @@ func TestShard_NextSstRow(t *testing.T) {
 
 func TestShardManager_GetShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
+	sm := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 获取不存在的 shard（不应该创建新的）
 	shards := sm.GetShards("db1", "cpu", 0, time.Hour.Nanoseconds())
@@ -199,7 +201,7 @@ func TestShardManager_GetShards(t *testing.T) {
 
 func TestShardManager_FlushAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
+	sm := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
 
 	// 创建 shard 并写入数据
 	s, err := sm.GetShard("db1", "cpu", time.Hour.Nanoseconds()/2)
@@ -233,7 +235,7 @@ func TestShard_FlushLocked(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -265,7 +267,7 @@ func TestShard_Close_WithData(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -297,7 +299,7 @@ func TestShard_ReadFromSSTable_Empty(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 没有 SSTable 的情况下读取
@@ -310,107 +312,6 @@ func TestShard_ReadFromSSTable_Empty(t *testing.T) {
 	}
 
 	_ = s.Close()
-}
-
-func TestMemTable_WriteOutOfOrder(t *testing.T) {
-	cfg := &MemTableConfig{
-		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          1000,
-		IdleDurationNanos: int64(time.Minute),
-	}
-
-	m := NewMemTable(cfg)
-
-	// 顺序写入
-	for i := 0; i < 5; i++ {
-		p := &types.Point{
-			Timestamp: int64(i) * 1e9,
-			Tags:      map[string]string{"host": "server1"},
-			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
-		}
-		if err := m.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
-	}
-
-	// 乱序写入 - 这会触发排序
-	p := &types.Point{
-		Timestamp: 500000000, // 在时间戳 0 和 1 之间
-		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(0.5)},
-	}
-	if err := m.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-
-	// 验证数据仍然可以读取
-	count := 0
-	iter := m.Iterator()
-	for iter.Next() {
-		count++
-	}
-	if count != 6 {
-		t.Errorf("expected 6 entries, got %d", count)
-	}
-}
-
-func TestMemTable_ShouldFlush_IdleTimeout(t *testing.T) {
-	cfg := &MemTableConfig{
-		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          1000,
-		IdleDurationNanos: int64(100 * time.Millisecond),
-	}
-
-	m := NewMemTable(cfg)
-
-	// 写入一条数据
-	p := &types.Point{
-		Timestamp: time.Now().UnixNano(),
-		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
-	}
-	if err := m.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-
-	// 立即检查不应该 flush
-	if m.ShouldFlush() {
-		t.Error("ShouldFlush should return false immediately after write")
-	}
-}
-
-func TestMemTable_FlushMultipleTimes(t *testing.T) {
-	cfg := &MemTableConfig{
-		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          1000,
-		IdleDurationNanos: int64(time.Minute),
-	}
-
-	m := NewMemTable(cfg)
-
-	// 写入并 flush 多次
-	for j := 0; j < 3; j++ {
-		for i := 0; i < 5; i++ {
-			p := &types.Point{
-				Timestamp: int64(j*10+i) * 1e9,
-				Tags:      map[string]string{"host": "server1"},
-				Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
-			}
-			if err := m.Write(p); err != nil {
-				t.Fatalf("Write failed: %v", err)
-			}
-		}
-
-		points := m.Flush()
-		if len(points) != 5 {
-			t.Errorf("expected 5 points in flush %d, got %d", j, len(points))
-		}
-	}
-
-	// 验证 memtable 已清空
-	if m.Count() != 0 {
-		t.Errorf("expected 0 count after flush, got %d", m.Count())
-	}
 }
 
 func TestSerializePoint(t *testing.T) {
@@ -507,7 +408,7 @@ func TestNewShard_WALCreationFails(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         filepath.Join(readonlyDir, "shard1"),
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 即使 WAL 创建失败，写入仍应该成功（只是没有持久化）
@@ -543,7 +444,7 @@ func TestShard_ReadFromSSTable_NoDataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 不创建 data 目录，直接读取
@@ -571,7 +472,7 @@ func TestShard_Close_WithData_PersistError(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -600,7 +501,7 @@ func TestShard_Extra_Close_EmptyShard(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 不写入任何数据，直接关闭
@@ -620,7 +521,7 @@ func TestShard_Extra_Close_WithData(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据触发 MemTable
@@ -652,7 +553,7 @@ func TestShard_Flush_AfterMultipleWrites(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入多个 points
@@ -713,8 +614,8 @@ func TestShard_LevelCompaction_NewShard(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
-		LevelCompactionCfg: &LevelCompactionConfig{
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+		LevelCompactionCfg: &compaction.LevelCompactionConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -748,8 +649,8 @@ func TestShard_LevelCompaction_FlushToL0(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
-		LevelCompactionCfg: &LevelCompactionConfig{
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+		LevelCompactionCfg: &compaction.LevelCompactionConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -783,7 +684,7 @@ func TestShard_LevelCompaction_FlushToL0(t *testing.T) {
 	}
 
 	// 验证 manifest 中有 L0 parts
-	level := s.levelCompaction.manifest.getLevel(0)
+	level := s.levelCompaction.Manifest.GetLevel(0)
 	if level == nil {
 		t.Fatal("L0 level should exist in manifest")
 	}
@@ -805,8 +706,8 @@ func TestShard_LevelCompaction_Close(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
-		LevelCompactionCfg: &LevelCompactionConfig{
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+		LevelCompactionCfg: &compaction.LevelCompactionConfig{
 			Enabled:          true,
 			CheckInterval:    time.Millisecond * 10,
 			Timeout:          time.Minute,
@@ -857,8 +758,8 @@ func TestShard_LevelCompaction_Read(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
-		LevelCompactionCfg: &LevelCompactionConfig{
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+		LevelCompactionCfg: &compaction.LevelCompactionConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -910,14 +811,14 @@ func TestShard_LevelCompaction_BothConfigs(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
-		CompactionCfg: &CompactionConfig{
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+		CompactionCfg: &compaction.CompactionConfig{
 			MaxSSTableCount:    10,
 			MaxCompactionBatch: 5,
 			CheckInterval:      time.Minute,
 			Timeout:            time.Minute,
 		},
-		LevelCompactionCfg: &LevelCompactionConfig{
+		LevelCompactionCfg: &compaction.LevelCompactionConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -947,8 +848,8 @@ func TestShard_LevelCompaction_NoLevelConfig(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
-		CompactionCfg: &CompactionConfig{
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+		CompactionCfg: &compaction.CompactionConfig{
 			MaxSSTableCount:    10,
 			MaxCompactionBatch: 5,
 			CheckInterval:      time.Minute,
@@ -982,7 +883,7 @@ func TestNewShard_WALCreationFailure(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// WAL 创建失败不应该阻止 Shard 创建
@@ -1006,7 +907,7 @@ func TestNewShard_LevelCompactionCreationFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 使用一个无效的 level 配置导致创建失败
-	cfg := &LevelCompactionConfig{
+	cfg := &compaction.LevelCompactionConfig{
 		LevelConfigs: nil, // 无效配置
 		Timeout:      time.Hour,
 	}
@@ -1018,7 +919,7 @@ func TestNewShard_LevelCompactionCreationFailure(t *testing.T) {
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
 		SeriesStore:        metadata.NewSimpleSeriesStore(),
-		MemTableCfg:        DefaultMemTableConfig(),
+		MemTableCfg:        memtable.DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
 
@@ -1049,7 +950,7 @@ func TestShard_Write_WithoutWAL(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据（没有 WAL，所以不会写入预写日志）
@@ -1085,7 +986,7 @@ func TestShard_flushLocked_NoPoints(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 直接调用 flushLocked（没有数据）
@@ -1101,7 +1002,7 @@ func TestShard_flushLocked_WithLevelCompaction(t *testing.T) {
 	// 测试带 Level Compaction 的 flush
 	tmpDir := t.TempDir()
 
-	cfg := DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelCompactionConfig()
 	cfg.CheckInterval = time.Hour // 避免自动 compaction
 
 	s := NewShard(ShardConfig{
@@ -1111,7 +1012,7 @@ func TestShard_flushLocked_WithLevelCompaction(t *testing.T) {
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
 		SeriesStore:        metadata.NewSimpleSeriesStore(),
-		MemTableCfg:        DefaultMemTableConfig(),
+		MemTableCfg:        memtable.DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
 
@@ -1140,7 +1041,7 @@ func TestShard_Close_WithLevelCompaction(t *testing.T) {
 	// 测试带 Level Compaction 的 Close
 	tmpDir := t.TempDir()
 
-	cfg := DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelCompactionConfig()
 	cfg.CheckInterval = time.Hour // 避免自动 compaction
 
 	s := NewShard(ShardConfig{
@@ -1150,7 +1051,7 @@ func TestShard_Close_WithLevelCompaction(t *testing.T) {
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
 		SeriesStore:        metadata.NewSimpleSeriesStore(),
-		MemTableCfg:        DefaultMemTableConfig(),
+		MemTableCfg:        memtable.DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
 
@@ -1176,7 +1077,7 @@ func TestShard_Close_WithCompaction(t *testing.T) {
 	// 测试带 Compaction 的 Close
 	tmpDir := t.TempDir()
 
-	compactionCfg := DefaultCompactionConfig()
+	compactionCfg := compaction.DefaultCompactionConfig()
 	compactionCfg.CheckInterval = time.Hour // 避免定时触发
 
 	s := NewShard(ShardConfig{
@@ -1186,7 +1087,7 @@ func TestShard_Close_WithCompaction(t *testing.T) {
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
-		MemTableCfg:   DefaultMemTableConfig(),
+		MemTableCfg:   memtable.DefaultMemTableConfig(),
 		CompactionCfg: compactionCfg,
 	})
 
@@ -1219,7 +1120,7 @@ func TestShard_Close_WALCloseError(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -1251,7 +1152,7 @@ func TestShard_readFromSSTable_NoDataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 没有 data 目录，readFromSSTable 应该返回空
@@ -1277,7 +1178,7 @@ func TestShard_readSSTableDir_InvalidPath(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 读取不存在的 SSTable 目录
@@ -1301,7 +1202,7 @@ func TestShard_Read_EmptyTimeRange(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -1340,7 +1241,7 @@ func TestShard_Write_SerializeError(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入各种类型的字段
@@ -1372,7 +1273,7 @@ func TestShard_Write_ManyPoints(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 5000 个数据点（触发多次 flush）
@@ -1410,7 +1311,7 @@ func TestShard_Flush_Manual(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入少量数据
@@ -1456,7 +1357,7 @@ func TestShard_ContainsTimeRange(t *testing.T) {
 		EndTime:     2000000000,
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 时间在范围内
@@ -1496,7 +1397,7 @@ func TestShard_DurationMethod(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	d := s.Duration()
@@ -1511,7 +1412,7 @@ func TestShard_PeriodicFlushCheck_IdleTimeout(t *testing.T) {
 	// 测试定时刷盘检查 - 空闲超时触发
 	tmpDir := t.TempDir()
 
-	cfg := &MemTableConfig{
+	cfg := &memtable.MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          3000,
 		IdleDurationNanos: 100 * int64(time.Millisecond), // 100ms 空闲触发
@@ -1561,7 +1462,7 @@ func TestShard_PeriodicFlushCheck_CloseStopsTicker(t *testing.T) {
 	// 测试 Close 正确停止定时刷盘
 	tmpDir := t.TempDir()
 
-	cfg := &MemTableConfig{
+	cfg := &memtable.MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          3000,
 		IdleDurationNanos: 50 * int64(time.Millisecond),
@@ -1607,7 +1508,7 @@ func TestShard_PeriodicFlushCheck_DefaultInterval(t *testing.T) {
 	// 测试默认检查间隔（IdleDuration 为 0 时）
 	tmpDir := t.TempDir()
 
-	cfg := &MemTableConfig{
+	cfg := &memtable.MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          3000,
 		IdleDurationNanos: 0, // 禁用空闲超时
@@ -1645,7 +1546,7 @@ func TestShard_triggerBackgroundCompaction_LevelCompaction(t *testing.T) {
 	// 测试 triggerBackgroundCompaction 触发 level compaction
 	tmpDir := t.TempDir()
 
-	cfg := DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelCompactionConfig()
 	cfg.CheckInterval = time.Hour // 避免自动 compaction 干扰
 
 	s := NewShard(ShardConfig{
@@ -1655,13 +1556,13 @@ func TestShard_triggerBackgroundCompaction_LevelCompaction(t *testing.T) {
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
 		SeriesStore:        metadata.NewSimpleSeriesStore(),
-		MemTableCfg:        DefaultMemTableConfig(),
+		MemTableCfg:        memtable.DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
 
 	// 添加 10+ L0 parts 让 ShouldCompact 返回 true
 	for i := 0; i < 12; i++ {
-		s.levelCompaction.AddPart(0, PartInfo{
+		s.levelCompaction.AddPart(0, compaction.PartInfo{
 			Name:    fmt.Sprintf("sst_%020d", i),
 			Size:    1 * 1024 * 1024,
 			MinTime: int64(i) * 1000,
@@ -1702,7 +1603,7 @@ func TestShard_triggerBackgroundCompaction_LevelCompactionNoTrigger(t *testing.T
 	// 测试 triggerBackgroundCompaction 在不需要 compaction 时不触发
 	tmpDir := t.TempDir()
 
-	cfg := DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelCompactionConfig()
 	cfg.CheckInterval = time.Hour
 
 	s := NewShard(ShardConfig{
@@ -1712,7 +1613,7 @@ func TestShard_triggerBackgroundCompaction_LevelCompactionNoTrigger(t *testing.T
 		EndTime:            time.Hour.Nanoseconds(),
 		Dir:                tmpDir,
 		SeriesStore:        metadata.NewSimpleSeriesStore(),
-		MemTableCfg:        DefaultMemTableConfig(),
+		MemTableCfg:        memtable.DefaultMemTableConfig(),
 		LevelCompactionCfg: cfg,
 	})
 

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
@@ -41,7 +42,7 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 MemTable 数据
@@ -101,7 +102,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir0,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 	s1 := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
@@ -110,7 +111,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 		EndTime:     7200 * 1e9,
 		Dir:         shardDir1,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Shard0: 1000, 3000
@@ -177,7 +178,7 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入不同 tag 的数据
@@ -235,7 +236,7 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入包含多个字段的数据
@@ -297,7 +298,7 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 5 条数据
@@ -357,7 +358,7 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 5 条数据
@@ -416,7 +417,7 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 10 条数据
@@ -476,7 +477,7 @@ func TestQueryIterator_Close(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: shard.DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	points := []*types.Point{

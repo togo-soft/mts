@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
@@ -26,7 +28,7 @@ func TestShard_TimeRange(t *testing.T) {
 		EndTime:     end,
 		Dir:         t.TempDir(),
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	if s.StartTime() != start {
@@ -48,7 +50,7 @@ func TestShard_ContainsTime(t *testing.T) {
 		EndTime:     end,
 		Dir:         t.TempDir(),
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	if !s.ContainsTime(start) {
@@ -73,7 +75,7 @@ func TestShard_Duration(t *testing.T) {
 		EndTime:     end,
 		Dir:         t.TempDir(),
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	if s.Duration() != time.Hour {
@@ -91,7 +93,7 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据到 MemTable
@@ -153,7 +155,7 @@ func TestShard_WriteWithWAL(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -207,7 +209,7 @@ func TestShard_Write_DifferentTags(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入不同 tags 的 points 以测试 SID 分配
@@ -235,7 +237,7 @@ func TestShard_Write_IntAndStringFields(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	p := &types.Point{
@@ -265,7 +267,7 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	for i := 0; i < 5; i++ {
@@ -289,7 +291,7 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: s1.seriesStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	rows, err := s2.Read(0, 5*1e9)
@@ -314,7 +316,7 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Write some data but don't flush
@@ -346,7 +348,7 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	rows, err := s2.Read(0, 3*1e9)
@@ -371,7 +373,7 @@ func TestShard_Flush_NoData(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Flush with no data should not fail
@@ -392,7 +394,7 @@ func TestShard_Read_OutOfRange(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Write some data
@@ -428,7 +430,7 @@ func TestShard_DataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	dataDir := s.DataDir()
@@ -452,7 +454,7 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Write data
@@ -475,7 +477,7 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	rows, err := s2.Read(0, 2*1e9)
@@ -500,7 +502,7 @@ func TestShard_Close_WithPendingData(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Write more data to trigger internal flush
@@ -530,7 +532,7 @@ func TestShard_MultipleFlush(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Multiple flushes
@@ -565,7 +567,7 @@ func TestShard_DeleteDataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Write and flush
@@ -593,7 +595,7 @@ func TestShard_DeleteDataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	rows, err := s2.Read(0, 2*1e9)
@@ -619,7 +621,7 @@ func TestShard_Write_WALDisabled(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 		// 默认 WALEnabled = false
 	})
 
@@ -656,7 +658,7 @@ func TestShard_Close_NoData(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 不写入任何数据，直接关闭
@@ -676,7 +678,7 @@ func TestShard_Flush_AfterWrite(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -735,7 +737,7 @@ func TestShard_Read_TimeRange(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 5 个时间点的数据
@@ -779,7 +781,7 @@ func TestShard_ConcurrentWrite(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	const goroutines = 10
@@ -831,7 +833,7 @@ func TestShard_ConcurrentReadWrite(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 先写入一些数据
@@ -897,7 +899,7 @@ func TestShard_Write_MultipleFlush(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 多次写入并 flush
@@ -941,7 +943,7 @@ func TestShard_Flush_EmptyMemTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 不写入任何数据，直接 flush
@@ -984,8 +986,8 @@ func TestShard_Close_WithActiveCompaction(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: DefaultMemTableConfig(),
-		CompactionCfg: &CompactionConfig{
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+		CompactionCfg: &compaction.CompactionConfig{
 			MaxSSTableCount: 2,
 			CheckInterval:   10 * time.Millisecond, // 快速触发
 			Timeout:         30 * time.Second,

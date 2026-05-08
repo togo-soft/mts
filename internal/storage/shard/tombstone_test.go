@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 )
 
 func TestTombstoneSet_ShouldDelete(t *testing.T) {
-	ts := &TombstoneSet{
-		Tombstones: []Tombstone{
+	ts := &compaction.TombstoneSet{
+		Tombstones: []compaction.Tombstone{
 			{SID: 1, MinTime: 100, MaxTime: 200, DeletedAt: 300},
 			{SID: 2, MinTime: 150, MaxTime: 250, DeletedAt: 300},
 		},
@@ -41,7 +43,7 @@ func TestTombstoneSet_ShouldDelete(t *testing.T) {
 }
 
 func TestTombstoneSet_Empty(t *testing.T) {
-	ts := &TombstoneSet{}
+	ts := &compaction.TombstoneSet{}
 	if ts.ShouldDelete(1, 100) {
 		t.Error("empty TombstoneSet.ShouldDelete should return false")
 	}
@@ -50,12 +52,12 @@ func TestTombstoneSet_Empty(t *testing.T) {
 func TestTombstoneSet_HasTombstones(t *testing.T) {
 	tests := []struct {
 		name string
-		ts   *TombstoneSet
+		ts   *compaction.TombstoneSet
 		want bool
 	}{
 		{"nil", nil, false},
-		{"empty", &TombstoneSet{}, false},
-		{"with tombstones", &TombstoneSet{Tombstones: []Tombstone{{SID: 1}}}, true},
+		{"empty", &compaction.TombstoneSet{}, false},
+		{"with tombstones", &compaction.TombstoneSet{Tombstones: []compaction.Tombstone{{SID: 1}}}, true},
 	}
 
 	for _, tt := range tests {
@@ -69,7 +71,7 @@ func TestTombstoneSet_HasTombstones(t *testing.T) {
 
 func TestLoadTombstones_NotExist(t *testing.T) {
 	tmpDir := t.TempDir()
-	ts, err := loadTombstones(filepath.Join(tmpDir, "nonexistent"))
+	ts, err := compaction.LoadTombstones(filepath.Join(tmpDir, "nonexistent"))
 	if err != nil {
 		t.Fatalf("loadTombstones should not error for nonexistent path: %v", err)
 	}
@@ -90,7 +92,7 @@ func TestLoadTombstones_InvalidJSON(t *testing.T) {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	ts, err := loadTombstones(partPath)
+	ts, err := compaction.LoadTombstones(partPath)
 	if err == nil {
 		t.Error("loadTombstones should error for invalid JSON")
 	}
@@ -113,7 +115,7 @@ func TestLoadTombstones_Valid(t *testing.T) {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	loaded, err := loadTombstones(partPath)
+	loaded, err := compaction.LoadTombstones(partPath)
 	if err != nil {
 		t.Fatalf("loadTombstones failed: %v", err)
 	}
@@ -130,8 +132,8 @@ func TestLoadTombstones_Valid(t *testing.T) {
 
 func TestSaveTombstones_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
-	ts := &TombstoneSet{}
-	err := saveTombstones(tmpDir, ts)
+	ts := &compaction.TombstoneSet{}
+	err := compaction.SaveTombstones(tmpDir, ts)
 	if err != nil {
 		t.Fatalf("saveTombstones should not error for empty set: %v", err)
 	}
@@ -139,14 +141,14 @@ func TestSaveTombstones_Empty(t *testing.T) {
 
 func TestSaveTombstones_Valid(t *testing.T) {
 	tmpDir := t.TempDir()
-	ts := &TombstoneSet{
-		Tombstones: []Tombstone{
+	ts := &compaction.TombstoneSet{
+		Tombstones: []compaction.Tombstone{
 			{SID: 1, MinTime: 100, MaxTime: 200, DeletedAt: 300},
 		},
 	}
 
 	partPath := filepath.Join(tmpDir, "part1")
-	err := saveTombstones(partPath, ts)
+	err := compaction.SaveTombstones(partPath, ts)
 	if err != nil {
 		t.Fatalf("saveTombstones failed: %v", err)
 	}
@@ -158,7 +160,7 @@ func TestSaveTombstones_Valid(t *testing.T) {
 	}
 
 	// Verify we can load it back
-	loaded, err := loadTombstones(partPath)
+	loaded, err := compaction.LoadTombstones(partPath)
 	if err != nil {
 		t.Fatalf("loadTombstones failed: %v", err)
 	}
@@ -181,7 +183,7 @@ func TestRemoveTombstones(t *testing.T) {
 	}
 
 	// Remove it
-	if err := removeTombstones(partPath); err != nil {
+	if err := compaction.RemoveTombstones(partPath); err != nil {
 		t.Fatalf("removeTombstones failed: %v", err)
 	}
 
@@ -194,7 +196,7 @@ func TestRemoveTombstones(t *testing.T) {
 func TestRemoveTombstones_NotExist(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Should not error when file doesn't exist
-	err := removeTombstones(filepath.Join(tmpDir, "nonexistent"))
+	err := compaction.RemoveTombstones(filepath.Join(tmpDir, "nonexistent"))
 	if err != nil {
 		t.Fatalf("removeTombstones should not error for nonexistent: %v", err)
 	}
@@ -203,7 +205,7 @@ func TestRemoveTombstones_NotExist(t *testing.T) {
 func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cfg := DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelCompactionConfig()
 	cfg.TombstoneRetention = 1 * time.Hour
 
 	// Create a mock shard
@@ -211,14 +213,14 @@ func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 		dir: tmpDir,
 	}
 
-	lcm, err := NewLevelCompactionManager(shard, cfg)
+	lcm, err := compaction.NewLevelCompactionManager(shard, cfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
 	defer lcm.Stop()
 
 	// Create L0 directory with a part
-	l0Path := lcm.manifest.GetLevelPath(0)
+	l0Path := lcm.Manifest.GetLevelPath(0)
 	if err := os.MkdirAll(l0Path, 0700); err != nil {
 		t.Fatalf("MkdirAll failed: %v", err)
 	}
@@ -231,17 +233,17 @@ func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 
 	// Create tombstone with old timestamp (expired)
 	oldTime := time.Now().Add(-2 * time.Hour).Unix()
-	ts := &TombstoneSet{
-		Tombstones: []Tombstone{
+	ts := &compaction.TombstoneSet{
+		Tombstones: []compaction.Tombstone{
 			{SID: 1, MinTime: 100, MaxTime: 200, DeletedAt: oldTime},
 		},
 	}
-	if err := saveTombstones(partPath, ts); err != nil {
+	if err := compaction.SaveTombstones(partPath, ts); err != nil {
 		t.Fatalf("saveTombstones failed: %v", err)
 	}
 
 	// Add part to manifest with DeletedAt=0 so it gets processed
-	lcm.manifest.AddPart(0, PartInfo{
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
 		Name:      partName,
 		DeletedAt: 0, // Must be 0 for CompactTombstones to process it
 	})
@@ -262,20 +264,20 @@ func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 func TestLevelCompactionManager_CompactTombstones_PartialRetention(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cfg := DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelCompactionConfig()
 	cfg.TombstoneRetention = 1 * time.Hour
 
 	shard := &Shard{
 		dir: tmpDir,
 	}
 
-	lcm, err := NewLevelCompactionManager(shard, cfg)
+	lcm, err := compaction.NewLevelCompactionManager(shard, cfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
 	defer lcm.Stop()
 
-	l0Path := lcm.manifest.GetLevelPath(0)
+	l0Path := lcm.Manifest.GetLevelPath(0)
 	if err := os.MkdirAll(l0Path, 0700); err != nil {
 		t.Fatalf("MkdirAll failed: %v", err)
 	}
@@ -289,17 +291,17 @@ func TestLevelCompactionManager_CompactTombstones_PartialRetention(t *testing.T)
 	// Create tombstone with mixed timestamps (some expired, some not)
 	oldTime := time.Now().Add(-2 * time.Hour).Unix()
 	newTime := time.Now().Unix()
-	ts := &TombstoneSet{
-		Tombstones: []Tombstone{
+	ts := &compaction.TombstoneSet{
+		Tombstones: []compaction.Tombstone{
 			{SID: 1, MinTime: 100, MaxTime: 200, DeletedAt: oldTime}, // expired
 			{SID: 2, MinTime: 300, MaxTime: 400, DeletedAt: newTime}, // active
 		},
 	}
-	if err := saveTombstones(partPath, ts); err != nil {
+	if err := compaction.SaveTombstones(partPath, ts); err != nil {
 		t.Fatalf("saveTombstones failed: %v", err)
 	}
 
-	lcm.manifest.AddPart(0, PartInfo{
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
 		Name:      partName,
 		DeletedAt: 0, // Must be 0 for CompactTombstones to process it
 	})
@@ -310,7 +312,7 @@ func TestLevelCompactionManager_CompactTombstones_PartialRetention(t *testing.T)
 	}
 
 	// Verify tombstone file still exists with only active tombstone
-	loaded, err := loadTombstones(partPath)
+	loaded, err := compaction.LoadTombstones(partPath)
 	if err != nil {
 		t.Fatalf("loadTombstones failed: %v", err)
 	}

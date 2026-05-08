@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
 )
 
@@ -59,9 +61,9 @@ type ShardConfig struct {
 	EndTime            int64
 	Dir                string
 	SeriesStore        SeriesStore
-	MemTableCfg        *MemTableConfig
-	CompactionCfg      *CompactionConfig
-	LevelCompactionCfg *LevelCompactionConfig
+	MemTableCfg        *memtable.MemTableConfig
+	CompactionCfg      *compaction.CompactionConfig
+	LevelCompactionCfg *compaction.LevelCompactionConfig
 	Logger             *slog.Logger
 }
 
@@ -102,7 +104,7 @@ type Shard struct {
 	startTime       int64
 	endTime         int64
 	dir             string
-	memTable        *MemTable
+	memTable        *memtable.MemTable
 	wal             *wal.WAL
 	flushDone       chan struct{} // MemTable 定期刷盘停止信号
 	flushTicker     *time.Ticker
@@ -114,8 +116,8 @@ type Shard struct {
 	mu              sync.RWMutex
 	sstSeq          uint64 // SSTable序列号，用于生成唯一的文件名
 	sstRefs         *sstRefs
-	compaction      *CompactionManager
-	levelCompaction *LevelCompactionManager
+	compaction      *compaction.CompactionManager
+	levelCompaction *compaction.LevelCompactionManager
 }
 
 // NewShard 创建新的 Shard 实例。
@@ -161,7 +163,7 @@ func NewShard(cfg ShardConfig) *Shard {
 	}
 
 	// 创建空的 MemTable
-	memTable := NewMemTable(cfg.MemTableCfg)
+	memTable := memtable.NewMemTable(cfg.MemTableCfg)
 
 	// 创建 Shard 实例
 	shard := &Shard{
@@ -181,12 +183,12 @@ func NewShard(cfg ShardConfig) *Shard {
 
 	// 初始化 CompactionManager（如果配置了）
 	if cfg.CompactionCfg != nil {
-		shard.compaction = NewCompactionManager(shard, cfg.CompactionCfg)
+		shard.compaction = compaction.NewCompactionManager(shard, cfg.CompactionCfg)
 	}
 
 	// 初始化 LevelCompactionManager（如果配置了）
 	if cfg.LevelCompactionCfg != nil {
-		shard.levelCompaction, err = NewLevelCompactionManager(shard, cfg.LevelCompactionCfg)
+		shard.levelCompaction, err = compaction.NewLevelCompactionManager(shard, cfg.LevelCompactionCfg)
 		if err != nil {
 			slog.Warn("failed to create LevelCompactionManager, level compaction disabled",
 				"error", err)
@@ -272,7 +274,7 @@ func (s *Shard) Duration() time.Duration {
 //
 //	此方法在 Shard 启动时自动调用，无需手动调用。
 func (s *Shard) startPeriodicFlushCheck() {
-	idleDuration := s.memTable.idleTimeout
+	idleDuration := s.memTable.IdleTimeout()
 	var interval time.Duration
 	if idleDuration > 0 {
 		interval = idleDuration / 2

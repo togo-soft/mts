@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -21,7 +22,7 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 MemTable 数据
@@ -129,7 +130,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 创建迭代器（0, 0 表示不过滤时间）
@@ -224,7 +225,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 MemTable 数据 (MemTable: 1000, 3000)
@@ -332,7 +333,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 MemTable 数据 (MemTable: 1000, 2000) - 1000 与 SSTable 相同
@@ -392,7 +393,7 @@ func TestShardIterator_Current(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 MemTable 数据
@@ -441,7 +442,7 @@ func TestShardIterator_Empty(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 创建迭代器（0, 0 表示不过滤时间）
@@ -471,7 +472,7 @@ func TestShardIterator_Err(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	iter := NewShardIterator(shard, 0, 0)
@@ -552,7 +553,7 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 MemTable 数据 (MemTable: 1000)
@@ -654,7 +655,7 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入 MemTable 数据 (MemTable: 3000)
@@ -691,7 +692,7 @@ func TestShardIterator_TimeRangeFilter(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 	defer func() { _ = shard.Close() }()
 
@@ -744,7 +745,7 @@ func TestShardIterator_PointToRowNil(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 	defer func() { _ = shard.Close() }()
 
@@ -770,7 +771,7 @@ func TestShardIterator_NextLocked_AllExhausted(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         dir,
 		SeriesStore: nil,
-		MemTableCfg: DefaultMemTableConfig(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 	defer func() { _ = shard.Close() }()
 

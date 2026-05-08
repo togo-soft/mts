@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 )
 
@@ -20,8 +22,8 @@ import (
 type ShardManager struct {
 	dir                    string
 	shardDuration          time.Duration
-	memTableCfg            *MemTableConfig
-	compactionCfg          *CompactionConfig
+	memTableCfg            *memtable.MemTableConfig
+	compactionCfg          *compaction.CompactionConfig
 	manager                *metadata.Manager
 	shards                 map[string]*Shard
 	discoveredMeasurements map[string]bool
@@ -29,7 +31,7 @@ type ShardManager struct {
 }
 
 // NewShardManager 创建新的 Shard 管理器。
-func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *MemTableConfig, compactionCfg *CompactionConfig, mgr *metadata.Manager) *ShardManager {
+func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memtable.MemTableConfig, compactionCfg *compaction.CompactionConfig, mgr *metadata.Manager) *ShardManager {
 	return &ShardManager{
 		dir:                    dir,
 		shardDuration:          shardDuration,

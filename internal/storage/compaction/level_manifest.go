@@ -1,7 +1,4 @@
-// Package shard 实现分片存储管理。
-//
-// Level Compaction 机制用于合并多个 SSTable，实现层次化存储管理。
-package shard
+package compaction
 
 import (
 	"encoding/json"
@@ -90,8 +87,7 @@ func NewLevelManifest(dataDir string, configs []LevelConfig) (*LevelManifest, er
 	return manifest, nil
 }
 
-// getLevel 获取指定层次（调用者需持有 m.mu 的读锁或写锁）。
-func (m *LevelManifest) getLevel(level int) *Level {
+func (m *LevelManifest) GetLevel(level int) *Level {
 	return m.levels[level]
 }
 

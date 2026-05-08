@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
@@ -37,7 +39,7 @@ type Config struct {
 	DataDir                string
 	ShardDuration          time.Duration
 	MemTableCfg            *types.MemTableConfig
-	CompactionCfg          *shard.CompactionConfig
+	CompactionCfg          *compaction.CompactionConfig
 	RetentionPeriod        time.Duration
 	RetentionCheckInterval time.Duration
 }
@@ -57,7 +59,7 @@ type Engine struct {
 func New(cfg *Config) (*Engine, error) {
 	var memTableCfg *types.MemTableConfig
 	if cfg.MemTableCfg == nil || cfg.MemTableCfg.MaxSize == 0 {
-		memTableCfg = shard.DefaultMemTableConfig()
+		memTableCfg = memtable.DefaultMemTableConfig()
 	} else {
 		memTableCfg = cfg.MemTableCfg
 	}

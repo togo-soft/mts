@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -47,7 +48,7 @@ func (s *Shard) flushLocked() error {
 	}
 
 	if s.compaction != nil && !s.levelCompactionEnabled() {
-		if err := s.compaction.markSSTableWriting(sstPath); err != nil {
+		if err := s.compaction.MarkWriting(sstPath); err != nil {
 			slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
 		}
 	}
@@ -57,7 +58,7 @@ func (s *Shard) flushLocked() error {
 			slog.Warn("failed to close sstable writer after write error", "error", closeErr)
 		}
 		if s.compaction != nil && !s.levelCompactionEnabled() {
-			if unmarkErr := s.compaction.unmarkSSTableWriting(sstPath); unmarkErr != nil {
+			if unmarkErr := s.compaction.UnmarkWriting(sstPath); unmarkErr != nil {
 				slog.Warn("failed to unmark sstable after write error", "error", unmarkErr)
 			}
 		}
@@ -70,7 +71,7 @@ func (s *Shard) flushLocked() error {
 
 	if err := w.Close(); err != nil {
 		if s.compaction != nil && !s.levelCompactionEnabled() {
-			if unmarkErr := s.compaction.unmarkSSTableWriting(sstPath); unmarkErr != nil {
+			if unmarkErr := s.compaction.UnmarkWriting(sstPath); unmarkErr != nil {
 				slog.Warn("failed to unmark sstable after close error", "error", unmarkErr)
 			}
 		}
@@ -78,7 +79,7 @@ func (s *Shard) flushLocked() error {
 	}
 
 	if s.compaction != nil && !s.levelCompactionEnabled() {
-		if err := s.compaction.unmarkSSTableWriting(sstPath); err != nil {
+		if err := s.compaction.UnmarkWriting(sstPath); err != nil {
 			slog.Warn("failed to unmark sstable write", "path", sstPath, "error", err)
 		}
 	}
@@ -99,7 +100,7 @@ func (s *Shard) flushLocked() error {
 			size = info.Size()
 		}
 
-		s.levelCompaction.AddPart(0, PartInfo{
+		s.levelCompaction.AddPart(0, compaction.PartInfo{
 			Name:    fmt.Sprintf("sst_%d", sstSeq),
 			Size:    size,
 			MinTime: minTime,
@@ -143,7 +144,7 @@ func (s *Shard) calcPointTimeRange(points []*types.Point) (int64, int64) {
 func (s *Shard) triggerBackgroundCompaction() {
 	if s.levelCompaction != nil && s.levelCompaction.ShouldCompact() {
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), s.levelCompaction.Config().Timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), s.levelCompaction.Timeout())
 			defer cancel()
 			if _, _, err := s.levelCompaction.Compact(ctx); err != nil {
 				slog.Error("background level compaction failed", "error", err)
@@ -151,12 +152,12 @@ func (s *Shard) triggerBackgroundCompaction() {
 		}()
 	} else if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), s.compaction.config.Timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), s.compaction.Timeout())
 			defer cancel()
 			if _, _, err := s.compaction.Compact(ctx); err != nil {
 				slog.Error("background compaction failed", "error", err)
 			} else {
-				s.compaction.resetTimer()
+				s.compaction.ResetTimer()
 			}
 		}()
 	}

@@ -1,4 +1,4 @@
-package shard
+package compaction
 
 import (
 	"container/heap"
@@ -13,10 +13,10 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// merge 执行归并操作。
-func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) error {
-	readers := make([]*sstable.Reader, 0, len(task.inputFiles))
-	for _, path := range task.inputFiles {
+// Merge 执行归并操作。
+func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) error {
+	readers := make([]*sstable.Reader, 0, len(task.InputFiles))
+	for _, path := range task.InputFiles {
 		r, err := sstable.NewReader(path)
 		if err != nil {
 			for _, r := range readers {
@@ -33,14 +33,14 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 		}
 	}()
 
-	tombstones := collectInputTombstones(task.inputFiles)
+	tombstones := collectInputTombstones(task.InputFiles)
 
-	seqStr := filepath.Base(task.outputPath)
+	seqStr := filepath.Base(task.OutputPath)
 	var outputSeq uint64
 	if _, err := fmt.Sscanf(seqStr, "sst_%d", &outputSeq); err != nil {
 		return fmt.Errorf("parse output seq from path: %w", err)
 	}
-	w, err := sstable.NewWriter(cm.shard.Dir(), outputSeq, 0)
+	w, err := sstable.NewWriter(cm.ShardAccess.Dir(), outputSeq, 0)
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 		iterators = append(iterators, it)
 	}
 
-	merged := newMergeIterator(iterators)
+	merged := NewMergeIterator(iterators)
 
 	seen := make(map[string]bool)
 	var pointsToWrite []*types.Point
@@ -68,7 +68,7 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 		if err := w.WritePoints(pointsToWrite, tsSidMap); err != nil {
 			return err
 		}
-		task.outputCount += len(pointsToWrite)
+		task.OutputCount += len(pointsToWrite)
 		pointsToWrite = pointsToWrite[:0]
 		tsSidMap = make(map[int64]uint64)
 		return nil
@@ -86,7 +86,7 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 		key := fmt.Sprintf("%d-%d", row.Timestamp, row.Sid)
 
 		if seen[key] {
-			task.duplicateCount++
+			task.DuplicateCount++
 			continue
 		}
 		if tombstones.ShouldDelete(row.Sid, row.Timestamp) {
@@ -110,7 +110,7 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 				_ = w.Close()
 				return err
 			}
-			cm.reportProgress(task.outputCount)
+			cm.ReportProgress(task.OutputCount)
 		}
 	}
 
@@ -128,18 +128,18 @@ func (cm *CompactionManager) merge(ctx context.Context, task *CompactionTask) er
 		return err
 	}
 
-	return saveTombstones(task.outputPath, tombstones)
+	return SaveTombstones(task.OutputPath, tombstones)
 }
 
 // commit 原子性提交 compaction 结果。
-func (cm *CompactionManager) commit(task *CompactionTask) error {
-	if err := cm.verifyOutput(task.outputPath); err != nil {
+func (cm *CompactionManager) Commit(task *CompactionTask) error {
+	if err := cm.VerifyOutput(task.OutputPath); err != nil {
 		return fmt.Errorf("verify output: %w", err)
 	}
 
 	var lastErr error
-	for _, oldFile := range task.inputFiles {
-		if !cm.shard.IsSSTUnused(oldFile) {
+	for _, oldFile := range task.InputFiles {
+		if !cm.ShardAccess.IsSSTUnused(oldFile) {
 			slog.Warn("sstable still in use, deferring cleanup", "path", oldFile)
 			continue
 		}
@@ -159,8 +159,7 @@ func (cm *CompactionManager) commit(task *CompactionTask) error {
 	return nil
 }
 
-// verifyOutput 验证输出文件完整性。
-func (cm *CompactionManager) verifyOutput(path string) error {
+func (cm *CompactionManager) VerifyOutput(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("output path stat: %w", err)
@@ -180,21 +179,20 @@ func (cm *CompactionManager) verifyOutput(path string) error {
 	return nil
 }
 
-// reportProgress 更新当前 compaction 任务的进度。
-func (cm *CompactionManager) reportProgress(outputCount int) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	if cm.currentTask == nil {
+func (cm *CompactionManager) ReportProgress(outputCount int) {
+	cm.Mu.Lock()
+	defer cm.Mu.Unlock()
+	if cm.CurrentTask == nil {
 		return
 	}
-	cm.currentTask.Progress = outputCount
+	cm.CurrentTask.Progress = outputCount
 }
 
 // collectInputTombstones 收集所有输入 SSTable 的删除标记，合并为一个集合。
 func collectInputTombstones(inputPaths []string) *TombstoneSet {
 	var all []Tombstone
 	for _, path := range inputPaths {
-		ts, err := loadTombstones(path)
+		ts, err := LoadTombstones(path)
 		if err != nil {
 			continue
 		}
@@ -208,43 +206,41 @@ func collectInputTombstones(inputPaths []string) *TombstoneSet {
 	return &TombstoneSet{Tombstones: all}
 }
 
-// mergeIterator k-way merge 迭代器。
-type mergeIterator struct {
+// MergeIterator k-way merge 迭代器。
+type MergeIterator struct {
 	iterators []*sstable.Iterator
-	heap      *mergeHeap
-	current   *mergeHeapItem
+	heap      *MergeHeap
+	current   *MergeHeapItem
 	err       error
 }
 
-// mergeHeapItem 最小堆中的元素。
-type mergeHeapItem struct {
-	iter      *sstable.Iterator
-	point     *types.PointRow
-	idx       int
-	timestamp int64
+type MergeHeapItem struct {
+	Iter      *sstable.Iterator
+	Point     *types.PointRow
+	Idx       int
+	Timestamp int64
 }
 
-// mergeHeap 实现 heap.Interface。
-type mergeHeap []*mergeHeapItem
+type MergeHeap []*MergeHeapItem
 
-func (h mergeHeap) Len() int { return len(h) }
+func (h MergeHeap) Len() int { return len(h) }
 
-func (h mergeHeap) Less(i, j int) bool {
-	if h[i].timestamp != h[j].timestamp {
-		return h[i].timestamp < h[j].timestamp
+func (h MergeHeap) Less(i, j int) bool {
+	if h[i].Timestamp != h[j].Timestamp {
+		return h[i].Timestamp < h[j].Timestamp
 	}
-	return h[i].idx < h[j].idx
+	return h[i].Idx < h[j].Idx
 }
 
-func (h mergeHeap) Swap(i, j int) {
+func (h MergeHeap) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]
 }
 
-func (h *mergeHeap) Push(x any) {
-	*h = append(*h, x.(*mergeHeapItem))
+func (h *MergeHeap) Push(x any) {
+	*h = append(*h, x.(*MergeHeapItem))
 }
 
-func (h *mergeHeap) Pop() any {
+func (h *MergeHeap) Pop() any {
 	old := *h
 	n := len(old)
 	item := old[n-1]
@@ -252,54 +248,54 @@ func (h *mergeHeap) Pop() any {
 	return item
 }
 
-func newMergeIterator(iters []*sstable.Iterator) *mergeIterator {
-	h := make(mergeHeap, 0, len(iters))
+func NewMergeIterator(iters []*sstable.Iterator) *MergeIterator {
+	h := make(MergeHeap, 0, len(iters))
 
 	for i, iter := range iters {
 		if iter.Next() {
 			p := iter.Point()
-			h = append(h, &mergeHeapItem{
-				iter:      iter,
-				point:     p,
-				idx:       i,
-				timestamp: p.Timestamp,
+			h = append(h, &MergeHeapItem{
+				Iter:      iter,
+				Point:     p,
+				Idx:       i,
+				Timestamp: p.Timestamp,
 			})
 		}
 	}
 
 	heap.Init(&h)
 
-	return &mergeIterator{
+	return &MergeIterator{
 		iterators: iters,
 		heap:      &h,
 	}
 }
 
-func (m *mergeIterator) Next() bool {
+func (m *MergeIterator) Next() bool {
 	if len(*m.heap) == 0 || m.err != nil {
 		m.current = nil
 		return false
 	}
 
-	m.current = heap.Pop(m.heap).(*mergeHeapItem)
+	m.current = heap.Pop(m.heap).(*MergeHeapItem)
 
-	if m.current.iter.Next() {
-		p := m.current.iter.Point()
-		m.current.point = p
-		m.current.timestamp = p.Timestamp
+	if m.current.Iter.Next() {
+		p := m.current.Iter.Point()
+		m.current.Point = p
+		m.current.Timestamp = p.Timestamp
 		heap.Push(m.heap, m.current)
 	}
 
 	return true
 }
 
-func (m *mergeIterator) Point() *types.PointRow {
+func (m *MergeIterator) Point() *types.PointRow {
 	if m.current == nil {
 		return nil
 	}
-	return m.current.point
+	return m.current.Point
 }
 
-func (m *mergeIterator) Error() error {
+func (m *MergeIterator) Error() error {
 	return m.err
 }
