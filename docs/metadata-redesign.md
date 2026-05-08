@@ -145,6 +145,8 @@ root
  │   │   ├─ "series"               ← Bucket
  │   │   │   ├─ {sid_be_8bytes}    ← Key → JSON({"k":"v",...})
  │   │   │   └─ "_next_sid"        ← Key → uint64 (varint)
+ │   │   ├─ "hash_idx"             ← Bucket
+ │   │   │   └─ {hash_be_8bytes}   ← Key → {sid_be_8bytes} (Value)
  │   │   ├─ "tag_index"            ← Bucket
  │   │   │   ├─ "{tag_key}\x00{tag_value}"  ← Key (prefix)
  │   │   │   │   └─ {sid_be_8bytes}         ← Key → empty
@@ -164,6 +166,7 @@ root
 | Created time | `_created` | varint (8 bytes) | db/meas 注册时间 |
 | Series tags | `{sid_be}` | JSON `{"k":"v",...}` | SID 用 BigEndian 编码 |
 | Next SID | `_next_sid` | varint | 自增计数器 |
+| Hash 索引 | `{hash_be_8bytes}` | `{sid_be_8bytes}` | tags hash → SID 快速查找 |
 | Tag 倒排 | `{key}\x00{val}` prefix, `{sid_be}` sub-key | 空 | 按 tag 查 SID 列表 |
 | Shard info | `{shard_id}` | JSON | shard_id 即 `{start}_{end}` |
 
