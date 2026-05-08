@@ -249,6 +249,9 @@ func TestMicroTSService_CreateAndDropMeasurement(t *testing.T) {
 	srv := New(eng)
 	ctx := t.Context()
 
+	// 先创建 Database
+	_, _ = srv.CreateDatabase(ctx, &types.CreateDatabaseRequest{Database: "testdb"})
+
 	// 创建 Measurement
 	createReq := &types.CreateMeasurementRequest{
 		Database:    "testdb",
@@ -567,6 +570,9 @@ func TestMicroTSService_CreateMeasurement_Duplicate(t *testing.T) {
 	})
 	srv := New(eng)
 	ctx := t.Context()
+
+	// 先创建 Database
+	_, _ = srv.CreateDatabase(ctx, &types.CreateDatabaseRequest{Database: "testdb"})
 
 	// 第一次创建
 	req := &types.CreateMeasurementRequest{

@@ -11,6 +11,7 @@
 - ⚡ **高性能写入**：内存跳表（MemTable）实现亚微秒级写入延迟
 - 💾 **分层存储**：SSTable 持久化存储，支持高效磁盘检索
 - 🛡️ **数据安全**：WAL 预写日志保证崩溃恢复能力
+- 🗄️ **元数据管理**：bbolt 嵌入式 KV 存储，ACID 事务保证一致性
 - 🔌 **gRPC 接口**：高性能远程访问接口
 - 🔍 **时间范围查询**：支持纳秒级精度的时间范围查询
 - 🧪 **基准测试验证**：通过完整性能基准测试，写入性能达 177万+ tps
@@ -44,7 +45,7 @@
 | **Shard Manager** | Shard 生命周期管理 | 按时间窗口分片，自动 Flush |
 | **SSTable** | 有序字符串表 | 磁盘持久化，支持块压缩和稀疏索引 |
 | **WAL** | 预写日志 | 崩溃恢复，保证数据一致性 |
-| **MetaStore** | 元数据存储 | Measurement 结构、Series ID 映射管理 |
+| **Metadata** | 元数据管理 | bbolt 单文件存储，Catalog/Series/ShardIndex 三层管理 |
 
 ## 快速开始
 
@@ -174,8 +175,8 @@ go test -bench=. -benchmem ./internal/storage/shard -run=BenchmarkEncode
 # SSTable 读取性能
 go test -bench=. -benchmem ./internal/storage/shard/sstable
 
-# MetaStore 性能
-go test -bench=. -benchmem ./internal/storage/measurement
+# Metadata 性能
+go test -bench=. -benchmem ./internal/storage/metadata
 ```
 
 ### 保存性能基线
@@ -183,7 +184,7 @@ go test -bench=. -benchmem ./internal/storage/measurement
 ```bash
 # 保存当前性能基线
 go test -bench=. -benchmem ./internal/storage/shard > benchmark/baseline_shard.txt
-go test -bench=. -benchmem ./internal/storage/measurement > benchmark/baseline_meas.txt
+go test -bench=. -benchmem ./internal/storage/metadata > benchmark/baseline_metadata.txt
 ```
 
 ## 开发
@@ -198,7 +199,7 @@ go test -bench=. -benchmem ./internal/storage/measurement > benchmark/baseline_m
 │   ├── engine/         # 查询引擎和写入协调
 │   ├── query/          # 查询执行器
 │   └── storage/        # 存储层
-│       ├── measurement/# 元数据管理
+│       ├── metadata/   # 元数据 (bbolt)
 │       └── shard/      # Shard 管理
 │           ├── compression/  # 压缩算法
 │           └── sstable/      # SSTable 实现
