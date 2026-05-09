@@ -65,12 +65,14 @@ func (s *Shard) flushLocked() error {
 		return fmt.Errorf("write points to sstable: %w", err)
 	}
 
-	// 将检测到的 schema 写入 boltDB
+	// 将检测到的 schema 写入 boltDB 并更新内存缓存
 	if s.schemaStore != nil {
 		metaSchema := SSTableSchemaToMetadataSchema(w.Schema())
 		if err := s.schemaStore.SetSchema(s.db, s.measurement, metaSchema); err != nil {
 			slog.Warn("failed to persist schema", "error", err)
 		}
+		// 同步更新内存 schema
+		s.UpdateSchemaInMemory(metaSchema)
 	}
 
 	for _, p := range points {

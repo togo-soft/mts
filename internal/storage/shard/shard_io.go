@@ -61,7 +61,12 @@ func (s *Shard) Write(point *types.Point) error {
 	s.sidCache[sid] = copyTagsMap(point.Tags)
 	s.tsSidMap[point.Timestamp] = sid
 
-	// 3. 写入 MemTable
+	// 3. 验证字段类型一致性
+	if err := s.ValidateFieldTypes(point); err != nil {
+		return fmt.Errorf("validate field types: %w", err)
+	}
+
+	// 4. 写入 MemTable
 	if err := s.memTable.Write(point); err != nil {
 		return fmt.Errorf("write to memtable: %w", err)
 	}

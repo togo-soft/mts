@@ -31,6 +31,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // SeriesStore 是 Shard 所需的 Series 操作接口。
@@ -122,6 +123,8 @@ type Shard struct {
 	replaying       bool      // 表示当前是否正在 replay WAL
 	seriesStore     SeriesStore
 	schemaStore     SchemaStore
+	schema          *metadata.Schema             // 内存 schema 缓存
+	schemaMu        sync.RWMutex                 // 保护 schema
 	sidCache        map[uint64]map[string]string // sid → tags 缓存
 	tsSidMap        map[int64]uint64             // timestamp → sid 映射
 	mu              sync.RWMutex
@@ -208,6 +211,13 @@ func NewShard(cfg ShardConfig) *Shard {
 		}
 	}
 
+	// 从 boltDB 加载初始 schema 到内存缓存
+	if shard.schemaStore != nil {
+		if metaSchema, err := shard.schemaStore.GetSchema(cfg.DB, cfg.Measurement); err == nil {
+			shard.schema = metaSchema
+		}
+	}
+
 	// 启动定期 Compaction 检查（如果启用了）
 	if shard.compaction != nil {
 		shard.compaction.StartPeriodicCheck()
@@ -265,6 +275,82 @@ func (s *Shard) GetSchema() (sstable.Schema, error) {
 		return sstable.Schema{}, err
 	}
 	return MetadataSchemaToSSTableSchema(metaSchema), nil
+}
+
+// ValidateFieldTypes 验证 point 的字段类型与当前 schema 是否一致。
+// 如果字段类型不匹配，返回错误。
+// 新字段会被添加到内存 schema 中。
+func (s *Shard) ValidateFieldTypes(point *types.Point) error {
+	s.schemaMu.Lock()
+	defer s.schemaMu.Unlock()
+
+	// 初始化 schema 如果为空
+	if s.schema == nil {
+		s.schema = &metadata.Schema{
+			Version:   1,
+			Fields:    make([]metadata.FieldDef, 0),
+			TagKeys:   nil,
+			UpdatedAt: time.Now().UnixNano(),
+		}
+	}
+
+	for name, fieldValue := range point.Fields {
+		if fieldValue == nil || fieldValue.Value == nil {
+			continue
+		}
+
+		newType := DetectFieldType(fieldValue)
+		existingIdx := -1
+		for i, f := range s.schema.Fields {
+			if f.Name == name {
+				existingIdx = i
+				break
+			}
+		}
+
+		if existingIdx == -1 {
+			// 新字段，添加到 schema
+			s.schema.Fields = append(s.schema.Fields, metadata.FieldDef{
+				Name: name,
+				Type: SSTableFieldTypeToMetadataFieldType(newType),
+			})
+			continue
+		}
+
+		existingType := MetadataFieldTypeToSSTableFieldType(s.schema.Fields[existingIdx].Type)
+		if newType != existingType {
+			return fmt.Errorf("field type mismatch: field %q has type %s, cannot accept %s",
+				name, existingType, newType)
+		}
+	}
+
+	return nil
+}
+
+// UpdateSchemaInMemory 更新内存中的 schema 缓存。
+func (s *Shard) UpdateSchemaInMemory(schema *metadata.Schema) {
+	s.schemaMu.Lock()
+	defer s.schemaMu.Unlock()
+	s.schema = schema
+}
+
+// DetectFieldType 从 FieldValue 检测字段类型。
+func DetectFieldType(fv *types.FieldValue) sstable.FieldType {
+	if fv == nil || fv.Value == nil {
+		return sstable.FieldTypeFloat64
+	}
+	switch fv.Value.(type) {
+	case *types.FieldValue_FloatValue:
+		return sstable.FieldTypeFloat64
+	case *types.FieldValue_IntValue:
+		return sstable.FieldTypeInt64
+	case *types.FieldValue_StringValue:
+		return sstable.FieldTypeString
+	case *types.FieldValue_BoolValue:
+		return sstable.FieldTypeBool
+	default:
+		return sstable.FieldTypeFloat64
+	}
 }
 
 // MetadataSchemaToSSTableSchema 将 metadata.Schema 转换为 sstable.Schema。
