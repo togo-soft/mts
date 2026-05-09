@@ -244,6 +244,53 @@ func (w *WAL) TruncateCurrent() error {
 	return nil
 }
 
+// Purge 删除当前 WAL 的所有 segment 文件。
+// 调用前应确保数据已 flush 到 SSTable。
+//
+// Purge 会先关闭当前 WAL（flush buffer + sync + close），
+// 然后删除所有 segment 文件，重置 WAL 状态。
+// 调用后 WAL 处于关闭状态，不能继续使用。
+func (w *WAL) Purge() error {
+	if w.closed.Swap(true) {
+		return nil
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// 先关闭当前 segment（flush buffer + sync + close）
+	if w.seg != nil {
+		if err := w.flushLocked(); err != nil {
+			return err
+		}
+		if err := w.seg.Sync(); err != nil {
+			return err
+		}
+		if err := w.seg.Close(); err != nil {
+			return err
+		}
+		w.seg = nil
+	}
+
+	// 停止周期性 sync goroutine
+	if w.cfg.SyncMode == SyncPeriodic && w.syncDone != nil {
+		close(w.syncDone)
+	}
+
+	// 删除所有 segment 文件
+	entries, err := listSegments(w.dir)
+	if err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		if err := os.Remove(e.Path); err != nil {
+			w.cfg.Logger.Warn("failed to remove WAL segment", "path", e.Path, "error", err)
+		}
+	}
+	return nil
+}
+
 // Close 关闭 WAL。
 func (w *WAL) Close() error {
 	if w.closed.Swap(true) {
