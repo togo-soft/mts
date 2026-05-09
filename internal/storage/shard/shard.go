@@ -110,6 +110,7 @@ type Shard struct {
 	flushTicker     *time.Ticker
 	flushWg         sync.WaitGroup
 	closeOnce       sync.Once // 防止 Close 重复调用
+	replaying       bool      // 表示当前是否正在 replay WAL
 	seriesStore     SeriesStore
 	sidCache        map[uint64]map[string]string // sid → tags 缓存
 	tsSidMap        map[int64]uint64             // timestamp → sid 映射
@@ -330,7 +331,10 @@ func (s *Shard) ReplayWAL() error {
 		return nil
 	}
 
-	return s.wal.Replay(func(data []byte) error {
+	// 设置 replaying 标志，直到 replay 相关的所有 flush 操作完成
+	s.replaying = true
+
+	err := s.wal.Replay(func(data []byte) error {
 		point, err := deserializePoint(data)
 		if err != nil {
 			slog.Warn("WAL replay: failed to deserialize point, skipping", "error", err)
@@ -347,6 +351,24 @@ func (s *Shard) ReplayWAL() error {
 		if err := s.memTable.Write(point); err != nil {
 			return fmt.Errorf("WAL replay: write to memtable: %w", err)
 		}
+
+		// replay 过程中检查是否需要 flush，避免 MemTable 过度堆积
+		if s.memTable.ShouldFlush() {
+			if err := s.flushLocked(); err != nil {
+				slog.Warn("WAL replay: flush failed", "error", err)
+			}
+		}
+
 		return nil
 	})
+
+	// replay 完成后，如果 MemTable 还有数据，flush 到 SSTable
+	if s.memTable.Count() > 0 {
+		if err := s.flushLocked(); err != nil {
+			slog.Warn("WAL replay final flush failed", "error", err)
+		}
+	}
+
+	s.replaying = false
+	return err
 }

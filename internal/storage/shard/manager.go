@@ -60,6 +60,9 @@ func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memta
 
 // GetShard 获取或创建指定时间戳对应的 Shard。
 func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*Shard, error) {
+	// 等待 discovery 完成，避免在 discovery 完成前创建重复的 Shard
+	m.discoveryWg.Wait()
+
 	startTime := m.calcShardStart(timestamp)
 	endTime := startTime + int64(m.shardDuration)
 

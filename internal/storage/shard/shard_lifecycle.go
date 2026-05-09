@@ -105,7 +105,10 @@ func (s *Shard) Close() error {
 			delete(s.tsSidMap, ts)
 		}
 
-		// 4. 关闭 WAL
+		// 4. 跳过 WAL 清理（replay 期间和 close 时都不清理）
+		// WAL segment 保留以便后续 replay，数据已在 SSTable 中
+
+		// 5. 关闭 WAL
 		if s.wal != nil {
 			if closeErr := s.wal.Close(); closeErr != nil {
 				err = fmt.Errorf("close wal: %w", closeErr)

@@ -87,11 +87,6 @@ func main() {
 	}
 	fmt.Printf("写入完成，当前会话时间范围: [%d, %d]\n", baseTime, baseTime+100*int64(time.Millisecond))
 
-	// 手动触发刷盘，确保数据持久化到 SSTable
-	if err := db.FlushAll(); err != nil {
-		log.Printf("刷盘失败: %v", err)
-	}
-
 	// ============ 查询数据 ============
 	// 查询时间范围：所有累积数据（从 0 到未来一个月）
 	oneMonthLater := time.Now().Add(30 * 24 * time.Hour).UnixNano()

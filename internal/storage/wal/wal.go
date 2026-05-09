@@ -47,16 +47,17 @@ func (c *Config) normalize() {
 
 // WAL 是 Write-Ahead Log 实例。
 type WAL struct {
-	dir      string
-	gen      uint64 // 当前世代
-	segNum   uint64 // 当前 segment 序号
-	seg      *segment
-	mu       sync.Mutex
-	buf      []byte // 聚合写缓冲
-	bufPos   int
-	cfg      Config
-	closed   atomic.Bool
-	syncDone chan struct{} // 停止周期性同步
+	dir          string
+	gen          uint64 // 当前世代
+	segNum       uint64 // 当前 segment 序号
+	seg          *segment
+	mu           sync.Mutex
+	buf          []byte // 聚合写缓冲
+	bufPos       int
+	cfg          Config
+	closed       atomic.Bool
+	syncDone     chan struct{} // 停止周期性同步
+	replayedSegs int           // replay 过程中发现的 segment 数量
 }
 
 // Open 打开或创建 WAL。
@@ -218,7 +219,7 @@ func (w *WAL) Sync() error {
 }
 
 // TruncateCurrent 清理当前 segment（flush 后调用）。
-// 清理旧 generation 的 segment 文件，但保留当前 segment。
+// 清理当前 generation 的旧 segment 文件，但保留当前 segment。
 func (w *WAL) TruncateCurrent() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -227,12 +228,19 @@ func (w *WAL) TruncateCurrent() error {
 		return err
 	}
 
-	if err := Cleanup(w.dir, w.gen); err != nil {
-		w.cfg.Logger.Warn("WAL cleanup failed", "error", err)
+	// 当前 segment 已 sync，数据安全
+	// 删除当前 generation 的所有旧 segment（segNum < w.segNum）
+	entries, err := listSegments(w.dir)
+	if err != nil {
+		return err
 	}
-
-	// 不再截断当前 segment，因为数据需要持久化
-	// 截断操作应该在 segment rotation 时进行，而不是在 flush 时
+	for _, e := range entries {
+		if e.Gen == w.gen && e.Num < w.segNum {
+			if rmErr := os.Remove(e.Path); rmErr != nil {
+				w.cfg.Logger.Warn("failed to remove old WAL segment", "path", e.Path, "error", rmErr)
+			}
+		}
+	}
 	return nil
 }
 
@@ -268,6 +276,17 @@ func (w *WAL) SegmentNum() uint64 {
 	return w.segNum
 }
 
+// SetSegmentNum 设置当前 segment 序号。
+// 用于在 replay 完成后更新，以便 TruncateCurrent 知道哪些 segment 已处理。
+func (w *WAL) SetSegmentNum(segNum uint64) {
+	w.segNum = segNum
+}
+
+// ReplayedSegments 返回 replay 过程中发现的 segment 数量。
+func (w *WAL) ReplayedSegments() int {
+	return w.replayedSegs
+}
+
 // Replay 流式回放所有 WAL segment。
 //
 // 简化设计：每次从头回放所有 segments，不使用 checkpoint。
@@ -278,6 +297,8 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 	if err != nil {
 		return err
 	}
+
+	w.replayedSegs = len(entries)
 
 	for _, e := range entries {
 		file, err := os.Open(e.Path)

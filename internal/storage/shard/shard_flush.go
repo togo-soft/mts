@@ -110,11 +110,8 @@ func (s *Shard) flushLocked() error {
 		s.sstSeq++
 	}
 
-	if s.wal != nil {
-		if err := s.wal.TruncateCurrent(); err != nil {
-			slog.Warn("wal truncate failed after flush", "error", err)
-		}
-	}
+	// 不在 flush 时清理 WAL segment
+	// WAL segment 清理由 compaction 模块负责
 
 	for i := range points {
 		points[i] = nil
