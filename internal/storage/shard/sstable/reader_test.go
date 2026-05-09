@@ -39,7 +39,7 @@ func TestReader_ReadAll(t *testing.T) {
 	}
 
 	// 再读取
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 	}
 
 	// 使用 reader 读取
-	r, err := NewReader(tmpDir)
+	r, err := NewReader(tmpDir, Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestReader_ReadRange_NoIndex(t *testing.T) {
 	}
 
 	// 使用 reader 读取范围（应该触发 readRangeFullScan）
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -173,11 +173,11 @@ func TestReader_ReadRange_AllFields(t *testing.T) {
 	if err := w.WritePoints(points, nil); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
+	schema := w.Schema()
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestReader_ReadSids_NotExist(t *testing.T) {
 		t.Fatalf("Remove sids file failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestReader_ReadTimestamps_NotExist(t *testing.T) {
 		t.Fatalf("Remove timestamps file failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}

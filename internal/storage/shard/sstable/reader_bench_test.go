@@ -44,7 +44,7 @@ func BenchmarkNewReader(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		reader, err := NewReader(dataDir)
+		reader, err := NewReader(dataDir, Schema{Fields: make(map[string]FieldType)})
 		if err != nil {
 			b.Fatal(err)
 		}

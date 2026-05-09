@@ -267,9 +267,14 @@ func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []strin
 
 // merge 执行流式合并。
 func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPaths []string, outputPath string) error {
+	schema, err := lcm.shard.GetSchema()
+	if err != nil {
+		return fmt.Errorf("get schema: %w", err)
+	}
+
 	readers := make([]*sstable.Reader, 0, len(inputPaths))
 	for _, path := range inputPaths {
-		r, err := sstable.NewReader(path)
+		r, err := sstable.NewReader(path, schema)
 		if err != nil {
 			for _, r := range readers {
 				_ = r.Close()

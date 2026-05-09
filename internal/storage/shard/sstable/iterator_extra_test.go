@@ -28,8 +28,8 @@ func TestIterator_FieldFixedSize(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -78,8 +78,8 @@ func TestIterator_DecodeFixedValue(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -117,8 +117,8 @@ func TestIterator_DecodeString(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -161,8 +161,8 @@ func TestIterator_ZeroValue(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -216,8 +216,8 @@ func TestIterator_LoadAllData(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -260,8 +260,8 @@ func TestIterator_DecodeFieldValueFromData(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -294,8 +294,8 @@ func TestReader_ReadAll_Empty(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -329,8 +329,8 @@ func TestReader_FieldSize(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -477,8 +477,8 @@ func TestIterator_LoadBlock_InvalidIndex(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -513,8 +513,8 @@ func TestIterator_LoadAllData_EmptyTimestamps(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -549,8 +549,8 @@ func TestIterator_DecodeFixedValue_Default(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -588,8 +588,8 @@ func TestIterator_DecodeString_EdgeCases(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -632,8 +632,8 @@ func TestIterator_DecodeFieldValueFromData_String(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -683,8 +683,8 @@ func TestIterator_LoadAllData_WithMultipleFields(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -726,8 +726,8 @@ func TestIterator_Point_InvalidPositions(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -758,8 +758,8 @@ func TestIterator_CurrentBlockTimestamps_NoIndex(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -805,8 +805,8 @@ func TestIterator_FallbackMode(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -854,8 +854,8 @@ func TestIterator_SeekToTime_BeyondAll(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -906,8 +906,8 @@ func TestIterator_ReadFieldBlock(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -943,8 +943,8 @@ func TestIterator_Done_EdgeCases(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -985,8 +985,8 @@ func TestIterator_Next_ErrorHandling(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1021,8 +1021,8 @@ func TestIterator_Point_FallbackMode(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1057,8 +1057,8 @@ func TestIterator_FallbackMode_Empty(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1099,8 +1099,8 @@ func TestIterator_FallbackMode_MultipleFields(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1142,8 +1142,8 @@ func TestIterator_DecodeString_TruncatedData(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1186,8 +1186,8 @@ func TestIterator_DecodeFieldValueFromData_Int64(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1230,8 +1230,8 @@ func TestIterator_DecodeFieldValueFromData_Bool(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1273,8 +1273,8 @@ func TestIterator_LoadAllData_FileError(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1315,8 +1315,8 @@ func TestIterator_LoadAllData_FieldsDirError(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1338,7 +1338,7 @@ func TestIterator_LoadAllData_FieldsDirError(t *testing.T) {
 	_, _ = tsFile.Write(tsBuf[:])
 	_ = tsFile.Close()
 
-	r2, err := NewReader(dataDir)
+	r2, err := NewReader(dataDir, Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1372,8 +1372,8 @@ func TestIterator_DecodeFieldValueFromData_Float64(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1544,8 +1544,8 @@ func TestReader_DecodeFieldValue_String(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1584,8 +1584,8 @@ func TestReader_DecodeFieldValue_OffsetBeyond(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1619,8 +1619,8 @@ func TestReader_ReadRange_InvalidRange(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1653,8 +1653,8 @@ func TestReader_DecodeFieldValue_UnknownType(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1690,8 +1690,8 @@ func TestIterator_LoadBlock_ReadDirError(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1732,8 +1732,8 @@ func TestIterator_DecodeString_MultipleStrings(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"))
+	schema := w.Schema()
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}

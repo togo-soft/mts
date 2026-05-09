@@ -88,7 +88,7 @@ func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 		return nil, fmt.Errorf("create sids file: %w", err)
 	}
 
-	return &Writer{
+	w := &Writer{
 		shardDir:   shardDir,
 		seq:        seq,
 		blockSize:  blockSize,
@@ -103,5 +103,38 @@ func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 		rowCount:   0,
 		fieldBufs:  make(map[string][]byte),
 		fieldSizes: make(map[string]int),
-	}, nil
+	}
+
+	// 创建 fields 子目录下的文件
+	if err := w.initFieldFiles(); err != nil {
+		return nil, err
+	}
+
+	return w, nil
+}
+
+// initFieldFiles 初始化字段文件
+func (w *Writer) initFieldFiles() error {
+	fieldsDir := filepath.Join(w.dataDir, "fields")
+	entries, err := os.ReadDir(fieldsDir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".bin" {
+			continue
+		}
+		name := e.Name()[:len(e.Name())-4]
+		f, err := storage.SafeOpenFile(filepath.Join(fieldsDir, e.Name()), os.O_RDWR|os.O_APPEND, 0600)
+		if err != nil {
+			return err
+		}
+		w.fields[name] = f
+	}
+	return nil
+}
+
+// Schema 返回写入过程中检测到的 schema
+func (w *Writer) Schema() Schema {
+	return w.schema
 }

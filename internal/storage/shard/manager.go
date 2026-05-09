@@ -94,6 +94,7 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		EndTime:       endTime,
 		Dir:           shardDir,
 		SeriesStore:   seriesStore,
+		SchemaStore:   m.manager.Catalog(),
 		MemTableCfg:   m.memTableCfg,
 		CompactionCfg: m.compactionCfg,
 	})
@@ -247,6 +248,7 @@ func (m *ShardManager) loadShardFromIndex(db, measurement string, info metadata.
 		EndTime:       info.EndTime,
 		Dir:           info.DataDir,
 		SeriesStore:   seriesStore,
+		SchemaStore:   m.manager.Catalog(),
 		MemTableCfg:   m.memTableCfg,
 		CompactionCfg: m.compactionCfg,
 	})

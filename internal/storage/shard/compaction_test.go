@@ -934,6 +934,7 @@ func TestCompactionManager_Compact_WithMultipleSSTables(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.CompactionConfig{
 			MaxSSTableCount:    10,
@@ -1137,6 +1138,7 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
@@ -1173,7 +1175,12 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 		t.Fatal("no SSTable found")
 	}
 
-	reader, err := sstable.NewReader(sstPath)
+	schema, err := shard.GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema failed: %v", err)
+	}
+
+	reader, err := sstable.NewReader(sstPath, schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1218,6 +1225,7 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
@@ -1247,7 +1255,8 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 		}
 	}
 
-	reader, _ := sstable.NewReader(sstPath)
+	schema, _ := shard.GetSchema()
+	reader, _ := sstable.NewReader(sstPath, schema)
 	iter, _ := reader.NewIterator()
 	mergeIter := compaction.NewMergeIterator([]*sstable.Iterator{iter})
 
@@ -1373,6 +1382,7 @@ func TestCompactionManager_Merge_Deduplication(t *testing.T) {
 		EndTime:       time.Hour.Nanoseconds(),
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
+		SchemaStore:   metadata.NewSimpleSchemaStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
 		CompactionCfg: compaction.DefaultCompactionConfig(),
 	}
@@ -1446,14 +1456,16 @@ func TestCompactionManager_Merge_Deduplication(t *testing.T) {
 		t.Skip("need 2 SSTables for deduplication test")
 	}
 
+	schema, _ := shard.GetSchema()
+
 	// 使用 merge 直接测试
-	reader1, err := sstable.NewReader(sstPath1)
+	reader1, err := sstable.NewReader(sstPath1, schema)
 	if err != nil {
 		t.Fatalf("NewReader 1 failed: %v", err)
 	}
 	defer func() { _ = reader1.Close() }()
 
-	reader2, err := sstable.NewReader(sstPath2)
+	reader2, err := sstable.NewReader(sstPath2, schema)
 	if err != nil {
 		t.Fatalf("NewReader 2 failed: %v", err)
 	}
@@ -1532,6 +1544,7 @@ func TestCompactionManager_Compact_MaxBatch(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.CompactionConfig{
 			MaxSSTableCount:    10,
@@ -1883,6 +1896,7 @@ func TestCompactionManager_Compact_VerifyInputFilesDeleted(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.CompactionConfig{
 			MaxSSTableCount: 10,

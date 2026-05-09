@@ -2,11 +2,9 @@ package sstable
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 
-	"codeberg.org/micro-ts/mts/internal/storage"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -58,9 +56,7 @@ func (w *Writer) Close() error {
 	if err := w.flushBlock(); err != nil {
 		return fmt.Errorf("flush block: %w", err)
 	}
-	if err := w.writeSchema(); err != nil {
-		return fmt.Errorf("write schema: %w", err)
-	}
+	// 不再写入 _schema.json，schema 由 boltDB 管理
 	if err := w.writeBlockIndex(); err != nil {
 		return fmt.Errorf("write block index: %w", err)
 	}
@@ -85,23 +81,6 @@ func (w *Writer) Close() error {
 func (w *Writer) writeBlockIndex() error {
 	indexFile := filepath.Join(w.dataDir, "_index.bin")
 	return w.blockIndex.Write(indexFile)
-}
-
-func (w *Writer) writeSchema() error {
-	schemaFile, err := storage.SafeCreate(filepath.Join(w.dataDir, "_schema.json"), 0600)
-	if err != nil {
-		return fmt.Errorf("create schema file: %w", err)
-	}
-	defer func() { _ = schemaFile.Close() }()
-
-	data, err := json.Marshal(w.schema)
-	if err != nil {
-		return fmt.Errorf("marshal schema: %w", err)
-	}
-	if _, err := schemaFile.Write(data); err != nil {
-		return fmt.Errorf("write schema file: %w", err)
-	}
-	return nil
 }
 
 // detectFieldType 检测字段类型

@@ -15,9 +15,14 @@ import (
 
 // Merge 执行归并操作。
 func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) error {
+	schema, err := cm.ShardAccess.GetSchema()
+	if err != nil {
+		return fmt.Errorf("get schema: %w", err)
+	}
+
 	readers := make([]*sstable.Reader, 0, len(task.InputFiles))
 	for _, path := range task.InputFiles {
-		r, err := sstable.NewReader(path)
+		r, err := sstable.NewReader(path, schema)
 		if err != nil {
 			for _, r := range readers {
 				_ = r.Close()
@@ -168,7 +173,7 @@ func (cm *CompactionManager) VerifyOutput(path string) error {
 		return fmt.Errorf("output path is not a directory")
 	}
 
-	requiredFiles := []string{"_timestamps.bin", "_sids.bin", "_schema.json"}
+	requiredFiles := []string{"_timestamps.bin", "_sids.bin"}
 	for _, f := range requiredFiles {
 		filePath := filepath.Join(path, f)
 		if _, err := os.Stat(filePath); err != nil {

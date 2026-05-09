@@ -213,7 +213,12 @@ func (s *Shard) readSSTableDir(sstDir string, startTime, endTime int64, rows *[]
 	s.AcquireSSTRef(sstDir)
 	defer s.ReleaseSSTRef(sstDir)
 
-	r, err := sstable.NewReader(sstDir)
+	schema, err := s.GetSchema()
+	if err != nil {
+		return fmt.Errorf("get schema: %w", err)
+	}
+
+	r, err := sstable.NewReader(sstDir, schema)
 	if err != nil {
 		return fmt.Errorf("open sstable: %w", err)
 	}

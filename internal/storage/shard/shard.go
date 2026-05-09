@@ -28,6 +28,8 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
+	"codeberg.org/micro-ts/mts/internal/storage/metadata"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
 )
 
@@ -61,10 +63,17 @@ type ShardConfig struct {
 	EndTime            int64
 	Dir                string
 	SeriesStore        SeriesStore
+	SchemaStore        SchemaStore
 	MemTableCfg        *memtable.MemTableConfig
 	CompactionCfg      *compaction.CompactionConfig
 	LevelCompactionCfg *compaction.LevelCompactionConfig
 	Logger             *slog.Logger
+}
+
+// SchemaStore 是 schema 的存储接口。
+type SchemaStore interface {
+	GetSchema(db, measurement string) (*metadata.Schema, error)
+	SetSchema(db, measurement string, s *metadata.Schema) error
 }
 
 // Shard 是数据存储的基本单元，管理一个时间窗口内的所有数据。
@@ -112,6 +121,7 @@ type Shard struct {
 	closeOnce       sync.Once // 防止 Close 重复调用
 	replaying       bool      // 表示当前是否正在 replay WAL
 	seriesStore     SeriesStore
+	schemaStore     SchemaStore
 	sidCache        map[uint64]map[string]string // sid → tags 缓存
 	tsSidMap        map[int64]uint64             // timestamp → sid 映射
 	mu              sync.RWMutex
@@ -177,6 +187,7 @@ func NewShard(cfg ShardConfig) *Shard {
 		wal:         w,
 		flushDone:   make(chan struct{}),
 		seriesStore: cfg.SeriesStore,
+		schemaStore: cfg.SchemaStore,
 		sidCache:    make(map[uint64]map[string]string),
 		tsSidMap:    make(map[int64]uint64),
 		sstRefs:     newSSTRefs(),
@@ -242,6 +253,84 @@ func (s *Shard) Measurement() string {
 // Dir 返回 Shard 的数据目录。
 func (s *Shard) Dir() string {
 	return s.dir
+}
+
+// GetSchema 返回 Shard 的 schema（sstable.Schema 格式）。
+func (s *Shard) GetSchema() (sstable.Schema, error) {
+	if s.schemaStore == nil {
+		return sstable.Schema{}, fmt.Errorf("schema store not available")
+	}
+	metaSchema, err := s.schemaStore.GetSchema(s.db, s.measurement)
+	if err != nil {
+		return sstable.Schema{}, err
+	}
+	return MetadataSchemaToSSTableSchema(metaSchema), nil
+}
+
+// MetadataSchemaToSSTableSchema 将 metadata.Schema 转换为 sstable.Schema。
+func MetadataSchemaToSSTableSchema(metaSchema *metadata.Schema) sstable.Schema {
+	fields := make(map[string]sstable.FieldType)
+	if metaSchema != nil {
+		for _, f := range metaSchema.Fields {
+			fields[f.Name] = MetadataFieldTypeToSSTableFieldType(f.Type)
+		}
+	}
+	return sstable.Schema{Fields: fields}
+}
+
+// MetadataFieldTypeToSSTableFieldType 将 metadata 字段类型转换为 sstable 字段类型。
+//
+// 类型映射：
+//   - 1: float64
+//   - 2: int64
+//   - 3: string
+//   - 4: bool
+func MetadataFieldTypeToSSTableFieldType(t int32) sstable.FieldType {
+	switch t {
+	case 1:
+		return sstable.FieldTypeFloat64
+	case 2:
+		return sstable.FieldTypeInt64
+	case 3:
+		return sstable.FieldTypeString
+	case 4:
+		return sstable.FieldTypeBool
+	default:
+		return sstable.FieldTypeFloat64
+	}
+}
+
+// SSTableFieldTypeToMetadataFieldType 将 sstable 字段类型转换为 metadata 字段类型。
+func SSTableFieldTypeToMetadataFieldType(t sstable.FieldType) int32 {
+	switch t {
+	case sstable.FieldTypeFloat64:
+		return 1
+	case sstable.FieldTypeInt64:
+		return 2
+	case sstable.FieldTypeString:
+		return 3
+	case sstable.FieldTypeBool:
+		return 4
+	default:
+		return 1
+	}
+}
+
+// SSTableSchemaToMetadataSchema 将 sstable.Schema 转换为 metadata.Schema。
+func SSTableSchemaToMetadataSchema(sstSchema sstable.Schema) *metadata.Schema {
+	fields := make([]metadata.FieldDef, 0, len(sstSchema.Fields))
+	for name, fieldType := range sstSchema.Fields {
+		fields = append(fields, metadata.FieldDef{
+			Name: name,
+			Type: SSTableFieldTypeToMetadataFieldType(fieldType),
+		})
+	}
+	return &metadata.Schema{
+		Version:   1,
+		Fields:    fields,
+		TagKeys:   nil,
+		UpdatedAt: time.Now().UnixNano(),
+	}
 }
 
 // ContainsTime 检查给定时间戳是否在 Shard 的时间窗口内。

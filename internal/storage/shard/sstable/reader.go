@@ -3,7 +3,6 @@ package sstable
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,34 +17,18 @@ type Reader struct {
 	blockIndex *BlockIndex
 }
 
-// NewReader 创建 SSTable 读取器。
-func NewReader(dataDir string) (*Reader, error) {
-	r := &Reader{dataDir: dataDir}
-	if err := r.readSchema(); err != nil {
-		r.schema = Schema{Fields: make(map[string]FieldType)}
+// NewReader 创建 SSTable 读取器，接收外部提供的 schema。
+func NewReader(dataDir string, schema Schema) (*Reader, error) {
+	r := &Reader{
+		dataDir:    dataDir,
+		schema:     schema,
+		blockIndex: &BlockIndex{},
 	}
-
-	r.blockIndex = &BlockIndex{}
 	indexFile := filepath.Join(dataDir, "_index.bin")
 	if err := r.blockIndex.Read(indexFile); err != nil {
 		r.blockIndex = nil
 	}
-
 	return r, nil
-}
-
-func (r *Reader) readSchema() error {
-	schemaFile, err := os.Open(filepath.Join(r.dataDir, "_schema.json"))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = schemaFile.Close() }()
-
-	data, err := io.ReadAll(schemaFile)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, &r.schema)
 }
 
 // Close 关闭读取器，释放资源。
