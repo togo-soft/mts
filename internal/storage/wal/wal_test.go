@@ -112,8 +112,9 @@ func TestWAL_TruncateCurrent(t *testing.T) {
 		count++
 		return nil
 	})
-	if count != 0 {
-		t.Errorf("expected 0 records after truncate, got %d", count)
+	// TruncateCurrent 不再截断 segment，数据被保留
+	if count != 1 {
+		t.Errorf("expected 1 record after truncate, got %d", count)
 	}
 }
 

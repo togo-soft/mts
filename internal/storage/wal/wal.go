@@ -217,7 +217,8 @@ func (w *WAL) Sync() error {
 	return w.seg.Sync()
 }
 
-// TruncateCurrent 截断当前 segment（flush 后调用）。
+// TruncateCurrent 清理当前 segment（flush 后调用）。
+// 清理旧 generation 的 segment 文件，但保留当前 segment。
 func (w *WAL) TruncateCurrent() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -230,7 +231,9 @@ func (w *WAL) TruncateCurrent() error {
 		w.cfg.Logger.Warn("WAL cleanup failed", "error", err)
 	}
 
-	return w.seg.Truncate()
+	// 不再截断当前 segment，因为数据需要持久化
+	// 截断操作应该在 segment rotation 时进行，而不是在 flush 时
+	return nil
 }
 
 // Close 关闭 WAL。
