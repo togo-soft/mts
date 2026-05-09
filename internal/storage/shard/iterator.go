@@ -131,35 +131,35 @@ func (si *ShardIterator) Next() *types.PointRow {
 	si.mu.Lock()
 	defer si.mu.Unlock()
 
-	// 如果 MemTable 和 SSTable 都有数据，取 timestamp 较小的
-	if si.memRow != nil && si.sstRow != nil {
-		if si.memRow.Timestamp < si.sstRow.Timestamp {
-			row := si.memRow
+	// 循环选择并检查，直到找到符合条件的或两者都耗尽
+	for {
+		// 选择 timestamp 较小的数据源
+		var row *types.PointRow
+		if si.memRow != nil && si.sstRow != nil {
+			if si.memRow.Timestamp < si.sstRow.Timestamp {
+				row = si.memRow
+				si.memRow = si.nextMemRowLocked()
+			} else {
+				row = si.sstRow
+				si.sstRow = si.nextSstRowLocked()
+			}
+		} else if si.memRow != nil {
+			row = si.memRow
 			si.memRow = si.nextMemRowLocked()
-			return si.filterRowLocked(row)
+		} else if si.sstRow != nil {
+			row = si.sstRow
+			si.sstRow = si.nextSstRowLocked()
+		} else {
+			// 都耗尽了
+			return nil
 		}
-		// memRow.Timestamp >= sstRow.Timestamp（包括相等）
-		row := si.sstRow
-		si.sstRow = si.nextSstRowLocked()
-		return si.filterRowLocked(row)
-	}
 
-	// 只剩 MemTable
-	if si.memRow != nil {
-		row := si.memRow
-		si.memRow = si.nextMemRowLocked()
-		return si.filterRowLocked(row)
+		// 检查范围
+		if row.Timestamp >= si.startTime && (si.endTime <= 0 || row.Timestamp < si.endTime) {
+			return row
+		}
+		// 不在范围内，继续循环获取下一个
 	}
-
-	// 只剩 SSTable
-	if si.sstRow != nil {
-		row := si.sstRow
-		si.sstRow = si.nextSstRowLocked()
-		return si.filterRowLocked(row)
-	}
-
-	// 都耗尽了
-	return nil
 }
 
 // filterRow 检查 row 是否在时间范围内
@@ -177,38 +177,6 @@ func (si *ShardIterator) filterRowLocked(row *types.PointRow) *types.PointRow {
 	if row.Timestamp >= si.startTime && (si.endTime <= 0 || row.Timestamp < si.endTime) {
 		return row
 	}
-	// 不在范围内，继续获取下一个
-	return si.nextLocked()
-}
-
-// nextLocked 获取下一个内部方法（已持有锁）
-func (si *ShardIterator) nextLocked() *types.PointRow {
-	// 如果 MemTable 和 SSTable 都有数据，取 timestamp 较小的
-	if si.memRow != nil && si.sstRow != nil {
-		if si.memRow.Timestamp < si.sstRow.Timestamp {
-			row := si.memRow
-			si.memRow = si.nextMemRowLocked()
-			return si.filterRowLocked(row)
-		}
-		row := si.sstRow
-		si.sstRow = si.nextSstRowLocked()
-		return si.filterRowLocked(row)
-	}
-
-	// 只剩 MemTable
-	if si.memRow != nil {
-		row := si.memRow
-		si.memRow = si.nextMemRowLocked()
-		return si.filterRowLocked(row)
-	}
-
-	// 只剩 SSTable
-	if si.sstRow != nil {
-		row := si.sstRow
-		si.sstRow = si.nextSstRowLocked()
-		return si.filterRowLocked(row)
-	}
-
 	return nil
 }
 
@@ -216,9 +184,7 @@ func (si *ShardIterator) nextLocked() *types.PointRow {
 func (si *ShardIterator) nextMemRowLocked() *types.PointRow {
 	for si.memIter.Next() {
 		p := si.memIter.Point()
-		if p.Timestamp >= si.startTime && (si.endTime <= 0 || p.Timestamp < si.endTime) {
-			return si.pointToRow(p)
-		}
+		return si.pointToRow(p)
 	}
 	return nil
 }
@@ -227,11 +193,7 @@ func (si *ShardIterator) nextMemRowLocked() *types.PointRow {
 func (si *ShardIterator) nextSstRowLocked() *types.PointRow {
 	si.rowIdx++
 	if si.rowIdx < len(si.rows) {
-		row := si.rows[si.rowIdx]
-		if row.Timestamp >= si.startTime && (si.endTime <= 0 || row.Timestamp < si.endTime) {
-			return row
-		}
-		return si.nextSstRowLocked()
+		return si.rows[si.rowIdx]
 	}
 	return nil
 }

@@ -269,67 +269,39 @@ func (w *WAL) SegmentNum() uint64 {
 }
 
 // Replay 流式回放所有 WAL segment。
+//
+// 简化设计：每次从头回放所有 segments，不使用 checkpoint。
+// WAL 是 append-only 日志，从头回放是可靠且简单的恢复方式。
+// 去重由上层（memtable）通过 timestamp + tags 处理。
 func (w *WAL) Replay(fn func(payload []byte) error) error {
 	entries, err := listSegments(w.dir)
 	if err != nil {
 		return err
 	}
 
-	cp, err := loadCheckpoint(w.dir)
-	if err != nil {
-		w.cfg.Logger.Warn("failed to load WAL checkpoint", "error", err)
-		cp = &Checkpoint{}
-	}
-
-	var count int64
 	for _, e := range entries {
-		if e.Gen < cp.Generation {
-			continue
-		}
-		if e.Gen == cp.Generation && e.Num < cp.Segment {
-			continue
-		}
-
-		startPos := int64(segmentHeaderSize)
-		if e.Gen == cp.Generation && e.Num == cp.Segment && cp.Position > startPos {
-			startPos = cp.Position
-		}
-
 		file, err := os.Open(e.Path)
 		if err != nil {
 			w.cfg.Logger.Warn("failed to open WAL segment for replay", "path", e.Path, "error", err)
 			continue
 		}
 
-		if startPos == int64(segmentHeaderSize) {
-			if _, err := file.Seek(0, 0); err != nil {
-				_ = file.Close()
-				return err
-			}
-			if _, _, err := readSegmentHeader(file); err != nil {
-				_ = file.Close()
-				w.cfg.Logger.Warn("failed to read WAL segment header", "path", e.Path, "error", err)
-				continue
-			}
+		// 跳过 segment header，从数据部分开始读取
+		if _, err := file.Seek(0, 0); err != nil {
+			_ = file.Close()
+			return err
+		}
+		if _, _, err := readSegmentHeader(file); err != nil {
+			_ = file.Close()
+			w.cfg.Logger.Warn("failed to read WAL segment header", "path", e.Path, "error", err)
+			continue
 		}
 
-		pos, err := readRecords(file, startPos, fn)
+		_, err = readRecords(file, int64(segmentHeaderSize), fn)
 		_ = file.Close()
 		if err != nil {
 			w.cfg.Logger.Warn("WAL replay encountered error", "path", e.Path, "error", err)
 		}
-
-		cp = &Checkpoint{Generation: e.Gen, Segment: e.Num, Position: pos}
-		count++
-		if count%1000 == 0 {
-			if err := saveCheckpoint(w.dir, cp); err != nil {
-				w.cfg.Logger.Warn("failed to save WAL checkpoint", "error", err)
-			}
-		}
-	}
-
-	if err := saveCheckpoint(w.dir, cp); err != nil {
-		w.cfg.Logger.Warn("failed to save WAL checkpoint", "error", err)
 	}
 	return nil
 }
@@ -353,6 +325,13 @@ func (w *WAL) rotateLocked() error {
 	}
 	w.seg = seg
 	return nil
+}
+
+// Rotate 轮转到新 segment。
+func (w *WAL) Rotate() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.rotateLocked()
 }
 
 // flushLocked 刷写缓冲（需持有 w.mu）。

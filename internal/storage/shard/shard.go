@@ -321,6 +321,10 @@ func (s *Shard) doPeriodicFlush() {
 
 // ReplayWAL 重放 WAL 数据恢复到 MemTable。
 // 应在 Shard 构建后由 ShardManager 调用。
+//
+// 设计说明：
+// WAL replay 不进行 tsSidMap 去重，因为 MemTable 层面会进行去重。
+// Read() 会在合并结果时对 MemTable 数据进行基于 timestamp 的去重。
 func (s *Shard) ReplayWAL() error {
 	if s.wal == nil {
 		return nil
