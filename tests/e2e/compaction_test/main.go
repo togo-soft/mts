@@ -170,9 +170,9 @@ func Test1_CompactionDataIntegrity() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024, // 较大 MemTable
-			MaxCount:          100000,
-			IdleDurationNanos: int64(time.Hour),
+			MaxSize:           4 * 1024,        // 4KB，小值便于触发刷盘
+			MaxCount:          50,              // 50 条，小值便于触发刷盘
+			IdleDurationNanos: int64(100 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSSTableCount: 4,
@@ -249,7 +249,7 @@ func Test2_CompactionQueryResult() error {
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           10 * 1024,
 			MaxCount:          10,
-			IdleDurationNanos: int64(time.Hour),
+			IdleDurationNanos: int64(100 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSSTableCount: 4,
@@ -346,7 +346,7 @@ func Test3_WriteProtection() error {
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           10 * 1024,
 			MaxCount:          10,
-			IdleDurationNanos: int64(time.Hour),
+			IdleDurationNanos: int64(100 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSSTableCount: 4,
@@ -434,7 +434,7 @@ func Test4_CompactionDuringWrite() error {
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           10 * 1024, // 小 MemTable 频繁触发 Flush
 			MaxCount:          10,
-			IdleDurationNanos: int64(time.Hour),
+			IdleDurationNanos: int64(100 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSSTableCount: 4,
@@ -548,7 +548,7 @@ func Test5_CompactionRestartRecovery() error {
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           10 * 1024,
 			MaxCount:          10,
-			IdleDurationNanos: int64(time.Hour),
+			IdleDurationNanos: int64(100 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSSTableCount: 4,
@@ -639,7 +639,7 @@ func Test6_MemoryEfficiency() error {
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           10 * 1024,
 			MaxCount:          10,
-			IdleDurationNanos: int64(time.Hour),
+			IdleDurationNanos: int64(100 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSSTableCount: 4,
@@ -720,7 +720,7 @@ func Test7_PeriodicCompaction() error {
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           10 * 1024,
 			MaxCount:          10,
-			IdleDurationNanos: int64(time.Hour),
+			IdleDurationNanos: int64(100 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSSTableCount: 4,
