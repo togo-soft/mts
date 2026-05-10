@@ -49,6 +49,16 @@ func TestWriter_WritePoints(t *testing.T) {
 		t.Errorf("timestamp file should not be empty")
 	}
 
+	// 验证 sids 文件存在
+	sidPath := filepath.Join(tmpDir, "data", "sst_0", "_sids.bin")
+	sidInfo, err := os.Stat(sidPath)
+	if err != nil {
+		t.Fatalf("stat sids file failed: %v", err)
+	}
+	if sidInfo.Size() == 0 {
+		t.Errorf("sids file should not be empty (should contain zeros for nil sids)")
+	}
+
 	// 验证 field 文件存在
 	for _, name := range []string{"usage", "count"} {
 		fieldPath := filepath.Join(tmpDir, "data", "sst_0", "fields", name+".bin")
@@ -59,5 +69,42 @@ func TestWriter_WritePoints(t *testing.T) {
 		if info.Size() == 0 {
 			t.Errorf("field %s file should not be empty", name)
 		}
+	}
+}
+
+func TestWriter_WritePointsWithSids(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	w, err := NewWriter(tmpDir, 1, 0)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	points := []*types.Point{
+		{
+			Timestamp: 1000,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(int64(1))},
+		},
+		{
+			Timestamp: 2000,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(int64(2))},
+		},
+	}
+	sids := []uint64{42, 99}
+
+	if err := w.WritePoints(points, sids); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	sidPath := filepath.Join(tmpDir, "data", "sst_1", "_sids.bin")
+	info, err := os.Stat(sidPath)
+	if err != nil {
+		t.Fatalf("stat sids file failed: %v", err)
+	}
+	if info.Size() < 16 {
+		t.Errorf("sids file too small, expected at least 16 bytes for 2 uint64, got %d", info.Size())
 	}
 }

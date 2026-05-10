@@ -12,7 +12,8 @@ import (
 )
 
 // WritePoints 写入一批数据点到 SSTable。
-func (w *Writer) WritePoints(points []*types.Point, tsSidMap map[int64]uint64) error {
+// sids 与 points 一一对应，len(sids)==0 时所有 sid 默认为 0。
+func (w *Writer) WritePoints(points []*types.Point, sids []uint64) error {
 	fieldNames := make(map[string]bool)
 	for _, p := range points {
 		for name, val := range p.Fields {
@@ -36,8 +37,11 @@ func (w *Writer) WritePoints(points []*types.Point, tsSidMap map[int64]uint64) e
 		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
 	}
 
-	for _, p := range points {
-		sid := tsSidMap[p.Timestamp]
+	for i, p := range points {
+		var sid uint64
+		if i < len(sids) {
+			sid = sids[i]
+		}
 		if err := w.writePointWithSid(p, sid); err != nil {
 			return fmt.Errorf("write point (timestamp=%d): %w", p.Timestamp, err)
 		}
