@@ -17,7 +17,7 @@ func TestMemTable_Write(t *testing.T) {
 		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
 
-	if err := m.Write(p); err != nil {
+	if err := m.Write(p, 0); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -34,13 +34,13 @@ func TestMemTable_SortKey(t *testing.T) {
 	p2 := &types.Point{Measurement: "cpu", Timestamp: now}
 	p3 := &types.Point{Measurement: "cpu", Timestamp: now + 200}
 
-	if err := m.Write(p2); err != nil {
+	if err := m.Write(p2, 0); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
-	if err := m.Write(p1); err != nil {
+	if err := m.Write(p1, 0); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
-	if err := m.Write(p3); err != nil {
+	if err := m.Write(p3, 0); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestMemTable_ShouldFlush(t *testing.T) {
 	}
 
 	for !m.ShouldFlush() {
-		if err := m.Write(p); err != nil {
+		if err := m.Write(p, 0); err != nil {
 			t.Fatalf("Write failed: %v", err)
 		}
 	}
@@ -103,7 +103,7 @@ func TestMemTable_WriteOutOfOrder(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := m.Write(p); err != nil {
+		if err := m.Write(p, 0); err != nil {
 			t.Fatalf("Write failed: %v", err)
 		}
 	}
@@ -114,7 +114,7 @@ func TestMemTable_WriteOutOfOrder(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(0.5)},
 	}
-	if err := m.Write(p); err != nil {
+	if err := m.Write(p, 0); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -142,7 +142,7 @@ func TestMemTable_ShouldFlush_IdleTimeout(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
-	if err := m.Write(p); err != nil {
+	if err := m.Write(p, 0); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -167,14 +167,14 @@ func TestMemTable_FlushMultipleTimes(t *testing.T) {
 				Tags:      map[string]string{"host": "server1"},
 				Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 			}
-			if err := m.Write(p); err != nil {
+			if err := m.Write(p, 0); err != nil {
 				t.Fatalf("Write failed: %v", err)
 			}
 		}
 
-		points := m.Flush()
-		if len(points) != 5 {
-			t.Errorf("expected 5 points in flush %d, got %d", j, len(points))
+		points, sids := m.Flush()
+		if len(points) != 5 || len(sids) != 5 {
+			t.Errorf("expected 5 points in flush %d, got points=%d sids=%d", j, len(points), len(sids))
 		}
 	}
 

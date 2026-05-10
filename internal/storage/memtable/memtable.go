@@ -23,6 +23,7 @@ func DefaultMemTableConfig() *MemTableConfig {
 // entry 是 MemTable 中的条目
 type entry struct {
 	Point types.Point
+	Sid   uint64
 }
 
 // MemTable 是内存中的写入缓冲区，按时间戳排序存储数据点。
@@ -49,7 +50,7 @@ func NewMemTable(cfg *MemTableConfig) *MemTable {
 }
 
 // Write 写入一个数据点到 MemTable。
-func (m *MemTable) Write(p *types.Point) error {
+func (m *MemTable) Write(p *types.Point, sid uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -71,6 +72,7 @@ func (m *MemTable) Write(p *types.Point) error {
 			Timestamp:   p.Timestamp,
 			Fields:      fields,
 		},
+		Sid: sid,
 	})
 	m.count++
 	m.lastWrite = time.Now()
@@ -118,7 +120,7 @@ func (m *MemTable) shouldFlushUnsafe() bool {
 }
 
 // Flush 将 MemTable 数据刷盘并返回。
-func (m *MemTable) Flush() []*types.Point {
+func (m *MemTable) Flush() ([]*types.Point, []uint64) {
 	m.mu.Lock()
 	result := m.entries
 	m.entries = nil
@@ -127,19 +129,21 @@ func (m *MemTable) Flush() []*types.Point {
 	m.mu.Unlock()
 
 	if len(result) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	points := make([]*types.Point, len(result))
+	sids := make([]uint64, len(result))
 	for i, e := range result {
 		points[i] = &e.Point
+		sids[i] = e.Sid
 	}
 
 	for i := range result {
 		result[i] = nil
 	}
 
-	return points
+	return points, sids
 }
 
 // Iterator 返回 MemTable 的迭代器。
