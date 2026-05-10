@@ -115,6 +115,7 @@ func TestShardIterator_FilterRow(t *testing.T) {
 func TestShard_NextSstRow(t *testing.T) {
 	tmpDir := t.TempDir()
 	metaStore := metadata.NewSimpleSeriesStore()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	s := NewShard(ShardConfig{
 		DB:          "db1",
@@ -123,6 +124,7 @@ func TestShard_NextSstRow(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -545,6 +547,7 @@ func TestShard_Extra_Close_WithData(t *testing.T) {
 func TestShard_Flush_AfterMultipleWrites(t *testing.T) {
 	// 测试多次写入后 flush
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	s := NewShard(ShardConfig{
 		DB:          "db1",
@@ -553,6 +556,7 @@ func TestShard_Flush_AfterMultipleWrites(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -750,6 +754,7 @@ func TestShard_LevelCompaction_Close(t *testing.T) {
 // TestShard_LevelCompaction_Read tests reading data with LevelCompaction enabled.
 func TestShard_LevelCompaction_Read(t *testing.T) {
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	cfg := ShardConfig{
 		DB:          "db1",
@@ -758,6 +763,7 @@ func TestShard_LevelCompaction_Read(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		LevelCompactionCfg: &compaction.LevelCompactionConfig{
 			Enabled:          true,
@@ -1265,6 +1271,7 @@ func TestShard_Write_SerializeError(t *testing.T) {
 func TestShard_Write_ManyPoints(t *testing.T) {
 	// 测试写入大量数据点
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	s := NewShard(ShardConfig{
 		DB:          "db1",
@@ -1273,6 +1280,7 @@ func TestShard_Write_ManyPoints(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -1641,4 +1649,78 @@ func TestShard_triggerBackgroundCompaction_LevelCompactionNoTrigger(t *testing.T
 	}
 
 	_ = s.Close()
+}
+
+func TestRecoverSSTSeq_NoDataDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	seq := recoverSSTSeq(tmpDir)
+	if seq != 0 {
+		t.Errorf("expected 0, got %d", seq)
+	}
+}
+
+func TestRecoverSSTSeq_EmptyDataDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	seq := recoverSSTSeq(tmpDir)
+	if seq != 0 {
+		t.Errorf("expected 0, got %d", seq)
+	}
+}
+
+func TestRecoverSSTSeq_SingleSST(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data", "sst_0")
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	seq := recoverSSTSeq(tmpDir)
+	if seq != 1 {
+		t.Errorf("expected 1, got %d", seq)
+	}
+}
+
+func TestRecoverSSTSeq_MultipleSST(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	for _, name := range []string{"sst_0", "sst_5", "sst_3"} {
+		if err := os.MkdirAll(filepath.Join(dataDir, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seq := recoverSSTSeq(tmpDir)
+	if seq != 6 {
+		t.Errorf("expected 6, got %d", seq)
+	}
+}
+
+func TestRecoverSSTSeq_MixedDirectories(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	for _, name := range []string{"sst_0", "other_dir", "sst_2", "not_sst"} {
+		if err := os.MkdirAll(filepath.Join(dataDir, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seq := recoverSSTSeq(tmpDir)
+	if seq != 3 {
+		t.Errorf("expected 3, got %d", seq)
+	}
+}
+
+func TestRecoverSSTSeq_NonNumericSuffix(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	for _, name := range []string{"sst_abc", "sst_0"} {
+		if err := os.MkdirAll(filepath.Join(dataDir, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seq := recoverSSTSeq(tmpDir)
+	if seq != 1 {
+		t.Errorf("expected 1, got %d", seq)
+	}
 }

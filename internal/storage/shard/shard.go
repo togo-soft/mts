@@ -22,7 +22,10 @@ package shard
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -211,6 +214,9 @@ func NewShard(cfg ShardConfig) *Shard {
 		}
 	}
 
+	// 恢复 SSTable 序列号，避免重启后覆盖已有 SSTable 数据
+	shard.sstSeq = recoverSSTSeq(cfg.Dir)
+
 	// 从 boltDB 加载初始 schema 到内存缓存
 	if shard.schemaStore != nil {
 		if metaSchema, err := shard.schemaStore.GetSchema(cfg.DB, cfg.Measurement); err == nil {
@@ -232,6 +238,41 @@ func NewShard(cfg ShardConfig) *Shard {
 	shard.startPeriodicFlushCheck()
 
 	return shard
+}
+
+// recoverSSTSeq 扫描数据目录，恢复 SSTable 序列号。
+// 返回 max(sst_N 中的 N) + 1，确保新创建的 SSTable 不会覆盖已有数据。
+// 如果数据目录不存在或没有 SSTable，返回 0。
+func recoverSSTSeq(shardDir string) uint64 {
+	dataDir := filepath.Join(shardDir, "data")
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return 0
+	}
+
+	var maxSeq uint64
+	found := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "sst_") {
+			continue
+		}
+		seq, err := strconv.ParseUint(strings.TrimPrefix(name, "sst_"), 10, 64)
+		if err != nil {
+			continue
+		}
+		if seq >= maxSeq {
+			maxSeq = seq
+			found = true
+		}
+	}
+	if !found {
+		return 0
+	}
+	return maxSeq + 1
 }
 
 // StartTime 返回 Shard 时间窗口的起始时间。

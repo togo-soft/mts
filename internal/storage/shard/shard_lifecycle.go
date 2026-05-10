@@ -15,8 +15,10 @@ import (
 //  1. 使用 sync.Once 确保 Close 只执行一次
 //  2. 停止 MemTable 定期刷盘检查（需要先于 s.mu 获取，以避免死锁）
 //  3. 刷盘 MemTable 数据到 SSTable
-//  4. 关闭 WAL
-//  5. 清理 tsSidMap 和 sstSeq
+//  4. WAL 清理（仅当 flush 成功时）
+//  5. 关闭 WAL
+//  6. 停止 Compaction Manager
+//  7. 停止 Level Compaction Manager
 //
 // 错误处理：
 //
@@ -38,9 +40,14 @@ func (s *Shard) Close() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
+		slog.Info("Shard.Close: starting", "db", s.db, "measurement", s.measurement, "dir", s.dir)
+
+		flushed := false
+
 		// 2. 先刷写 MemTable 到 SSTable
 		// 如果使用 Level Compaction，调用 flushLocked 以保持一致的处理逻辑
 		if s.levelCompaction != nil {
+			slog.Info("Shard.Close: using level compaction flush", "memTableCount", s.memTable.Count())
 			if flushErr := s.flushLocked(); flushErr != nil {
 				// 即使失败也要继续关闭 WAL
 				if s.wal != nil {
@@ -52,9 +59,12 @@ func (s *Shard) Close() error {
 				err = fmt.Errorf("flush memtable: %w", flushErr)
 				return
 			}
+			flushed = true
+			slog.Info("Shard.Close: level compaction flush completed")
 		} else {
 			// 平坦 Compaction 的刷盘逻辑
 			points := s.memTable.Flush()
+			slog.Info("Shard.Close: flat compaction flush", "pointsCount", len(points))
 			if len(points) > 0 {
 				w, wErr := sstable.NewWriter(s.dir, s.sstSeq, 0)
 				if wErr != nil {
@@ -97,6 +107,9 @@ func (s *Shard) Close() error {
 				for _, p := range points {
 					delete(s.tsSidMap, p.Timestamp)
 				}
+				flushed = true
+			} else {
+				flushed = true
 			}
 		}
 
@@ -105,16 +118,22 @@ func (s *Shard) Close() error {
 			delete(s.tsSidMap, ts)
 		}
 
-		// 4. 跳过 WAL 清理（replay 期间和 close 时都不清理）
-		// WAL segment 保留以便后续 replay，数据已在 SSTable 中
-
-		// 5. 关闭 WAL
-		if s.wal != nil {
+		// 4. WAL 清理（仅当 flush 成功时）
+		// 先调用 WAL.Close() 确保 periodic sync goroutine 退出并关闭 segment，
+		// 然后调用 WAL.Purge() 删除 segment 文件。
+		// WAL.Purge() 会正确处理 WAL 已关闭的情况。
+		slog.Info("Shard.Close: flushed, about to close and purge WAL", "flushed", flushed, "wal", s.wal != nil)
+		if flushed && s.wal != nil {
 			if closeErr := s.wal.Close(); closeErr != nil {
-				err = fmt.Errorf("close wal: %w", closeErr)
-				return
+				slog.Warn("failed to close WAL", "error", closeErr)
 			}
+			if purgeErr := s.wal.Purge(); purgeErr != nil {
+				slog.Warn("failed to purge WAL", "error", purgeErr)
+			}
+			slog.Info("Shard.Close: WAL closed and purged")
 		}
+
+		slog.Info("Shard.Close: completed")
 
 		// 6. 停止 Compaction Manager
 		if s.compaction != nil {

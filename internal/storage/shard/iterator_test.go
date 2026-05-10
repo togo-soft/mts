@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
+	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -122,7 +123,12 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 		t.Fatalf("failed to close field file: %v", err)
 	}
 
-	// 创建 Shard
+	// 创建 Shard（需 SchemaStore 以读取 SSTable）
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("db", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "field1", Type: 2}}, // Type=2 即 int64
+	})
 	shard := NewShard(ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
@@ -130,6 +136,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -217,7 +224,12 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		t.Fatalf("failed to close field file: %v", err)
 	}
 
-	// 创建 Shard
+	// 创建 Shard（需 SchemaStore 以读取 SSTable）
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("db", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "field1", Type: 2}}, // Type=2 即 int64
+	})
 	shard := NewShard(ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
@@ -225,6 +237,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -325,7 +338,12 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		t.Fatalf("failed to close field file: %v", err)
 	}
 
-	// 创建 Shard
+	// 创建 Shard（需 SchemaStore 以读取 SSTable）
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("db", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "field1", Type: 2}}, // Type=2 即 int64
+	})
 	shard := NewShard(ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
@@ -333,6 +351,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -545,7 +564,12 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 		t.Fatalf("failed to close field file: %v", err)
 	}
 
-	// 创建 Shard
+	// 创建 Shard（需 SchemaStore 以读取 SSTable）
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("db", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "field1", Type: 2}}, // Type=2 即 int64
+	})
 	shard := NewShard(ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
@@ -553,6 +577,7 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -647,7 +672,12 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 		t.Fatalf("failed to close field file: %v", err)
 	}
 
-	// 创建 Shard
+	// 创建 Shard（需 SchemaStore 以读取 SSTable）
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("db", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "field1", Type: 2}}, // Type=2 即 int64
+	})
 	shard := NewShard(ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
@@ -655,6 +685,7 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 		EndTime:     3600 * 1e9,
 		Dir:         sstDir,
 		SeriesStore: nil,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 

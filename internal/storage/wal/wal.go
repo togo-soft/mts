@@ -47,17 +47,19 @@ func (c *Config) normalize() {
 
 // WAL 是 Write-Ahead Log 实例。
 type WAL struct {
-	dir          string
-	gen          uint64 // 当前世代
-	segNum       uint64 // 当前 segment 序号
-	seg          *segment
-	mu           sync.Mutex
-	buf          []byte // 聚合写缓冲
-	bufPos       int
-	cfg          Config
-	closed       atomic.Bool
-	syncDone     chan struct{} // 停止周期性同步
-	replayedSegs int           // replay 过程中发现的 segment 数量
+	dir            string
+	gen            uint64 // 当前世代
+	segNum         uint64 // 当前 segment 序号
+	seg            *segment
+	mu             sync.Mutex
+	buf            []byte // 聚合写缓冲
+	bufPos         int
+	cfg            Config
+	closed         atomic.Bool
+	segClosed      atomic.Bool   // segment 是否已关闭
+	syncDone       chan struct{} // 停止周期性同步
+	syncDoneClosed atomic.Bool   // syncDone 是否已关闭
+	replayedSegs   int           // replay 过程中发现的 segment 数量
 }
 
 // Open 打开或创建 WAL。
@@ -215,6 +217,9 @@ func (w *WAL) Sync() error {
 	if err := w.flushLocked(); err != nil {
 		return err
 	}
+	if w.seg == nil {
+		return nil
+	}
 	return w.seg.Sync()
 }
 
@@ -250,31 +255,33 @@ func (w *WAL) TruncateCurrent() error {
 // Purge 会先关闭当前 WAL（flush buffer + sync + close），
 // 然后删除所有 segment 文件，重置 WAL 状态。
 // 调用后 WAL 处于关闭状态，不能继续使用。
+//
+// 注意：即使 WAL 已经关闭（closed=true），Purge 仍会删除 segment 文件。
 func (w *WAL) Purge() error {
-	if w.closed.Swap(true) {
-		return nil
-	}
-
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// 先关闭当前 segment（flush buffer + sync + close）
+	// 如果 segment 存在，先将 buffer 中的数据刷写到 segment 并 sync
+	// 确保所有缓冲数据都已持久化到磁盘，然后再删除文件
 	if w.seg != nil {
-		if err := w.flushLocked(); err != nil {
-			return err
+		// 如果 WAL 未关闭，执行 flush 和 sync
+		if !w.closed.Load() {
+			if err := w.flushLocked(); err != nil {
+				return err
+			}
+			if err := w.seg.Sync(); err != nil {
+				return err
+			}
 		}
-		if err := w.seg.Sync(); err != nil {
-			return err
-		}
-		if err := w.seg.Close(); err != nil {
-			return err
+		// 关闭 segment（仅当未关闭时，避免 double-close）
+		if !w.segClosed.Load() {
+			if err := w.seg.Close(); err != nil {
+				// 记录错误但继续执行删除
+				w.cfg.Logger.Warn("failed to close WAL segment", "error", err)
+			}
+			w.segClosed.Store(true)
 		}
 		w.seg = nil
-	}
-
-	// 停止周期性 sync goroutine
-	if w.cfg.SyncMode == SyncPeriodic && w.syncDone != nil {
-		close(w.syncDone)
 	}
 
 	// 删除所有 segment 文件
@@ -288,6 +295,17 @@ func (w *WAL) Purge() error {
 			w.cfg.Logger.Warn("failed to remove WAL segment", "path", e.Path, "error", err)
 		}
 	}
+
+	// 标记 WAL 为关闭状态（如果尚未关闭）
+	w.closed.Store(true)
+
+	// 停止周期性 sync goroutine（如果尚未停止）
+	if w.cfg.SyncMode == SyncPeriodic && w.syncDone != nil {
+		if w.syncDoneClosed.CompareAndSwap(false, true) {
+			close(w.syncDone)
+		}
+	}
+
 	return nil
 }
 
@@ -298,7 +316,9 @@ func (w *WAL) Close() error {
 	}
 
 	if w.cfg.SyncMode == SyncPeriodic && w.syncDone != nil {
-		close(w.syncDone)
+		if w.syncDoneClosed.CompareAndSwap(false, true) {
+			close(w.syncDone)
+		}
 	}
 
 	w.mu.Lock()
@@ -307,10 +327,17 @@ func (w *WAL) Close() error {
 	if err := w.flushLocked(); err != nil {
 		return err
 	}
+	if w.seg == nil {
+		return nil
+	}
 	if err := w.seg.Sync(); err != nil {
 		return err
 	}
-	return w.seg.Close()
+	if err := w.seg.Close(); err != nil {
+		return err
+	}
+	w.segClosed.Store(true)
+	return nil
 }
 
 // Generation 返回当前世代号。

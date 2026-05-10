@@ -520,13 +520,13 @@ func Test6_WALRestartRecovery() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// MemTable 配置：刷盘间隔 5 秒，最大 100 条
-	// 这样写入 100 条后不会立即刷盘，数据保留在 WAL 中
+	// 写入 100 条刚好触发边界条件（MaxCount=100），测试触发刷盘后的恢复行为。
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          100,                           // 最大 100 条
+			MaxCount:          100,                          // 边界：刚好等于写入数量，触发刷盘
 			IdleDurationNanos: int64(5 * time.Second),        // 5 秒空闲触发刷盘
 		},
 	}

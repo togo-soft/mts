@@ -13,7 +13,6 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
-	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -85,6 +84,7 @@ func TestShard_Duration(t *testing.T) {
 
 func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	s := NewShard(ShardConfig{
 		DB:          "db1",
@@ -93,6 +93,7 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -145,20 +146,16 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 func TestShard_WriteWithWAL(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 创建 mock MetaStore
-	metaStore := metadata.NewSimpleSeriesStore()
-
 	s := NewShard(ShardConfig{
 		DB:          "db1",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
-		SeriesStore: metaStore,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	// 写入数据
 	p := &types.Point{
 		Timestamp: 1000000000,
 		Tags:      map[string]string{"host": "server1"},
@@ -168,35 +165,29 @@ func TestShard_WriteWithWAL(t *testing.T) {
 		t.Fatalf("Write failed: %v", err)
 	}
 
-	// 关闭 Shard 以确保 WAL 数据刷到磁盘
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
+	// Sync WAL 确保数据刷到 segment 文件（Close 会 Purge 删除 segment）
+	if err := s.wal.Sync(); err != nil {
+		t.Fatalf("WAL sync failed: %v", err)
 	}
 
-	// 验证 WAL 写入
-	w, err := wal.Open(wal.Config{
-		Dir: filepath.Join(tmpDir, "wal"),
-	})
-	if err != nil {
-		t.Fatalf("wal.Open failed: %v", err)
-	}
-
+	// 直接从 Shard 的 WAL 验证写入
 	var points []*types.Point
-	err = w.Replay(func(data []byte) error {
-		p, err := deserializePoint(data)
+	err := s.wal.Replay(func(data []byte) error {
+		pt, err := deserializePoint(data)
 		if err != nil {
 			return nil
 		}
-		points = append(points, p)
+		points = append(points, pt)
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("WAL replay failed: %v", err)
 	}
-	_ = w.Close()
 	if len(points) != 1 {
 		t.Errorf("expected 1 point in WAL, got %d", len(points))
 	}
+
+	_ = s.Close()
 }
 
 func TestShard_Write_DifferentTags(t *testing.T) {
@@ -258,6 +249,7 @@ func TestShard_Write_IntAndStringFields(t *testing.T) {
 
 func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	// First shard - write and flush data
 	s1 := NewShard(ShardConfig{
@@ -267,6 +259,7 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -291,6 +284,7 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: s1.seriesStore,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -309,6 +303,9 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 func TestShard_Close_FlushesMemTable(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	// 共享 SchemaStore：第一个 Shard Close 时写入 schema，第二个 Shard 读取时需要
+	schemaStore := metadata.NewSimpleSchemaStore()
+
 	s := NewShard(ShardConfig{
 		DB:          "db1",
 		Measurement: "cpu",
@@ -316,6 +313,7 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -348,6 +346,7 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -445,6 +444,7 @@ func TestShard_DataDir(t *testing.T) {
 func TestShard_ReopenWithMetaStore(t *testing.T) {
 	tmpDir := t.TempDir()
 	metaStore := metadata.NewSimpleSeriesStore()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	// First shard
 	s1 := NewShard(ShardConfig{
@@ -454,6 +454,7 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -477,6 +478,7 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -670,6 +672,7 @@ func TestShard_Close_NoData(t *testing.T) {
 func TestShard_Flush_AfterWrite(t *testing.T) {
 	// 测试 Flush 在有数据时正常工作
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	s := NewShard(ShardConfig{
 		DB:          "db1",
@@ -678,6 +681,7 @@ func TestShard_Flush_AfterWrite(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
@@ -891,6 +895,7 @@ func TestShard_ConcurrentReadWrite(t *testing.T) {
 func TestShard_Write_MultipleFlush(t *testing.T) {
 	// 测试多次 flush 后继续写入
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
 
 	s := NewShard(ShardConfig{
 		DB:          "db1",
@@ -899,6 +904,7 @@ func TestShard_Write_MultipleFlush(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 

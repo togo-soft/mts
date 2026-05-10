@@ -123,6 +123,7 @@
 | `persistence_test` | 持久化 | MetaStore 持久化验证 |
 | `retention_test` | 数据过期 | 数据过期清理机制 |
 | `wal_test` | WAL 预写日志 | WAL 创建、持久化恢复、Replay 机制、清理、多 Shard |
+| `restart_recovery` | 重启数据累积 | 10 次重启写入后验证 1000 条数据完整性，SSTable 序列号恢复 |
 | `simple_integrity` | 简单完整性 | 100 数据点验证 |
 | `write_1k` | 1K 写入 | 1K 数据写入性能测试 |
 | `write_10k` | 10K 写入 | 10K 数据写入性能测试 |

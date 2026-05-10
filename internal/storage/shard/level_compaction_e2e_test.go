@@ -67,6 +67,11 @@ func createTestSSTableInLevel(t *testing.T, shardDir string, level int, seq uint
 // TestLevelCompactionE2E_L0ToL1 tests basic L0 to L1 compaction.
 func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("testdb", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "usage", Type: 1}}, // float64
+	})
 
 	cfg := ShardConfig{
 		DB:          "testdb",
@@ -75,6 +80,7 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
@@ -352,6 +358,11 @@ func TestLevelCompactionE2E_OldFormatMigration(t *testing.T) {
 // TestLevelCompactionE2E_DataIntegrity tests that data is correctly merged and deduplicated.
 func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("testdb", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "value", Type: 2}}, // int64
+	})
 
 	cfg := ShardConfig{
 		DB:          "testdb",
@@ -360,6 +371,7 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
