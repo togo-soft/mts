@@ -1,5 +1,5 @@
-.PHONY : clean all
+.PHONY: clean all
 
 all:
-    buf generate
-    go mod tidy
+	@buf generate
+	@go mod tidy
