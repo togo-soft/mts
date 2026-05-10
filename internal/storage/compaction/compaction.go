@@ -38,6 +38,7 @@ func DefaultCompactionConfig() *CompactionConfig {
 // CompactionTask 描述一次 compaction 任务。
 type CompactionTask struct {
 	InputFiles     []string
+	MergedFiles    []string // 实际被合并的文件列表（仅这些文件可在 Commit 时安全删除）
 	OutputPath     string
 	Progress       int
 	StartedAt      time.Time
@@ -100,8 +101,14 @@ func (cm *CompactionManager) Timeout() time.Duration {
 
 // Compact 执行 compaction 合并。
 func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, error) {
-	cm.Mu.Lock()
+	// 先尝试获取 compaction 锁，防止并发 compaction
+	if !cm.TryAcquireCompactLock() {
+		return "", nil, nil
+	}
+	defer cm.ReleaseCompactLock()
 
+	cm.Mu.Lock()
+	// CollectSSTables acquires refs for all collected files to prevent deletion
 	sstFiles, err := cm.CollectSSTables()
 	if err != nil {
 		cm.Mu.Unlock()
@@ -110,6 +117,8 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 
 	if len(sstFiles) < 2 {
 		cm.Mu.Unlock()
+		// Release refs for early return
+		cm.ReleaseSSTRefs(sstFiles)
 		return "", nil, nil
 	}
 
@@ -137,8 +146,13 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 		cm.CurrentTask.Err = err
 		cm.Mu.Unlock()
 		_ = os.RemoveAll(outputPath)
+		cm.ReleaseSSTRefs(sstFiles)
 		return "", nil, fmt.Errorf("merge failed: %w", err)
 	}
+
+	// Release refs from CollectSSTables BEFORE Commit so Commit can correctly
+	// check if files are truly unused (only Merge's refs remain if queries aren't reading)
+	cm.ReleaseSSTRefs(sstFiles)
 
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
@@ -191,7 +205,70 @@ func (cm *CompactionManager) ResetTimer() {
 }
 
 // collectSSTables 收集需要 compaction 的 SSTable。
-func (cm *CompactionManager) CollectSSTables() ([]string, error) {
+// 注意：此方法会获取所有文件的引用，防止在 CollectSSTables 和 Merge 之间被删除。
+// 调用者需要在不使用后调用 ReleaseSSTRefs 释放引用。
+func (cm *CompactionManager) collectSSTablesWithRefs() ([]string, error) {
+	dataDir := filepath.Join(cm.ShardAccess.Dir(), "data")
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var sstFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if !strings.HasPrefix(entry.Name(), "sst_") {
+			continue
+		}
+
+		sstPath := filepath.Join(dataDir, entry.Name())
+
+		// 先获取引用，防止在后续检查期间被 flush 删除
+		if !cm.ShardAccess.AcquireSSTRef(sstPath) {
+			slog.Warn("failed to acquire sst ref during collect, skipping", "path", sstPath)
+			continue
+		}
+
+		// 再次验证 SSTable 完整性
+		if cm.IsSSTableInWrite(sstPath) {
+			slog.Debug("skipping sstable in write state", "path", sstPath)
+			cm.ShardAccess.ReleaseSSTRef(sstPath)
+			continue
+		}
+
+		if !cm.isSSTableComplete(sstPath) {
+			slog.Warn("skipping incomplete sstable", "path", sstPath)
+			cm.ShardAccess.ReleaseSSTRef(sstPath)
+			continue
+		}
+
+		if !cm.canOpenSSTable(sstPath) {
+			slog.Warn("skipping sstable: cannot open", "path", sstPath)
+			cm.ShardAccess.ReleaseSSTRef(sstPath)
+			continue
+		}
+
+		sstFiles = append(sstFiles, sstPath)
+	}
+
+	sort.Strings(sstFiles)
+	return sstFiles, nil
+}
+
+// ReleaseSSTRefs 释放 SSTable 引用。
+func (cm *CompactionManager) ReleaseSSTRefs(paths []string) {
+	for _, path := range paths {
+		cm.ShardAccess.ReleaseSSTRef(path)
+	}
+}
+
+// collectSSTablesWithoutRefs 收集需要 compaction 的 SSTable（不获取引用，仅用于检查数量）。
+func (cm *CompactionManager) collectSSTablesWithoutRefs() ([]string, error) {
 	dataDir := filepath.Join(cm.ShardAccess.Dir(), "data")
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -213,7 +290,10 @@ func (cm *CompactionManager) CollectSSTables() ([]string, error) {
 		sstPath := filepath.Join(dataDir, entry.Name())
 
 		if cm.IsSSTableInWrite(sstPath) {
-			slog.Debug("skipping sstable in write state", "path", sstPath)
+			continue
+		}
+
+		if !cm.isSSTableComplete(sstPath) {
 			continue
 		}
 
@@ -222,6 +302,42 @@ func (cm *CompactionManager) CollectSSTables() ([]string, error) {
 
 	sort.Strings(sstFiles)
 	return sstFiles, nil
+}
+
+// isSSTableComplete 检查 SSTable 是否完整（包含所有必需文件且不在写入中）。
+func (cm *CompactionManager) isSSTableComplete(sstPath string) bool {
+	// 如果正在写入中，不视为完整
+	if cm.IsSSTableInWrite(sstPath) {
+		return false
+	}
+
+	requiredFiles := []string{"_timestamps.bin", "_sids.bin"}
+	for _, f := range requiredFiles {
+		if _, err := os.Stat(filepath.Join(sstPath, f)); err != nil {
+			return false
+		}
+	}
+	// 检查 fields 目录是否存在
+	if _, err := os.Stat(filepath.Join(sstPath, "fields")); err != nil {
+		return false
+	}
+	return true
+}
+
+// canOpenSSTable 检查 SSTable 是否可以成功打开（验证文件可访问）。
+func (cm *CompactionManager) canOpenSSTable(sstPath string) bool {
+	file, err := os.Open(filepath.Join(sstPath, "_timestamps.bin"))
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
+}
+
+// CollectSSTables 收集需要 compaction 的 SSTable（公开方法，供测试和外部调用）。
+// 注意：此方法会获取引用，调用者需要在不使用后调用 ReleaseSSTRefs 释放。
+func (cm *CompactionManager) CollectSSTables() ([]string, error) {
+	return cm.collectSSTablesWithRefs()
 }
 
 func (cm *CompactionManager) IsSSTableInWrite(sstPath string) bool {
@@ -239,7 +355,7 @@ func (cm *CompactionManager) ShouldCompact() bool {
 }
 
 func (cm *CompactionManager) ShouldCompactLocked() bool {
-	files, err := cm.CollectSSTables()
+	files, err := cm.collectSSTablesWithoutRefs()
 	if err != nil {
 		return false
 	}

@@ -20,17 +20,57 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 		return fmt.Errorf("get schema: %w", err)
 	}
 
-	readers := make([]*sstable.Reader, 0, len(task.InputFiles))
+	// 对所有输入文件加引用，防止在 Merge 期间被 Commit 删除
+	acquiredPaths := make([]string, 0, len(task.InputFiles))
 	for _, path := range task.InputFiles {
+		if !cm.ShardAccess.AcquireSSTRef(path) {
+			slog.Warn("failed to acquire sst ref during merge, skipping", "path", path)
+			continue
+		}
+		acquiredPaths = append(acquiredPaths, path)
+	}
+
+	// 所有路径加完引用后再检查完整性，确保检查和 Commit 删除之间不会漏
+	// 注意：skipped paths 的引用会保留到函数结束，不会被提前释放
+	defer func() {
+		for _, path := range acquiredPaths {
+			cm.ShardAccess.ReleaseSSTRef(path)
+		}
+	}()
+
+	readers := make([]*sstable.Reader, 0, len(acquiredPaths))
+	mergedPaths := make([]string, 0, len(acquiredPaths))
+	for _, path := range acquiredPaths {
+		// 再次验证 SSTable 完整性，防止在 CollectSSTables 和 Merge 之间文件被删除或变得不完整
+		if !cm.isSSTableComplete(path) {
+			slog.Warn("sstable became incomplete during merge, skipping", "path", path)
+			continue
+		}
+		// 使用 canOpenSSTable 进行二次验证
+		if !cm.canOpenSSTable(path) {
+			slog.Warn("sstable cannot be opened during merge, skipping", "path", path)
+			continue
+		}
 		r, err := sstable.NewReader(path, schema)
 		if err != nil {
-			for _, r := range readers {
-				_ = r.Close()
-			}
-			return fmt.Errorf("open sstable reader for %s: %w", path, err)
+			slog.Warn("failed to open sstable reader during merge, skipping", "path", path, "error", err)
+			continue
 		}
 		readers = append(readers, r)
+		mergedPaths = append(mergedPaths, path)
 	}
+
+	// 如果没有有效的 reader，直接返回
+	if len(readers) == 0 {
+		slog.Warn("no valid sstables to merge")
+		return nil
+	}
+	if len(readers) < len(acquiredPaths) {
+		slog.Info("some sstables were skipped during merge", "expected", len(acquiredPaths), "actual", len(readers))
+	}
+
+	// 记录实际被合并的文件，Commit 只删除这些文件
+	task.MergedFiles = mergedPaths
 
 	defer func() {
 		for _, r := range readers {
@@ -63,19 +103,19 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 
 	seen := make(map[string]bool)
 	var pointsToWrite []*types.Point
-	var tsSidMap map[int64]uint64
+	var sids []uint64
 	const batchSize = 1000
 
 	flushBatch := func() error {
 		if len(pointsToWrite) == 0 {
 			return nil
 		}
-		if err := w.WritePoints(pointsToWrite, tsSidMap); err != nil {
+		if err := w.WritePoints(pointsToWrite, sids); err != nil {
 			return err
 		}
 		task.OutputCount += len(pointsToWrite)
 		pointsToWrite = pointsToWrite[:0]
-		tsSidMap = make(map[int64]uint64)
+		sids = sids[:0]
 		return nil
 	}
 
@@ -105,11 +145,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 			Fields:    row.Fields,
 		}
 		pointsToWrite = append(pointsToWrite, point)
-		if tsSidMap == nil {
-			tsSidMap = make(map[int64]uint64)
-		}
-		tsSidMap[row.Timestamp] = row.Sid
-
+			sids = append(sids, row.Sid)
 		if len(pointsToWrite) >= batchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()
@@ -142,10 +178,21 @@ func (cm *CompactionManager) Commit(task *CompactionTask) error {
 		return fmt.Errorf("verify output: %w", err)
 	}
 
+	// 只删除实际被合并的文件，防止删除未参与合并的 SSTable
+	filesToDelete := task.MergedFiles
+	if filesToDelete == nil {
+		// 如果没有 MergedFiles 记录（不应该发生），退回使用 InputFiles 但会检查引用
+		filesToDelete = task.InputFiles
+	}
+
 	var lastErr error
-	for _, oldFile := range task.InputFiles {
+	for _, oldFile := range filesToDelete {
 		if !cm.ShardAccess.IsSSTUnused(oldFile) {
 			slog.Warn("sstable still in use, deferring cleanup", "path", oldFile)
+			continue
+		}
+		// 检查文件是否仍然存在，可能被其他 compaction 的 Commit 已删除
+		if _, err := os.Stat(oldFile); os.IsNotExist(err) {
 			continue
 		}
 		if err := os.RemoveAll(oldFile); err != nil {

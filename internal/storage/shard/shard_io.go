@@ -53,21 +53,20 @@ func (s *Shard) Write(point *types.Point) error {
 		}
 	}
 
-	// 2. 分配 SID 并更新 sidCache 和 tsSidMap
+	// 2. 分配 SID 并更新 sidCache
 	sid, err := s.seriesStore.AllocateSID(point.Tags)
 	if err != nil {
 		return fmt.Errorf("allocate SID: %w", err)
 	}
 	s.sidCache[sid] = copyTagsMap(point.Tags)
-	s.tsSidMap[point.Timestamp] = sid
 
 	// 3. 验证字段类型一致性
 	if err := s.ValidateFieldTypes(point); err != nil {
 		return fmt.Errorf("validate field types: %w", err)
 	}
 
-	// 4. 写入 MemTable
-	if err := s.memTable.Write(point); err != nil {
+	// 4. 写入 MemTable（SID 由 entry 携带）
+	if err := s.memTable.Write(point, sid); err != nil {
 		return fmt.Errorf("write to memtable: %w", err)
 	}
 

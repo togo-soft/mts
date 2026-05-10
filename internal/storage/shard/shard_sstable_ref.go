@@ -31,19 +31,19 @@ func newSSTRefs() *sstRefs {
 }
 
 // acquire 增加对指定路径 SSTable 的引用，必要时创建新的引用对象。
-func (sr *sstRefs) acquire(path string) *SSTableRef {
+func (sr *sstRefs) acquire(path string) bool {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
 	if ref, ok := sr.refs[path]; ok {
 		ref.Acquire()
-		return ref
+		return true
 	}
 
 	ref := &SSTableRef{path: path}
 	ref.Acquire()
 	sr.refs[path] = ref
-	return ref
+	return true
 }
 
 // release 释放对指定路径的引用。
@@ -57,7 +57,7 @@ func (sr *sstRefs) release(path string) {
 }
 
 // AcquireSSTRef 增加对指定 SSTable 的引用（Shard 公开方法）。
-func (s *Shard) AcquireSSTRef(path string) *SSTableRef {
+func (s *Shard) AcquireSSTRef(path string) bool {
 	return s.sstRefs.acquire(path)
 }
 

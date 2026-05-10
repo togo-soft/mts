@@ -63,7 +63,7 @@ func (s *Shard) Close() error {
 			slog.Info("Shard.Close: level compaction flush completed")
 		} else {
 			// 平坦 Compaction 的刷盘逻辑
-			points := s.memTable.Flush()
+			points, sids := s.memTable.Flush()
 			slog.Info("Shard.Close: flat compaction flush", "pointsCount", len(points))
 			if len(points) > 0 {
 				w, wErr := sstable.NewWriter(s.dir, s.sstSeq, 0)
@@ -80,7 +80,7 @@ func (s *Shard) Close() error {
 				}
 				s.sstSeq++
 
-				if writeErr := w.WritePoints(points, s.tsSidMap); writeErr != nil {
+				if writeErr := w.WritePoints(points, sids); writeErr != nil {
 					_ = w.Close()
 					if s.wal != nil {
 						if closeErr := s.wal.Close(); closeErr != nil {
@@ -102,21 +102,12 @@ func (s *Shard) Close() error {
 					err = fmt.Errorf("close sstable writer: %w", closeErr)
 					return
 				}
-
-				// 清理已刷盘的 timestamp→sid 映射
-				for _, p := range points {
-					delete(s.tsSidMap, p.Timestamp)
-				}
 				flushed = true
 			} else {
 				flushed = true
 			}
 		}
 
-		// 3. 清理剩余的 tsSidMap（不再需要）
-		for ts := range s.tsSidMap {
-			delete(s.tsSidMap, ts)
-		}
 
 		// 4. WAL 清理（仅当 flush 成功时）
 		// 先调用 WAL.Close() 确保 periodic sync goroutine 退出并关闭 segment，

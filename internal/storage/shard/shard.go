@@ -106,7 +106,7 @@ type SchemaStore interface {
 //   - wal: 预写日志
 //   - seriesStore: Series ID 分配与查询
 //   - sidCache: Sid→Tags 缓存（用于从 SSTable 恢复 Tags）
-//   - tsSidMap: Timestamp→Sid 映射（用于 flush 时获取 Sid）
+//   - sidCache: Sid→Tags 缓存（用于从 SSTable 恢复 Tags），Sid 现由 MemTable entry 携带
 //   - mu: 读写锁
 //   - sstSeq: SSTable 序列号（文件名生成）
 //   - compaction: Compaction 管理器
@@ -129,7 +129,6 @@ type Shard struct {
 	schema          *metadata.Schema             // 内存 schema 缓存
 	schemaMu        sync.RWMutex                 // 保护 schema
 	sidCache        map[uint64]map[string]string // sid → tags 缓存
-	tsSidMap        map[int64]uint64             // timestamp → sid 映射
 	mu              sync.RWMutex
 	sstSeq          uint64 // SSTable序列号，用于生成唯一的文件名
 	sstRefs         *sstRefs
@@ -195,7 +194,6 @@ func NewShard(cfg ShardConfig) *Shard {
 		seriesStore: cfg.SeriesStore,
 		schemaStore: cfg.SchemaStore,
 		sidCache:    make(map[uint64]map[string]string),
-		tsSidMap:    make(map[int64]uint64),
 		sstRefs:     newSSTRefs(),
 	}
 
@@ -540,7 +538,7 @@ func (s *Shard) doPeriodicFlush() {
 // 应在 Shard 构建后由 ShardManager 调用。
 //
 // 设计说明：
-// WAL replay 不进行 tsSidMap 去重，因为 MemTable 层面会进行去重。
+// WAL replay 时 MemTable entry 携带 SID，flush 时直接输出。
 // Read() 会在合并结果时对 MemTable 数据进行基于 timestamp 的去重。
 func (s *Shard) ReplayWAL() error {
 	if s.wal == nil {
@@ -562,9 +560,8 @@ func (s *Shard) ReplayWAL() error {
 			return fmt.Errorf("WAL replay: allocate SID: %w", err)
 		}
 		s.sidCache[sid] = copyTagsMap(point.Tags)
-		s.tsSidMap[point.Timestamp] = sid
 
-		if err := s.memTable.Write(point); err != nil {
+		if err := s.memTable.Write(point, sid); err != nil {
 			return fmt.Errorf("WAL replay: write to memtable: %w", err)
 		}
 

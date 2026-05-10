@@ -22,7 +22,7 @@ func (s *Shard) Flush() error {
 
 // flushLocked 内部刷写方法（已持有锁）
 func (s *Shard) flushLocked() error {
-	points := s.memTable.Flush()
+	points, sids := s.memTable.Flush()
 	if len(points) == 0 {
 		return nil
 	}
@@ -42,18 +42,25 @@ func (s *Shard) flushLocked() error {
 		sstPath = filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", sstSeq))
 	}
 
-	w, err := sstable.NewWriter(s.dir, sstSeq, 0)
-	if err != nil {
-		return fmt.Errorf("create sstable writer: %w", err)
-	}
-
+	// 在 NewWriter 之前标记写入状态，防止 CollectSSTables 收集到不完整的 SSTable
 	if s.compaction != nil && !s.levelCompactionEnabled() {
 		if err := s.compaction.MarkWriting(sstPath); err != nil {
 			slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
 		}
 	}
 
-	if err := w.WritePoints(points, s.tsSidMap); err != nil {
+	w, err := sstable.NewWriter(s.dir, sstSeq, 0)
+	if err != nil {
+		// 清理 .writing 标记
+		if s.compaction != nil && !s.levelCompactionEnabled() {
+			if unmarkErr := s.compaction.UnmarkWriting(sstPath); unmarkErr != nil {
+				slog.Warn("failed to unmark sstable after writer error", "path", sstPath, "error", unmarkErr)
+			}
+		}
+		return fmt.Errorf("create sstable writer: %w", err)
+	}
+
+	if err := w.WritePoints(points, sids); err != nil {
 		if closeErr := w.Close(); closeErr != nil {
 			slog.Warn("failed to close sstable writer after write error", "error", closeErr)
 		}
@@ -73,10 +80,6 @@ func (s *Shard) flushLocked() error {
 		}
 		// 同步更新内存 schema
 		s.UpdateSchemaInMemory(metaSchema)
-	}
-
-	for _, p := range points {
-		delete(s.tsSidMap, p.Timestamp)
 	}
 
 	if err := w.Close(); err != nil {
