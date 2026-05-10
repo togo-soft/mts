@@ -36,6 +36,12 @@ func (it *Iterator) loadBlock(blockIdx int) error {
 		it.blockTimestamps[i] = int64(binary.BigEndian.Uint64(buf[:]))
 	}
 
+	sids, err := it.reader.readSidsRange(it.dataDir, entry.Offset, entry.RowCount)
+	if err != nil {
+		return err
+	}
+	it.blockSids = sids
+
 	entries, err := os.ReadDir(filepath.Join(it.dataDir, "fields"))
 	if err != nil {
 		return err

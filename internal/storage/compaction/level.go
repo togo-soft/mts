@@ -355,7 +355,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 			Fields:    row.Fields,
 		}
 		pointsToWrite = append(pointsToWrite, point)
-			sids = append(sids, row.Sid)
+		sids = append(sids, row.Sid)
 		if len(pointsToWrite) >= batchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()

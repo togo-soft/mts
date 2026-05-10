@@ -108,7 +108,6 @@ func (s *Shard) Close() error {
 			}
 		}
 
-
 		// 4. WAL 清理（仅当 flush 成功时）
 		// 先调用 WAL.Close() 确保 periodic sync goroutine 退出并关闭 segment，
 		// 然后调用 WAL.Purge() 删除 segment 文件。

@@ -145,7 +145,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 			Fields:    row.Fields,
 		}
 		pointsToWrite = append(pointsToWrite, point)
-			sids = append(sids, row.Sid)
+		sids = append(sids, row.Sid)
 		if len(pointsToWrite) >= batchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()
@@ -333,9 +333,12 @@ func (m *MergeIterator) Next() bool {
 
 	if m.current.Iter.Next() {
 		p := m.current.Iter.Point()
-		m.current.Point = p
-		m.current.Timestamp = p.Timestamp
-		heap.Push(m.heap, m.current)
+		heap.Push(m.heap, &MergeHeapItem{
+			Iter:      m.current.Iter,
+			Point:     p,
+			Idx:       m.current.Idx,
+			Timestamp: p.Timestamp,
+		})
 	}
 
 	return true

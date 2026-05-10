@@ -19,12 +19,14 @@ type Iterator struct {
 	currentBlock int
 
 	blockTimestamps []int64
+	blockSids       []uint64
 	fieldBufs       map[string][]byte
 	blockRowCount   int
 	pos             int
 
 	fallbackMode       bool
 	fallbackTimestamps []int64
+	fallbackSids       []uint64
 	fallbackFields     []map[string]*types.FieldValue
 	fallbackPos        int
 }
@@ -77,6 +79,12 @@ func (it *Iterator) loadAllData() error {
 	if len(timestamps) == 0 {
 		return nil
 	}
+
+	sids, err := it.reader.readSids(it.dataDir, len(timestamps))
+	if err != nil {
+		return err
+	}
+	it.fallbackSids = sids
 
 	entries, err := os.ReadDir(filepath.Join(it.dataDir, "fields"))
 	if err != nil {

@@ -44,10 +44,14 @@ func (it *Iterator) Point() *types.PointRow {
 		if it.fallbackPos < 0 || it.fallbackPos >= len(it.fallbackTimestamps) {
 			return nil
 		}
-		return &types.PointRow{
+		row := &types.PointRow{
 			Timestamp: it.fallbackTimestamps[it.fallbackPos],
 			Fields:    it.fallbackFields[it.fallbackPos],
 		}
+		if it.fallbackPos < len(it.fallbackSids) {
+			row.Sid = it.fallbackSids[it.fallbackPos]
+		}
+		return row
 	}
 
 	if it.currentBlock < 0 || it.currentBlock >= len(it.blockIndex) {
@@ -60,6 +64,9 @@ func (it *Iterator) Point() *types.PointRow {
 	row := &types.PointRow{
 		Timestamp: it.blockTimestamps[it.pos],
 		Fields:    make(map[string]*types.FieldValue),
+	}
+	if it.pos < len(it.blockSids) {
+		row.Sid = it.blockSids[it.pos]
 	}
 
 	for name, data := range it.fieldBufs {
