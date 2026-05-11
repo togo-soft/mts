@@ -1270,7 +1270,7 @@ func TestReader_ReadRange_InvalidRange(t *testing.T) {
 	defer func() { _ = r.Close() }()
 
 	// 测试反向范围 (start > end)
-	rows, err := r.ReadRange(3000, 1000)
+	rows, err := r.ReadRange(3000, 1000, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}

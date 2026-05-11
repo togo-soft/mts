@@ -141,7 +141,7 @@ func TestReader_ReadRange_NoIndex(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	rows, err := r.ReadRange(1500, 2500)
+	rows, err := r.ReadRange(1500, 2500, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestReader_ReadRange_AllFields(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	rows, err := r.ReadRange(0, 2000)
+	rows, err := r.ReadRange(0, 2000, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}

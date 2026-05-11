@@ -5,14 +5,15 @@ import (
 )
 
 // ReadRange 读取指定时间范围内的数据。
-func (r *Reader) ReadRange(startTime, endTime int64) ([]*types.PointRow, error) {
+// maxRows 限制返回行数（0 表示无限制）。
+func (r *Reader) ReadRange(startTime, endTime int64, maxRows int) ([]*types.PointRow, error) {
 	if r.blockIndex != nil && r.blockIndex.Len() > 0 {
-		return r.readRangeOptimized(startTime, endTime)
+		return r.readRangeOptimized(startTime, endTime, maxRows)
 	}
-	return r.readRangeFullScan(startTime, endTime)
+	return r.readRangeFullScan(startTime, endTime, maxRows)
 }
 
-func (r *Reader) readRangeOptimized(startTime, endTime int64) ([]*types.PointRow, error) {
+func (r *Reader) readRangeOptimized(startTime, endTime int64, maxRows int) ([]*types.PointRow, error) {
 	startBlock := r.blockIndex.FindBlock(startTime)
 	if startBlock >= r.blockIndex.Len() {
 		return nil, nil
@@ -39,20 +40,18 @@ func (r *Reader) readRangeOptimized(startTime, endTime int64) ([]*types.PointRow
 
 	// v2 优化路径：逐 block 独立解码
 	if r.HasBlockSectionMap() {
-		return r.readRangeBlocksV2(matchingBlocks, startTime, endTime, fields)
+		return r.readRangeBlocksV2(matchingBlocks, startTime, endTime, fields, maxRows)
 	}
 
 	// v1 路径：全量解码后切片
-	return r.readRangeBlocksV1(matchingBlocks, startTime, endTime, fields)
+	return r.readRangeBlocksV1(matchingBlocks, startTime, endTime, fields, maxRows)
 }
 
 // readRangeBlocksV2 使用 BlockSectionMap 逐 block 按需解码（v2 格式）。
-func (r *Reader) readRangeBlocksV2(matchingBlocks []int, startTime, endTime int64, fields []string) ([]*types.PointRow, error) {
+func (r *Reader) readRangeBlocksV2(matchingBlocks []int, startTime, endTime int64, fields []string, maxRows int) ([]*types.PointRow, error) {
 	var rows []*types.PointRow
 
 	for _, blockIdx := range matchingBlocks {
-		entry := r.blockIndex.Entry(blockIdx)
-
 		timestamps, err := r.readTimestampsBlock(blockIdx)
 		if err != nil {
 			return nil, err
@@ -62,7 +61,6 @@ func (r *Reader) readRangeBlocksV2(matchingBlocks []int, startTime, endTime int6
 			return nil, err
 		}
 
-		// 预解码该 block 的所有字段
 		decodedFields := make(map[string][]*types.FieldValue, len(fields))
 		for _, name := range fields {
 			vals, err := r.decodeFieldSectionBlock(name, blockIdx)
@@ -72,7 +70,6 @@ func (r *Reader) readRangeBlocksV2(matchingBlocks []int, startTime, endTime int6
 			decodedFields[name] = vals
 		}
 
-		// 在该 block 内按时间过滤
 		for i, ts := range timestamps {
 			if ts >= startTime && (endTime <= 0 || ts < endTime) {
 				row := &types.PointRow{
@@ -89,16 +86,18 @@ func (r *Reader) readRangeBlocksV2(matchingBlocks []int, startTime, endTime int6
 					}
 				}
 				rows = append(rows, row)
+				if maxRows > 0 && len(rows) >= maxRows {
+					return rows, nil
+				}
 			}
 		}
-		_ = entry // keep reference for clarity
 	}
 
 	return rows, nil
 }
 
 // readRangeBlocksV1 全量解码后按匹配索引切片（v1 格式兼容）。
-func (r *Reader) readRangeBlocksV1(matchingBlocks []int, startTime, endTime int64, fields []string) ([]*types.PointRow, error) {
+func (r *Reader) readRangeBlocksV1(matchingBlocks []int, startTime, endTime int64, fields []string, maxRows int) ([]*types.PointRow, error) {
 	type blockInfo struct {
 		offset   uint32
 		rowCount uint32
@@ -160,12 +159,15 @@ func (r *Reader) readRangeBlocksV1(matchingBlocks []int, startTime, endTime int6
 			}
 		}
 		rows = append(rows, row)
+		if maxRows > 0 && len(rows) >= maxRows {
+			break
+		}
 	}
 
 	return rows, nil
 }
 
-func (r *Reader) readRangeFullScan(startTime, endTime int64) ([]*types.PointRow, error) {
+func (r *Reader) readRangeFullScan(startTime, endTime int64, maxRows int) ([]*types.PointRow, error) {
 	timestamps, err := r.readTimestamps()
 	if err != nil {
 		return nil, err
@@ -197,6 +199,9 @@ func (r *Reader) readRangeFullScan(startTime, endTime int64) ([]*types.PointRow,
 				}
 			}
 			rows = append(rows, row)
+			if maxRows > 0 && len(rows) >= maxRows {
+				break
+			}
 		}
 	}
 

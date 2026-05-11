@@ -29,6 +29,8 @@ import (
 //   - memIter:   MemTable 迭代器
 //   - rows:      SSTable 预加载的数据
 //   - rowIdx:    当前在 rows 中的位置
+//   - produced:  已输出的行数
+//   - maxRows:   最大输出行数（0 表示无限制）
 //
 // 性能考虑：
 //
@@ -48,6 +50,9 @@ type ShardIterator struct {
 	memRow *types.PointRow
 	sstRow *types.PointRow
 
+	produced int // 已输出的行数
+	maxRows  int // 最大输出行数（0 表示无限制）
+
 	// 线程安全保护 - 读写锁允许多个并发读
 	mu sync.RWMutex
 }
@@ -58,6 +63,7 @@ type ShardIterator struct {
 //   - shard:     目标 Shard
 //   - startTime: 查询起始时间（包含）
 //   - endTime:   查询截止时间（不包含），<=0 表示无限制
+//   - maxRows:   最大输出行数（0 表示无限制），用于限制 SSTable 预加载数据量
 //
 // 返回：
 //   - *ShardIterator: 初始化后的迭代器
@@ -65,17 +71,18 @@ type ShardIterator struct {
 // 初始化过程：
 //
 //  1. 创建 MemTable 迭代器并定位到第一条记录
-//  2. 预加载 SSTable 中时间范围内的数据
+//  2. 预加载 SSTable 中时间范围内的数据（受 maxRows 限制）
 //  3. 记录当前位置用于归并排序
 //
 // 注意：
 //
 //	SSTable 数据在创建时一次性加载，对于大数据集可能消耗较多内存。
-func NewShardIterator(shard *Shard, startTime, endTime int64) *ShardIterator {
+func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *ShardIterator {
 	si := &ShardIterator{
 		shard:     shard,
 		startTime: startTime,
 		endTime:   endTime,
+		maxRows:   maxRows,
 	}
 
 	// 创建 MemTable 迭代器
@@ -85,8 +92,8 @@ func NewShardIterator(shard *Shard, startTime, endTime int64) *ShardIterator {
 		si.memRow = si.pointToRow(ip)
 	}
 
-	// 从 SSTable 预读取数据
-	rows, err := shard.readFromSSTable(startTime, endTime)
+	// 从 SSTable 预读取数据（受 maxRows 限制）
+	rows, err := shard.readFromSSTable(startTime, endTime, maxRows)
 	if err != nil {
 		si.err = err
 		return si
@@ -132,6 +139,11 @@ func (si *ShardIterator) Next() *types.PointRow {
 	si.mu.Lock()
 	defer si.mu.Unlock()
 
+	// 检查是否已达到输出上限
+	if si.maxRows > 0 && si.produced >= si.maxRows {
+		return nil
+	}
+
 	// 循环选择并检查，直到找到符合条件的或两者都耗尽
 	for {
 		// 选择 timestamp 较小的数据源
@@ -157,6 +169,7 @@ func (si *ShardIterator) Next() *types.PointRow {
 
 		// 检查范围
 		if row.Timestamp >= si.startTime && (si.endTime <= 0 || row.Timestamp < si.endTime) {
+			si.produced++
 			return row
 		}
 		// 不在范围内，继续循环获取下一个

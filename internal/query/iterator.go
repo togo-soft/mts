@@ -120,9 +120,14 @@ func NewQueryIterator(ctx context.Context, shards []*shard.Shard, req *types.Que
 
 	// 为每个 Shard 创建 ShardIterator 并加入 heap
 	// 注意：不进行 shard boundary check，因为 ShardIterator 内部会进行时间过滤
+	// maxRows: 每个 shard 最多需要提供 req.Limit+req.Offset 行（最坏情况所有行来自同一 shard）
+	var maxRows int
+	if req.Limit > 0 {
+		maxRows = int(req.Limit + req.Offset)
+	}
 	q.heap = make(shardHeap, 0, len(shards))
 	for _, s := range shards {
-		si := shard.NewShardIterator(s, startTimeNs, endTimeNs)
+		si := shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
 		if si.Current() != nil {
 			q.heap = append(q.heap, si)
 		}

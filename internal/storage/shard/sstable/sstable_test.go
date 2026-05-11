@@ -240,7 +240,7 @@ func TestReader_ReadRange(t *testing.T) {
 	}()
 
 	// 读取部分范围
-	rows, err := r.ReadRange(2000, 4000)
+	rows, err := r.ReadRange(2000, 4000, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestReader_ReadRange_All(t *testing.T) {
 	}()
 
 	// 读取全部 (endTime <= 0 表示不限制)
-	rows, err := r.ReadRange(0, 0)
+	rows, err := r.ReadRange(0, 0, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestReader_ReadRange_Empty(t *testing.T) {
 	}()
 
 	// 读取不存在的范围
-	rows, err := r.ReadRange(5000, 6000)
+	rows, err := r.ReadRange(5000, 6000, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestWriter_FieldTypes(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	rows, err := r.ReadRange(0, 0)
+	rows, err := r.ReadRange(0, 0, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestWriter_DetectFieldType(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	rows, err := r.ReadRange(0, 0)
+	rows, err := r.ReadRange(0, 0, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestWriter_AppendZeroValue(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	rows, err := r.ReadRange(0, 0)
+	rows, err := r.ReadRange(0, 0, 0)
 	if err != nil {
 		t.Fatalf("ReadRange failed: %v", err)
 	}
@@ -1076,5 +1076,84 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 	result = r.decodeFieldValue(data, 0, "v")
 	if result == nil || result.GetBoolValue() {
 		t.Error("expected bool false")
+	}
+}
+
+func TestReader_ReadRange_WithLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	w, err := NewWriter(tmpDir, 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// 写入 10 条连续数据
+	var points []*types.Point
+	for i := int64(0); i < 10; i++ {
+		points = append(points, &types.Point{
+			Timestamp: 1000 + i*100,
+			Tags:      map[string]string{"host": "s1"},
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		})
+	}
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	// 限制返回 3 条
+	rows, err := r.ReadRange(0, 0, 3)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Errorf("expected 3 rows (limit=3), got %d", len(rows))
+	}
+}
+
+func TestReader_ReadRange_WithLimitZero(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	w, err := NewWriter(tmpDir, 0, 0)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	var points []*types.Point
+	for i := int64(0); i < 5; i++ {
+		points = append(points, &types.Point{
+			Timestamp: 1000 + i*100,
+			Tags:      map[string]string{"host": "s1"},
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		})
+	}
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	// limit=0 表示无限制，应返回所有 5 条
+	rows, err := r.ReadRange(0, 0, 0)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+	if len(rows) != 5 {
+		t.Errorf("expected 5 rows (unlimited), got %d", len(rows))
 	}
 }

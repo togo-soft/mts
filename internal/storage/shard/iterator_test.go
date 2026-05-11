@@ -39,7 +39,7 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 	}
 
 	// 创建迭代器（0, 0 表示不过滤时间）
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 验证顺序
 	var got []*types.PointRow
@@ -101,7 +101,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 	})
 
 	// 创建迭代器（0, 0 表示不过滤时间）
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 验证顺序
 	timestamps := []int64{1000, 2000, 3000}
@@ -175,7 +175,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 	}
 
 	// 创建迭代器（0, 0 表示不过滤时间）
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 期望顺序: 1000, 2000, 3000, 4000
 	expected := []int64{1000, 2000, 3000, 4000}
@@ -250,7 +250,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 	}
 
 	// 创建迭代器（0, 0 表示不过滤时间）
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 当 timestamp 相等时，SSTable 优先（因为在 else 分支）
 	// 期望顺序: 1000(SSTable), 1000(MemTable), 2000, 3000
@@ -310,7 +310,7 @@ func TestShardIterator_Current(t *testing.T) {
 	}
 
 	// 创建迭代器（0, 0 表示不过滤时间）
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 初始状态 Current 应该返回第一条
 	current := iter.Current()
@@ -348,7 +348,7 @@ func TestShardIterator_Empty(t *testing.T) {
 	})
 
 	// 创建迭代器（0, 0 表示不过滤时间）
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// Next 应该返回 nil
 	row := iter.Next()
@@ -377,7 +377,7 @@ func TestShardIterator_Err(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 初始没有错误
 	if iter.Err() != nil {
@@ -437,7 +437,7 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 	}
 
 	// 创建迭代器
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 验证 Current 返回 MemTable 的 1000（因为 1000 < 2000）
 	current := iter.Current()
@@ -507,7 +507,7 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 	}
 
 	// 创建迭代器
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 验证 Current 返回 SSTable 的 1000（因为 1000 < 3000）
 	current := iter.Current()
@@ -549,7 +549,7 @@ func TestShardIterator_TimeRangeFilter(t *testing.T) {
 	}
 
 	// 创建迭代器，只返回 [2000, 4000) 范围内的数据
-	iter := NewShardIterator(shard, 2000, 4000)
+	iter := NewShardIterator(shard, 2000, 4000, 0)
 
 	var got []int64
 	for {
@@ -588,7 +588,7 @@ func TestShardIterator_PointToRowNil(t *testing.T) {
 	defer func() { _ = shard.Close() }()
 
 	// 创建迭代器时不写入任何数据
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// MemTable 为空，SSTable 也为空，所以 memRow 和 sstRow 都为 nil
 	// 调用 Next 应该返回 nil
@@ -623,7 +623,7 @@ func TestShardIterator_NextLocked_AllExhausted(t *testing.T) {
 		t.Fatalf("failed to write point: %v", err)
 	}
 
-	iter := NewShardIterator(shard, 0, 0)
+	iter := NewShardIterator(shard, 0, 0, 0)
 
 	// 第一次 Next 返回数据
 	row1 := iter.Next()
@@ -635,5 +635,88 @@ func TestShardIterator_NextLocked_AllExhausted(t *testing.T) {
 	row2 := iter.Next()
 	if row2 != nil {
 		t.Errorf("expected nil row, got %v", row2)
+	}
+}
+
+func TestShardIterator_MaxRowsLimit(t *testing.T) {
+	dir := t.TempDir()
+
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         dir,
+		SeriesStore: nil,
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+	})
+
+	// 写入 10 条数据到 MemTable
+	for i := int64(0); i < 10; i++ {
+		p := &types.Point{
+			Tags:      map[string]string{"host": "server1"},
+			Timestamp: 1000 + i*100,
+			Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(i)},
+		}
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
+			t.Fatalf("failed to write point: %v", err)
+		}
+	}
+
+	// 设置 maxRows=5，期望只返回 5 条
+	iter := NewShardIterator(shard, 0, 0, 5)
+
+	var count int
+	for {
+		row := iter.Next()
+		if row == nil {
+			break
+		}
+		count++
+	}
+
+	if count != 5 {
+		t.Errorf("expected 5 rows, got %d", count)
+	}
+}
+
+func TestShardIterator_MaxRowsUnlimited(t *testing.T) {
+	dir := t.TempDir()
+
+	shard := NewShard(ShardConfig{
+		DB:          "db",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     3600 * 1e9,
+		Dir:         dir,
+		SeriesStore: nil,
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+	})
+
+	for i := int64(0); i < 10; i++ {
+		p := &types.Point{
+			Tags:      map[string]string{"host": "server1"},
+			Timestamp: 1000 + i*100,
+			Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(i)},
+		}
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
+			t.Fatalf("failed to write point: %v", err)
+		}
+	}
+
+	// maxRows=0 表示无限制
+	iter := NewShardIterator(shard, 0, 0, 0)
+
+	var count int
+	for {
+		row := iter.Next()
+		if row == nil {
+			break
+		}
+		count++
+	}
+
+	if count != 10 {
+		t.Errorf("expected 10 rows (unlimited), got %d", count)
 	}
 }

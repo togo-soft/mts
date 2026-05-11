@@ -129,7 +129,7 @@ func (s *Shard) Read(startTime, endTime int64) ([]*types.PointRow, error) {
 	}
 
 	// 2. 从 SSTable 读取（Tags 已在内部通过 Sid 填充）
-	sstRows, err := s.readFromSSTable(startTime, endTime)
+	sstRows, err := s.readFromSSTable(startTime, endTime, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read from sstable: %w", err)
 	}
@@ -143,8 +143,9 @@ func (s *Shard) Read(startTime, endTime int64) ([]*types.PointRow, error) {
 	return rows, nil
 }
 
-// readFromSSTable 从 SSTable 读取时间范围内的数据
-func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, error) {
+// readFromSSTable 从 SSTable 读取时间范围内的数据。
+// maxRows 限制总返回行数（0 表示无限制），每个 SSTable 文件也使用此值作为上限。
+func (s *Shard) readFromSSTable(startTime, endTime int64, maxRows int) ([]*types.PointRow, error) {
 	dataDir := filepath.Join(s.dir, "data")
 	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
 		return nil, nil // 没有 SSTable
@@ -175,7 +176,7 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 				}
 
 				sstFile := filepath.Join(levelDir, entry.Name())
-				if err := s.readSSTableFile(sstFile, startTime, endTime, &allRows); err != nil {
+				if err := s.readSSTableFile(sstFile, startTime, endTime, maxRows, &allRows); err != nil {
 					slog.Warn("failed to read SSTable in level", "sstFile", sstFile, "error", err)
 				}
 			}
@@ -196,7 +197,7 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 			}
 
 			sstFile := filepath.Join(dataDir, entry.Name())
-			if err := s.readSSTableFile(sstFile, startTime, endTime, &allRows); err != nil {
+			if err := s.readSSTableFile(sstFile, startTime, endTime, maxRows, &allRows); err != nil {
 				slog.Warn("failed to read SSTable", "sstFile", sstFile, "error", err)
 			}
 		}
@@ -220,7 +221,7 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 }
 
 // readSSTableFile 读取单个 SSTable 文件的数据
-func (s *Shard) readSSTableFile(sstFile string, startTime, endTime int64, rows *[]*types.PointRow) error {
+func (s *Shard) readSSTableFile(sstFile string, startTime, endTime int64, maxRows int, rows *[]*types.PointRow) error {
 	s.AcquireSSTRef(sstFile)
 	defer s.ReleaseSSTRef(sstFile)
 
@@ -234,7 +235,7 @@ func (s *Shard) readSSTableFile(sstFile string, startTime, endTime int64, rows *
 		return fmt.Errorf("open sstable: %w", err)
 	}
 
-	readRows, err := r.ReadRange(startTime, endTime)
+	readRows, err := r.ReadRange(startTime, endTime, maxRows)
 	if closeErr := r.Close(); closeErr != nil {
 		slog.Warn("failed to close SSTable reader", "sstFile", sstFile, "error", closeErr)
 	}
