@@ -1,4 +1,3 @@
-// Package sstable 实现 SSTable（Sorted String Table）存储格式。
 package sstable
 
 import (
@@ -9,7 +8,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
-// FieldType 字段类型
+// FieldType 字段类型。
 type FieldType string
 
 const (
@@ -19,26 +18,27 @@ const (
 	FieldTypeBool    FieldType = "bool"
 )
 
-// Schema schema 文件结构
+// Schema 描述 SSTable 的字段结构。
 type Schema struct {
 	Fields map[string]FieldType `json:"fields"`
 }
 
-// Magic 魔数 "TSERPEG"
+// Magic 旧格式魔数（多文件目录结构）。
 var Magic = [8]byte{0x54, 0x53, 0x45, 0x52, 0x50, 0x45, 0x47, 0x46}
 
-// Version 版本
+// Version 旧格式版本。
 const Version = 1
 
-// BlockSize 默认块大小 64KB
+// BlockSize 默认块大小 64KB。
 const BlockSize = 64 * 1024
 
-// Writer SSTable 写入器
+// Writer SSTable 写入器（单文件格式 v2）。
 type Writer struct {
 	shardDir   string
 	seq        uint64
 	blockSize  int
 	dataDir    string
+	tmpDir     string // 临时目录，存放各段的中间文件
 	timestamp  *os.File
 	sids       *os.File
 	fields     map[string]*os.File
@@ -49,43 +49,41 @@ type Writer struct {
 	bufPos   int
 	firstTs  int64
 	rowCount uint32
+	totalRows uint32
 
 	sidBuf     []uint64
 	fieldBufs  map[string][]byte
 	fieldSizes map[string]int
 }
 
-// NewBlockIndex 创建空的 BlockIndex
-func NewBlockIndex() *BlockIndex {
-	return &BlockIndex{
-		entries: make([]BlockIndexEntry, 0),
-	}
-}
-
 // NewWriter 创建 SSTable Writer。
+// 在 shardDir/data/ 下创建 sst_{seq}.bin 单文件。
 func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 	if blockSize <= 0 {
 		blockSize = BlockSize
 	}
 
-	dataDir := filepath.Join(shardDir, "data", fmt.Sprintf("sst_%d", seq))
+	dataDir := filepath.Join(shardDir, "data")
 	if err := storage.SafeMkdirAll(dataDir, 0700); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 
-	fieldsDir := filepath.Join(dataDir, "fields")
-	if err := storage.SafeMkdirAll(fieldsDir, 0700); err != nil {
-		return nil, fmt.Errorf("create fields dir: %w", err)
+	// 使用临时目录存储各段中间数据，Close 时合并到单文件
+	tmpDir := filepath.Join(dataDir, fmt.Sprintf(".sst_%d_tmp", seq))
+	if err := storage.SafeMkdirAll(tmpDir, 0700); err != nil {
+		return nil, fmt.Errorf("create tmp dir: %w", err)
 	}
 
-	tsFile, err := storage.SafeCreate(filepath.Join(dataDir, "_timestamps.bin"), 0600)
+	tsFile, err := storage.SafeCreate(filepath.Join(tmpDir, "_timestamps.bin"), 0600)
 	if err != nil {
-		return nil, fmt.Errorf("create timestamp file: %w", err)
+		_ = os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("create timestamp temp file: %w", err)
 	}
 
-	sidFile, err := storage.SafeCreate(filepath.Join(dataDir, "_sids.bin"), 0600)
+	sidFile, err := storage.SafeCreate(filepath.Join(tmpDir, "_sids.bin"), 0600)
 	if err != nil {
-		return nil, fmt.Errorf("create sids file: %w", err)
+		_ = os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("create sids temp file: %w", err)
 	}
 
 	w := &Writer{
@@ -93,6 +91,7 @@ func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 		seq:        seq,
 		blockSize:  blockSize,
 		dataDir:    dataDir,
+		tmpDir:     tmpDir,
 		timestamp:  tsFile,
 		sids:       sidFile,
 		fields:     make(map[string]*os.File),
@@ -105,36 +104,17 @@ func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 		fieldSizes: make(map[string]int),
 	}
 
-	// 创建 fields 子目录下的文件
-	if err := w.initFieldFiles(); err != nil {
-		return nil, err
-	}
-
 	return w, nil
 }
 
-// initFieldFiles 初始化字段文件
-func (w *Writer) initFieldFiles() error {
-	fieldsDir := filepath.Join(w.dataDir, "fields")
-	entries, err := os.ReadDir(fieldsDir)
-	if err != nil {
-		return err
+// NewBlockIndex 创建空的 BlockIndex。
+func NewBlockIndex() *BlockIndex {
+	return &BlockIndex{
+		entries: make([]BlockIndexEntry, 0),
 	}
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".bin" {
-			continue
-		}
-		name := e.Name()[:len(e.Name())-4]
-		f, err := storage.SafeOpenFile(filepath.Join(fieldsDir, e.Name()), os.O_RDWR|os.O_APPEND, 0600)
-		if err != nil {
-			return err
-		}
-		w.fields[name] = f
-	}
-	return nil
 }
 
-// Schema 返回写入过程中检测到的 schema
+// Schema 返回写入过程中检测到的 schema。
 func (w *Writer) Schema() Schema {
 	return w.schema
 }

@@ -113,6 +113,41 @@ func (idx *BlockIndex) Write(file string) error {
 	return nil
 }
 
+// parse 从内存字节解析索引（用于单文件格式从 section table 读取后解析）。
+func (idx *BlockIndex) parse(data []byte) error {
+	if len(data) < 16 {
+		return ErrInvalidIndex
+	}
+
+	// 验证 magic
+	if string(data[0:8]) != string(IndexMagic[:]) {
+		return ErrInvalidIndex
+	}
+
+	version := binary.BigEndian.Uint32(data[8:12])
+	if version != IndexVersion {
+		return ErrInvalidIndex
+	}
+
+	blockCount := binary.BigEndian.Uint32(data[12:16])
+	entrySize := 24
+	if 16+int(blockCount)*entrySize > len(data) {
+		return ErrInvalidIndex
+	}
+
+	idx.entries = make([]BlockIndexEntry, blockCount)
+	for i := uint32(0); i < blockCount; i++ {
+		off := 16 + int(i)*entrySize
+		idx.entries[i] = BlockIndexEntry{
+			FirstTimestamp: int64(binary.BigEndian.Uint64(data[off : off+8])),
+			LastTimestamp:  int64(binary.BigEndian.Uint64(data[off+8 : off+16])),
+			Offset:         binary.BigEndian.Uint32(data[off+16 : off+20]),
+			RowCount:       binary.BigEndian.Uint32(data[off+20 : off+24]),
+		}
+	}
+	return nil
+}
+
 // Read 从文件读取索引。
 //
 // 参数：

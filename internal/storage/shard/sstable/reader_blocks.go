@@ -2,32 +2,57 @@ package sstable
 
 import (
 	"encoding/binary"
-	"io"
-	"os"
-	"path/filepath"
 )
 
-func (r *Reader) readTimestamps(f *os.File) ([]int64, error) {
-	data, err := io.ReadAll(f)
-	if err != nil {
+// readTimestamps 从文件中读取全部 timestamps。
+func (r *Reader) readTimestamps() ([]int64, error) {
+	tsOffset, tsSize, _ := r.sectionTable.LookupByType(SectionTimestamps)
+	if tsSize == 0 {
+		return nil, nil
+	}
+	data := make([]byte, tsSize)
+	if _, err := r.file.ReadAt(data, int64(tsOffset)); err != nil {
 		return nil, err
 	}
-
 	return decodeTimestampBatch(data), nil
 }
 
-func (r *Reader) readTimestampRange(f *os.File, offset uint32, numRows uint32) ([]int64, error) {
-	if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
-		return nil, err
-	}
-
+// readTimestampRange 读取指定偏移和行数的 timestamps。
+// offset 和 numRows 来自 BlockIndexEntry（offset 是行号而不是字节偏移）。
+func (r *Reader) readTimestampRange(offset uint32, numRows uint32) ([]int64, error) {
+	tsSectionOffset, _, _ := r.sectionTable.LookupByType(SectionTimestamps)
+	byteOffset := int64(tsSectionOffset) + int64(offset)*8
 	bytesNeeded := int(numRows) * 8
 	data := make([]byte, bytesNeeded)
-	if _, err := io.ReadFull(f, data); err != nil {
+	if _, err := r.file.ReadAt(data, byteOffset); err != nil {
 		return nil, err
 	}
-
 	return decodeTimestampBatch(data), nil
+}
+
+// readSids 读取全部 sids。
+func (r *Reader) readSids(expectedCount int) ([]uint64, error) {
+	sidOffset, sidSize, _ := r.sectionTable.LookupByType(SectionSids)
+	if sidSize == 0 {
+		return make([]uint64, expectedCount), nil
+	}
+	data := make([]byte, sidSize)
+	if _, err := r.file.ReadAt(data, int64(sidOffset)); err != nil {
+		return nil, err
+	}
+	return decodeSidBatch(data), nil
+}
+
+// readSidsRange 读取指定偏移和行数的 sids。
+func (r *Reader) readSidsRange(offset uint32, numRows uint32) ([]uint64, error) {
+	sidSectionOffset, _, _ := r.sectionTable.LookupByType(SectionSids)
+	byteOffset := int64(sidSectionOffset) + int64(offset)*8
+	bytesNeeded := int(numRows) * 8
+	data := make([]byte, bytesNeeded)
+	if _, err := r.file.ReadAt(data, byteOffset); err != nil {
+		return nil, err
+	}
+	return decodeSidBatch(data), nil
 }
 
 func decodeTimestampBatch(data []byte) []int64 {
@@ -37,47 +62,6 @@ func decodeTimestampBatch(data []byte) []int64 {
 		timestamps = append(timestamps, ts)
 	}
 	return timestamps
-}
-
-func (r *Reader) readSids(dataDir string, expectedCount int) ([]uint64, error) {
-	sidFile, err := os.Open(filepath.Join(dataDir, "_sids.bin"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make([]uint64, expectedCount), nil
-		}
-		return nil, err
-	}
-	defer func() { _ = sidFile.Close() }()
-
-	data, err := io.ReadAll(sidFile)
-	if err != nil {
-		return nil, err
-	}
-
-	return decodeSidBatch(data), nil
-}
-
-func (r *Reader) readSidsRange(dataDir string, offset uint32, numRows uint32) ([]uint64, error) {
-	sidFile, err := os.Open(filepath.Join(dataDir, "_sids.bin"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make([]uint64, 0), nil
-		}
-		return nil, err
-	}
-	defer func() { _ = sidFile.Close() }()
-
-	if _, err := sidFile.Seek(int64(offset), io.SeekStart); err != nil {
-		return nil, err
-	}
-
-	bytesNeeded := int(numRows) * 8
-	data := make([]byte, bytesNeeded)
-	if _, err := io.ReadFull(sidFile, data); err != nil {
-		return nil, err
-	}
-
-	return decodeSidBatch(data), nil
 }
 
 func decodeSidBatch(data []byte) []uint64 {

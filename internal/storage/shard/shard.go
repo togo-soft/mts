@@ -236,6 +236,7 @@ func NewShard(cfg ShardConfig) *Shard {
 
 // recoverSSTSeq 扫描数据目录，恢复 SSTable 序列号。
 // 返回 max(sst_N 中的 N) + 1，确保新创建的 SSTable 不会覆盖已有数据。
+// 识别单文件格式 .bin 文件，同时兼容旧格式 sst_*/ 目录。
 // 如果数据目录不存在或没有 SSTable，返回 0。
 func recoverSSTSeq(shardDir string) uint64 {
 	dataDir := filepath.Join(shardDir, "data")
@@ -247,20 +248,33 @@ func recoverSSTSeq(shardDir string) uint64 {
 	var maxSeq uint64
 	found := false
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
 		name := entry.Name()
-		if !strings.HasPrefix(name, "sst_") {
+
+		// 新格式: sst_N.bin 文件
+		if !entry.IsDir() && strings.HasPrefix(name, "sst_") && strings.HasSuffix(name, ".bin") {
+			inner := strings.TrimPrefix(name, "sst_")
+			inner = strings.TrimSuffix(inner, ".bin")
+			seq, err := strconv.ParseUint(inner, 10, 64)
+			if err != nil {
+				continue
+			}
+			if seq >= maxSeq {
+				maxSeq = seq
+				found = true
+			}
 			continue
 		}
-		seq, err := strconv.ParseUint(strings.TrimPrefix(name, "sst_"), 10, 64)
-		if err != nil {
-			continue
-		}
-		if seq >= maxSeq {
-			maxSeq = seq
-			found = true
+
+		// 旧格式兼容: sst_N/ 目录
+		if entry.IsDir() && strings.HasPrefix(name, "sst_") {
+			seq, err := strconv.ParseUint(strings.TrimPrefix(name, "sst_"), 10, 64)
+			if err != nil {
+				continue
+			}
+			if seq >= maxSeq {
+				maxSeq = seq
+				found = true
+			}
 		}
 	}
 	if !found {

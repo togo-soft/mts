@@ -2,12 +2,11 @@
 package shard
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -64,63 +63,24 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 }
 
 func TestShardIterator_SSTableOnly(t *testing.T) {
-	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据 - 使用新的 sst_0 子目录结构
-	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
-		t.Fatalf("failed to create sst dir: %v", err)
+	// 使用 Writer API 创建单文件 .bin SSTable
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	if err != nil {
+		t.Fatalf("failed to create sstable writer: %v", err)
 	}
 
-	// 写入 timestamps
-	timestamps := []int64{1000, 2000, 3000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
-	if err != nil {
-		t.Fatalf("failed to create timestamps file: %v", err)
+	internalPoints := []types.InternalPoint{
+		{Timestamp: 1000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(100))}}, Sid: 0},
+		{Timestamp: 2000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(200))}}, Sid: 0},
+		{Timestamp: 3000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(300))}}, Sid: 0},
 	}
-	for _, ts := range timestamps {
-		var buf [8]byte
-		buf[0] = byte(ts >> 56)
-		buf[1] = byte(ts >> 48)
-		buf[2] = byte(ts >> 40)
-		buf[3] = byte(ts >> 32)
-		buf[4] = byte(ts >> 24)
-		buf[5] = byte(ts >> 16)
-		buf[6] = byte(ts >> 8)
-		buf[7] = byte(ts)
-		if _, err := tsFile.Write(buf[:]); err != nil {
-			_ = tsFile.Close()
-			t.Fatalf("failed to write timestamp: %v", err)
-		}
+	if err := writer.WritePoints(internalPoints); err != nil {
+		t.Fatalf("failed to write points: %v", err)
 	}
-	if err := tsFile.Close(); err != nil {
-		t.Fatalf("failed to close timestamps file: %v", err)
-	}
-
-	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
-	if err != nil {
-		t.Fatalf("failed to create field file: %v", err)
-	}
-	for i := 0; i < len(timestamps); i++ {
-		var buf [8]byte
-		val := int64(100 + i*100)
-		buf[0] = byte(val >> 56)
-		buf[1] = byte(val >> 48)
-		buf[2] = byte(val >> 40)
-		buf[3] = byte(val >> 32)
-		buf[4] = byte(val >> 24)
-		buf[5] = byte(val >> 16)
-		buf[6] = byte(val >> 8)
-		buf[7] = byte(val)
-		if _, err := fieldFile.Write(buf[:]); err != nil {
-			_ = fieldFile.Close()
-			t.Fatalf("failed to write field: %v", err)
-		}
-	}
-	if err := fieldFile.Close(); err != nil {
-		t.Fatalf("failed to close field file: %v", err)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
 	}
 
 	// 创建 Shard（需 SchemaStore 以读取 SSTable）
@@ -134,7 +94,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
-		Dir:         sstDir,
+		Dir:         dir,
 		SeriesStore: nil,
 		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
@@ -144,6 +104,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 	iter := NewShardIterator(shard, 0, 0)
 
 	// 验证顺序
+	timestamps := []int64{1000, 2000, 3000}
 	var got []*types.PointRow
 	for {
 		row := iter.Next()
@@ -165,63 +126,24 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 }
 
 func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
-	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据 - 使用新的 sst_0 子目录结构
-	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
-		t.Fatalf("failed to create sst dir: %v", err)
+	// 使用 Writer API 创建单文件 .bin SSTable
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	if err != nil {
+		t.Fatalf("failed to create sstable writer: %v", err)
 	}
 
-	// 写入 timestamps (SSTable: 2000, 4000)
-	sstTimestamps := []int64{2000, 4000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
-	if err != nil {
-		t.Fatalf("failed to create timestamps file: %v", err)
+	// SSTable: 2000, 4000
+	sstPoints := []types.InternalPoint{
+		{Timestamp: 2000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(200))}}, Sid: 0},
+		{Timestamp: 4000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(400))}}, Sid: 0},
 	}
-	for _, ts := range sstTimestamps {
-		var buf [8]byte
-		buf[0] = byte(ts >> 56)
-		buf[1] = byte(ts >> 48)
-		buf[2] = byte(ts >> 40)
-		buf[3] = byte(ts >> 32)
-		buf[4] = byte(ts >> 24)
-		buf[5] = byte(ts >> 16)
-		buf[6] = byte(ts >> 8)
-		buf[7] = byte(ts)
-		if _, err := tsFile.Write(buf[:]); err != nil {
-			_ = tsFile.Close()
-			t.Fatalf("failed to write timestamp: %v", err)
-		}
+	if err := writer.WritePoints(sstPoints); err != nil {
+		t.Fatalf("failed to write points: %v", err)
 	}
-	if err := tsFile.Close(); err != nil {
-		t.Fatalf("failed to close timestamps file: %v", err)
-	}
-
-	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
-	if err != nil {
-		t.Fatalf("failed to create field file: %v", err)
-	}
-	for i := 0; i < len(sstTimestamps); i++ {
-		var buf [8]byte
-		val := int64(200 + i*200) // 200, 400
-		buf[0] = byte(val >> 56)
-		buf[1] = byte(val >> 48)
-		buf[2] = byte(val >> 40)
-		buf[3] = byte(val >> 32)
-		buf[4] = byte(val >> 24)
-		buf[5] = byte(val >> 16)
-		buf[6] = byte(val >> 8)
-		buf[7] = byte(val)
-		if _, err := fieldFile.Write(buf[:]); err != nil {
-			_ = fieldFile.Close()
-			t.Fatalf("failed to write field: %v", err)
-		}
-	}
-	if err := fieldFile.Close(); err != nil {
-		t.Fatalf("failed to close field file: %v", err)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
 	}
 
 	// 创建 Shard（需 SchemaStore 以读取 SSTable）
@@ -235,7 +157,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
-		Dir:         sstDir,
+		Dir:         dir,
 		SeriesStore: nil,
 		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
@@ -279,63 +201,24 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 }
 
 func TestShardIterator_EqualTimestamps(t *testing.T) {
-	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据 - 使用新的 sst_0 子目录结构
-	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
-		t.Fatalf("failed to create sst dir: %v", err)
+	// 使用 Writer API 创建单文件 .bin SSTable
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	if err != nil {
+		t.Fatalf("failed to create sstable writer: %v", err)
 	}
 
-	// 写入 timestamps (SSTable: 1000, 3000)
-	sstTimestamps := []int64{1000, 3000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
-	if err != nil {
-		t.Fatalf("failed to create timestamps file: %v", err)
+	// SSTable: 1000, 3000
+	sstPoints := []types.InternalPoint{
+		{Timestamp: 1000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(200))}}, Sid: 0},
+		{Timestamp: 3000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(400))}}, Sid: 0},
 	}
-	for _, ts := range sstTimestamps {
-		var buf [8]byte
-		buf[0] = byte(ts >> 56)
-		buf[1] = byte(ts >> 48)
-		buf[2] = byte(ts >> 40)
-		buf[3] = byte(ts >> 32)
-		buf[4] = byte(ts >> 24)
-		buf[5] = byte(ts >> 16)
-		buf[6] = byte(ts >> 8)
-		buf[7] = byte(ts)
-		if _, err := tsFile.Write(buf[:]); err != nil {
-			_ = tsFile.Close()
-			t.Fatalf("failed to write timestamp: %v", err)
-		}
+	if err := writer.WritePoints(sstPoints); err != nil {
+		t.Fatalf("failed to write points: %v", err)
 	}
-	if err := tsFile.Close(); err != nil {
-		t.Fatalf("failed to close timestamps file: %v", err)
-	}
-
-	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
-	if err != nil {
-		t.Fatalf("failed to create field file: %v", err)
-	}
-	for i := 0; i < len(sstTimestamps); i++ {
-		var buf [8]byte
-		val := int64(200 + i*200) // 200, 400
-		buf[0] = byte(val >> 56)
-		buf[1] = byte(val >> 48)
-		buf[2] = byte(val >> 40)
-		buf[3] = byte(val >> 32)
-		buf[4] = byte(val >> 24)
-		buf[5] = byte(val >> 16)
-		buf[6] = byte(val >> 8)
-		buf[7] = byte(val)
-		if _, err := fieldFile.Write(buf[:]); err != nil {
-			_ = fieldFile.Close()
-			t.Fatalf("failed to write field: %v", err)
-		}
-	}
-	if err := fieldFile.Close(); err != nil {
-		t.Fatalf("failed to close field file: %v", err)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
 	}
 
 	// 创建 Shard（需 SchemaStore 以读取 SSTable）
@@ -349,7 +232,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
-		Dir:         sstDir,
+		Dir:         dir,
 		SeriesStore: nil,
 		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
@@ -507,61 +390,23 @@ func TestShardIterator_Err(t *testing.T) {
 }
 
 func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
-	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据 - mem: 1000, sst: 2000
-	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
-		t.Fatalf("failed to create sst dir: %v", err)
+	// 使用 Writer API 创建单文件 .bin SSTable
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	if err != nil {
+		t.Fatalf("failed to create sstable writer: %v", err)
 	}
 
-	// 写入 timestamps (SSTable: 2000)
-	sstTimestamps := []int64{2000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
-	if err != nil {
-		t.Fatalf("failed to create timestamps file: %v", err)
+	// SSTable: 2000
+	sstPoints := []types.InternalPoint{
+		{Timestamp: 2000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(200))}}, Sid: 0},
 	}
-	for _, ts := range sstTimestamps {
-		var buf [8]byte
-		buf[0] = byte(ts >> 56)
-		buf[1] = byte(ts >> 48)
-		buf[2] = byte(ts >> 40)
-		buf[3] = byte(ts >> 32)
-		buf[4] = byte(ts >> 24)
-		buf[5] = byte(ts >> 16)
-		buf[6] = byte(ts >> 8)
-		buf[7] = byte(ts)
-		if _, err := tsFile.Write(buf[:]); err != nil {
-			_ = tsFile.Close()
-			t.Fatalf("failed to write timestamp: %v", err)
-		}
+	if err := writer.WritePoints(sstPoints); err != nil {
+		t.Fatalf("failed to write points: %v", err)
 	}
-	if err := tsFile.Close(); err != nil {
-		t.Fatalf("failed to close timestamps file: %v", err)
-	}
-
-	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
-	if err != nil {
-		t.Fatalf("failed to create field file: %v", err)
-	}
-	var buf [8]byte
-	val := int64(200)
-	buf[0] = byte(val >> 56)
-	buf[1] = byte(val >> 48)
-	buf[2] = byte(val >> 40)
-	buf[3] = byte(val >> 32)
-	buf[4] = byte(val >> 24)
-	buf[5] = byte(val >> 16)
-	buf[6] = byte(val >> 8)
-	buf[7] = byte(val)
-	if _, err := fieldFile.Write(buf[:]); err != nil {
-		_ = fieldFile.Close()
-		t.Fatalf("failed to write field: %v", err)
-	}
-	if err := fieldFile.Close(); err != nil {
-		t.Fatalf("failed to close field file: %v", err)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
 	}
 
 	// 创建 Shard（需 SchemaStore 以读取 SSTable）
@@ -575,7 +420,7 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
-		Dir:         sstDir,
+		Dir:         dir,
 		SeriesStore: nil,
 		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
@@ -615,61 +460,23 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 }
 
 func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
-	// 创建临时目录
 	dir := t.TempDir()
 
-	// 准备 SSTable 数据 - mem: 3000, sst: 1000
-	sstDir := filepath.Join(dir, "sst")
-	if err := os.MkdirAll(filepath.Join(sstDir, "data", "sst_0", "fields"), 0700); err != nil {
-		t.Fatalf("failed to create sst dir: %v", err)
+	// 使用 Writer API 创建单文件 .bin SSTable
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	if err != nil {
+		t.Fatalf("failed to create sstable writer: %v", err)
 	}
 
-	// 写入 timestamps (SSTable: 1000)
-	sstTimestamps := []int64{1000}
-	tsFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "_timestamps.bin"))
-	if err != nil {
-		t.Fatalf("failed to create timestamps file: %v", err)
+	// SSTable: 1000
+	sstPoints := []types.InternalPoint{
+		{Timestamp: 1000, Fields: []types.InternalField{{Key: "field1", Value: types.NewFieldValue(int64(100))}}, Sid: 0},
 	}
-	for _, ts := range sstTimestamps {
-		var buf [8]byte
-		buf[0] = byte(ts >> 56)
-		buf[1] = byte(ts >> 48)
-		buf[2] = byte(ts >> 40)
-		buf[3] = byte(ts >> 32)
-		buf[4] = byte(ts >> 24)
-		buf[5] = byte(ts >> 16)
-		buf[6] = byte(ts >> 8)
-		buf[7] = byte(ts)
-		if _, err := tsFile.Write(buf[:]); err != nil {
-			_ = tsFile.Close()
-			t.Fatalf("failed to write timestamp: %v", err)
-		}
+	if err := writer.WritePoints(sstPoints); err != nil {
+		t.Fatalf("failed to write points: %v", err)
 	}
-	if err := tsFile.Close(); err != nil {
-		t.Fatalf("failed to close timestamps file: %v", err)
-	}
-
-	// 写入字段数据
-	fieldFile, err := os.Create(filepath.Join(sstDir, "data", "sst_0", "fields", "field1.bin"))
-	if err != nil {
-		t.Fatalf("failed to create field file: %v", err)
-	}
-	var buf [8]byte
-	val := int64(100)
-	buf[0] = byte(val >> 56)
-	buf[1] = byte(val >> 48)
-	buf[2] = byte(val >> 40)
-	buf[3] = byte(val >> 32)
-	buf[4] = byte(val >> 24)
-	buf[5] = byte(val >> 16)
-	buf[6] = byte(val >> 8)
-	buf[7] = byte(val)
-	if _, err := fieldFile.Write(buf[:]); err != nil {
-		_ = fieldFile.Close()
-		t.Fatalf("failed to write field: %v", err)
-	}
-	if err := fieldFile.Close(); err != nil {
-		t.Fatalf("failed to close field file: %v", err)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
 	}
 
 	// 创建 Shard（需 SchemaStore 以读取 SSTable）
@@ -683,7 +490,7 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
-		Dir:         sstDir,
+		Dir:         dir,
 		SeriesStore: nil,
 		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),

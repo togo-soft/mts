@@ -1187,8 +1187,8 @@ func TestShard_readFromSSTable_NoDataDir(t *testing.T) {
 	_ = s.Close()
 }
 
-func TestShard_readSSTableDir_InvalidPath(t *testing.T) {
-	// 测试读取无效的 SSTable 目录
+func TestShard_readSSTableFile_InvalidPath(t *testing.T) {
+	// 测试读取无效的 SSTable 文件
 	tmpDir := t.TempDir()
 
 	s := NewShard(ShardConfig{
@@ -1201,11 +1201,11 @@ func TestShard_readSSTableDir_InvalidPath(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	// 读取不存在的 SSTable 目录
+	// 读取不存在的 SSTable 文件
 	var rows []*types.PointRow
-	err := s.readSSTableDir("/nonexistent/path", 0, time.Hour.Nanoseconds(), &rows)
+	err := s.readSSTableFile("/nonexistent/path.bin", 0, time.Hour.Nanoseconds(), &rows)
 	if err == nil {
-		t.Error("expected error for nonexistent SSTable dir")
+		t.Error("expected error for nonexistent SSTable file")
 	}
 
 	_ = s.Close()

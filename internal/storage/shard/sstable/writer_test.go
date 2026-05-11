@@ -51,36 +51,29 @@ func TestWriter_WritePoints(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	// 验证 timestamp 文件存在
-	tsPath := filepath.Join(tmpDir, "data", "sst_0", "_timestamps.bin")
-	info, err := os.Stat(tsPath)
+	// 验证单文件 SSTable 存在
+	sstPath := filepath.Join(tmpDir, "data", "sst_0.bin")
+	info, err := os.Stat(sstPath)
 	if err != nil {
-		t.Fatalf("stat timestamp file failed: %v", err)
+		t.Fatalf("stat sst file failed: %v", err)
 	}
 	if info.Size() == 0 {
-		t.Errorf("timestamp file should not be empty")
+		t.Errorf("sst file should not be empty")
 	}
 
-	// 验证 sids 文件存在
-	sidPath := filepath.Join(tmpDir, "data", "sst_0", "_sids.bin")
-	sidInfo, err := os.Stat(sidPath)
+	// 通过 Reader 验证数据
+	r, err := NewReader(sstPath, w.Schema())
 	if err != nil {
-		t.Fatalf("stat sids file failed: %v", err)
+		t.Fatalf("NewReader failed: %v", err)
 	}
-	if sidInfo.Size() == 0 {
-		t.Errorf("sids file should not be empty (should contain zeros for nil sids)")
-	}
+	defer func() { _ = r.Close() }()
 
-	// 验证 field 文件存在
-	for _, name := range []string{"usage", "count"} {
-		fieldPath := filepath.Join(tmpDir, "data", "sst_0", "fields", name+".bin")
-		info, err := os.Stat(fieldPath)
-		if err != nil {
-			t.Fatalf("stat field %s file failed: %v", name, err)
-		}
-		if info.Size() == 0 {
-			t.Errorf("field %s file should not be empty", name)
-		}
+	rows, err := r.ReadAll(nil)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(rows))
 	}
 }
 
@@ -111,12 +104,34 @@ func TestWriter_WritePointsWithSids(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	sidPath := filepath.Join(tmpDir, "data", "sst_1", "_sids.bin")
-	info, err := os.Stat(sidPath)
+	// 验证单文件 SSTable 存在
+	sstPath := filepath.Join(tmpDir, "data", "sst_1.bin")
+	info, err := os.Stat(sstPath)
 	if err != nil {
-		t.Fatalf("stat sids file failed: %v", err)
+		t.Fatalf("stat sst file failed: %v", err)
 	}
-	if info.Size() < 16 {
-		t.Errorf("sids file too small, expected at least 16 bytes for 2 uint64, got %d", info.Size())
+	if info.Size() < 64 {
+		t.Errorf("sst file too small, got %d bytes", info.Size())
+	}
+
+	// 通过 Reader 验证 SID
+	r, err := NewReader(sstPath, w.Schema())
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	rows, err := r.ReadAll(nil)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].Sid != 42 {
+		t.Errorf("expected first row Sid=42, got %d", rows[0].Sid)
+	}
+	if rows[1].Sid != 99 {
+		t.Errorf("expected second row Sid=99, got %d", rows[1].Sid)
 	}
 }

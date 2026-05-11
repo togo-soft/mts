@@ -31,7 +31,7 @@ func TestIterator_SeekToTime(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestIterator_SeekToTime_BeforeFirst(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestIterator_CurrentBlockTimestamps(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestIterator_Done(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestReader_ReadRange(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestReader_ReadRange_All(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestReader_ReadRange_Empty(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestWriter_FieldTypes(t *testing.T) {
 	}
 
 	// 读取验证
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestWriter_DetectFieldType(t *testing.T) {
 	}
 
 	// 验证能正常读取
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestWriter_AppendZeroValue(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestReader_HasBlockIndex(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -594,7 +594,7 @@ func TestIterator_MultipleBlocks(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -881,7 +881,7 @@ func TestReader_DecodeFieldValue(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -941,7 +941,7 @@ func TestReader_FieldSize_AllTypes(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -967,17 +967,10 @@ func TestReader_FieldSize_AllTypes(t *testing.T) {
 }
 
 func TestReader_NewReader_Nonexistent(t *testing.T) {
-	// NewReader 不为不存在的目录返回错误，它只是使用空 schema
-	r, err := NewReader("/nonexistent/path", Schema{Fields: make(map[string]FieldType)})
-	if err != nil {
-		t.Fatalf("NewReader should not return error for nonexistent path: %v", err)
-	}
-	if r == nil {
-		t.Fatal("expected non-nil reader")
-	}
-	// 验证 schema 为空
-	if len(r.schema.Fields) != 0 {
-		t.Errorf("expected empty schema for nonexistent path, got %d fields", len(r.schema.Fields))
+	// NewReader 为不存在的文件返回错误
+	_, err := NewReader("/nonexistent/path.bin", Schema{Fields: make(map[string]FieldType)})
+	if err == nil {
+		t.Error("expected error for nonexistent file path")
 	}
 }
 
@@ -1008,7 +1001,7 @@ func TestReader_ComputeFieldOffsets(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), schema)
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1023,47 +1016,10 @@ func TestReader_ComputeFieldOffsets(t *testing.T) {
 }
 
 func TestIterator_LoadAllData_Error(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() {
-		_ = r.Close()
-	}()
-
-	it := &Iterator{
-		reader:       r,
-		dataDir:      r.dataDir,
-		currentBlock: -1,
-		pos:          -1,
-		fallbackPos:  -1,
-		fieldBufs:    make(map[string][]byte),
-		fallbackMode: true,
-	}
-
-	// 测试不存在的 timestamps 文件
-	it.dataDir = "/nonexistent"
-	err = it.loadAllData()
+	// 测试不存在的 SSTable 文件应返回错误
+	_, err := NewReader("/nonexistent/sst_0.bin", Schema{Fields: make(map[string]FieldType)})
 	if err == nil {
-		t.Error("expected error for nonexistent timestamps file")
+		t.Error("expected error for nonexistent SSTable file")
 	}
 }
 
@@ -1086,7 +1042,7 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}

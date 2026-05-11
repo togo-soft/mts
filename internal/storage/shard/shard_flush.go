@@ -36,10 +36,10 @@ func (s *Shard) flushLocked() error {
 		if err := os.MkdirAll(l0Dir, 0700); err != nil {
 			return fmt.Errorf("create L0 dir: %w", err)
 		}
-		sstPath = filepath.Join(l0Dir, fmt.Sprintf("sst_%d", sstSeq))
+		sstPath = filepath.Join(l0Dir, fmt.Sprintf("sst_%d.bin", sstSeq))
 	} else {
 		sstSeq = s.sstSeq
-		sstPath = filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", sstSeq))
+		sstPath = filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))
 	}
 
 	// 在 NewWriter 之前标记写入状态，防止 CollectSSTables 收集到不完整的 SSTable
@@ -98,7 +98,7 @@ func (s *Shard) flushLocked() error {
 	}
 
 	if s.levelCompaction != nil {
-		srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d", sstSeq))
+		srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))
 		dstPath := sstPath
 		if srcPath != dstPath {
 			if err := os.Rename(srcPath, dstPath); err != nil {

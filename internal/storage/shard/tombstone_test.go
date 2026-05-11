@@ -31,10 +31,7 @@ func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 	}
 
 	partName := "part1"
-	partPath := filepath.Join(l0Path, partName)
-	if err := os.MkdirAll(partPath, 0700); err != nil {
-		t.Fatalf("MkdirAll failed: %v", err)
-	}
+	partPath := filepath.Join(l0Path, partName+".bin")
 
 	oldTime := time.Now().Add(-2 * time.Hour).Unix()
 	ts := &compaction.TombstoneSet{
@@ -56,7 +53,7 @@ func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 		t.Fatalf("CompactTombstones failed: %v", err)
 	}
 
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
+	tombstonePath := partPath + ".tombstones"
 	if _, statErr := os.Stat(tombstonePath); !os.IsNotExist(statErr) {
 		t.Error("expired tombstone file should be removed")
 	}
@@ -84,10 +81,7 @@ func TestLevelCompactionManager_CompactTombstones_PartialRetention(t *testing.T)
 	}
 
 	partName := "part1"
-	partPath := filepath.Join(l0Path, partName)
-	if err := os.MkdirAll(partPath, 0700); err != nil {
-		t.Fatalf("MkdirAll failed: %v", err)
-	}
+	partPath := filepath.Join(l0Path, partName+".bin")
 
 	oldTime := time.Now().Add(-2 * time.Hour).Unix()
 	newTime := time.Now().Unix()

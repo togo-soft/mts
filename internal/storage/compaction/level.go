@@ -185,7 +185,7 @@ func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []strin
 	}
 
 	outputSeq := lcm.NextSeq()
-	outputPath := filepath.Join(lcm.Manifest.GetLevelPath(targetLevel+1), fmt.Sprintf("sst_%d", outputSeq))
+	outputPath := filepath.Join(lcm.Manifest.GetLevelPath(targetLevel+1), fmt.Sprintf("sst_%d.bin", outputSeq))
 
 	var cp *CompactionCheckpoint
 	if lcm.config.EnableCheckpoint {
@@ -212,7 +212,7 @@ func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []strin
 
 	inputPaths := make([]string, len(overlaps))
 	for i, p := range overlaps {
-		inputPaths[i] = filepath.Join(lcm.Manifest.GetLevelPath(targetLevel), p.Name)
+		inputPaths[i] = filepath.Join(lcm.Manifest.GetLevelPath(targetLevel), p.Name+".bin")
 	}
 
 	if err := lcm.merge(ctx, targetLevel, inputPaths, outputPath); err != nil {
@@ -254,7 +254,12 @@ func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []strin
 			slog.Warn("sstable still in use, deferring cleanup", "path", path)
 			continue
 		}
-		_ = os.RemoveAll(path)
+		_ = os.Remove(path)
+		// 清理关联的 tombstones 文件
+		tombstonePath := path + ".tombstones"
+		if _, err := os.Stat(tombstonePath); err == nil {
+			_ = os.Remove(tombstonePath)
+		}
 	}
 
 	if cp != nil {
@@ -375,7 +380,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 		return err
 	}
 
-	flatPath := filepath.Join(lcm.shard.Dir(), "data", fmt.Sprintf("sst_%d", seq))
+	flatPath := filepath.Join(lcm.shard.Dir(), "data", fmt.Sprintf("sst_%d.bin", seq))
 	if flatPath != outputPath {
 		if err := os.Rename(flatPath, outputPath); err != nil {
 			return fmt.Errorf("move sstable to level path: %w", err)
@@ -586,7 +591,7 @@ func (lcm *LevelCompactionManager) Recover() error {
 	}
 
 	if cp.OutputPath != "" {
-		_ = os.RemoveAll(cp.OutputPath)
+		_ = os.Remove(cp.OutputPath)
 	}
 
 	_ = cp.Clear(dataDir)

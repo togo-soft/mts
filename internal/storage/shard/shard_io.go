@@ -167,38 +167,37 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 			}
 
 			for _, entry := range entries {
-				if !entry.IsDir() {
+				if entry.IsDir() {
 					continue
 				}
-				if !strings.HasPrefix(entry.Name(), "sst_") {
+				if !strings.HasPrefix(entry.Name(), "sst_") || !strings.HasSuffix(entry.Name(), ".bin") {
 					continue
 				}
 
-				sstDir := filepath.Join(levelDir, entry.Name())
-				if err := s.readSSTableDir(sstDir, startTime, endTime, &allRows); err != nil {
-					slog.Warn("failed to read SSTable in level", "sstDir", sstDir, "error", err)
+				sstFile := filepath.Join(levelDir, entry.Name())
+				if err := s.readSSTableFile(sstFile, startTime, endTime, &allRows); err != nil {
+					slog.Warn("failed to read SSTable in level", "sstFile", sstFile, "error", err)
 				}
 			}
 		}
 	} else {
-		// 读取所有 SSTable 子目录 (sst_0, sst_1, ...) - 平坦结构
+		// 读取所有 SSTable 文件 (sst_0.bin, sst_1.bin, ...) - 平坦结构
 		entries, err := os.ReadDir(dataDir)
 		if err != nil {
 			return nil, fmt.Errorf("read data dir: %w", err)
 		}
 
 		for _, entry := range entries {
-			if !entry.IsDir() {
+			if entry.IsDir() {
 				continue
 			}
-			// 检查是否是 SSTable 目录
-			if !strings.HasPrefix(entry.Name(), "sst_") {
+			if !strings.HasPrefix(entry.Name(), "sst_") || !strings.HasSuffix(entry.Name(), ".bin") {
 				continue
 			}
 
-			sstDir := filepath.Join(dataDir, entry.Name())
-			if err := s.readSSTableDir(sstDir, startTime, endTime, &allRows); err != nil {
-				slog.Warn("failed to read SSTable", "sstDir", sstDir, "error", err)
+			sstFile := filepath.Join(dataDir, entry.Name())
+			if err := s.readSSTableFile(sstFile, startTime, endTime, &allRows); err != nil {
+				slog.Warn("failed to read SSTable", "sstFile", sstFile, "error", err)
 			}
 		}
 	}
@@ -220,24 +219,24 @@ func (s *Shard) readFromSSTable(startTime, endTime int64) ([]*types.PointRow, er
 	return allRows, nil
 }
 
-// readSSTableDir 读取单个 SSTable 目录的数据
-func (s *Shard) readSSTableDir(sstDir string, startTime, endTime int64, rows *[]*types.PointRow) error {
-	s.AcquireSSTRef(sstDir)
-	defer s.ReleaseSSTRef(sstDir)
+// readSSTableFile 读取单个 SSTable 文件的数据
+func (s *Shard) readSSTableFile(sstFile string, startTime, endTime int64, rows *[]*types.PointRow) error {
+	s.AcquireSSTRef(sstFile)
+	defer s.ReleaseSSTRef(sstFile)
 
 	schema, err := s.GetSchema()
 	if err != nil {
 		return fmt.Errorf("get schema: %w", err)
 	}
 
-	r, err := sstable.NewReader(sstDir, schema)
+	r, err := sstable.NewReader(sstFile, schema)
 	if err != nil {
 		return fmt.Errorf("open sstable: %w", err)
 	}
 
 	readRows, err := r.ReadRange(startTime, endTime)
 	if closeErr := r.Close(); closeErr != nil {
-		slog.Warn("failed to close SSTable reader", "sstDir", sstDir, "error", closeErr)
+		slog.Warn("failed to close SSTable reader", "sstFile", sstFile, "error", closeErr)
 	}
 	if err != nil {
 		return fmt.Errorf("read range: %w", err)

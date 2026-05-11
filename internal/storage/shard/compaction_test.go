@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -248,21 +249,22 @@ func TestCompactionManager_IsSSTableInWrite(t *testing.T) {
 	shard := NewShard(cfg)
 	cm := shard.compaction
 
-	// Create a fake SSTable directory
-	sstDir := filepath.Join(tmpDir, "data", "sst_test")
-	_ = os.MkdirAll(sstDir, 0700)
+	// 创建 SSTable 文件路径（单文件格式）
+	sstPath := filepath.Join(tmpDir, "data", "sst_test.bin")
+	_ = os.MkdirAll(filepath.Dir(sstPath), 0700)
+	_ = os.WriteFile(sstPath, []byte("dummy"), 0600)
 
-	// Should not be in write state initially
-	if cm.IsSSTableInWrite(sstDir) {
+	// .writing 文件不存在时应返回 false
+	if cm.IsSSTableInWrite(sstPath) {
 		t.Error("isSSTableInWrite should return false when no .writing file exists")
 	}
 
-	// Create .writing file
-	writingFlag := filepath.Join(sstDir, ".writing")
+	// 创建 sibling .writing 文件
+	writingFlag := sstPath + ".writing"
 	f, _ := os.Create(writingFlag)
 	_ = f.Close()
 
-	if !cm.IsSSTableInWrite(sstDir) {
+	if !cm.IsSSTableInWrite(sstPath) {
 		t.Error("isSSTableInWrite should return true when .writing file exists")
 	}
 
@@ -286,27 +288,28 @@ func TestCompactionManager_MarkUnmarkSSTableWriting(t *testing.T) {
 	shard := NewShard(cfg)
 	cm := shard.compaction
 
-	// Create a fake SSTable directory
-	sstDir := filepath.Join(tmpDir, "data", "sst_test")
-	_ = os.MkdirAll(sstDir, 0700)
+	// 创建 SSTable 文件路径（单文件格式）
+	sstPath := filepath.Join(tmpDir, "data", "sst_test.bin")
+	_ = os.MkdirAll(filepath.Dir(sstPath), 0700)
+	_ = os.WriteFile(sstPath, []byte("dummy"), 0600)
 
 	// Mark as writing
-	err := cm.MarkWriting(sstDir)
+	err := cm.MarkWriting(sstPath)
 	if err != nil {
 		t.Fatalf("markSSTableWriting failed: %v", err)
 	}
 
-	if !cm.IsSSTableInWrite(sstDir) {
+	if !cm.IsSSTableInWrite(sstPath) {
 		t.Error("SSTable should be marked as in write")
 	}
 
 	// Unmark
-	err = cm.UnmarkWriting(sstDir)
+	err = cm.UnmarkWriting(sstPath)
 	if err != nil {
 		t.Fatalf("unmarkSSTableWriting failed: %v", err)
 	}
 
-	if cm.IsSSTableInWrite(sstDir) {
+	if cm.IsSSTableInWrite(sstPath) {
 		t.Error("SSTable should not be marked as in write after unmark")
 	}
 
@@ -329,17 +332,17 @@ func TestCompactionManager_MarkSSTableWriting_CreateDir(t *testing.T) {
 	shard := NewShard(cfg)
 	cm := shard.compaction
 
-	// Create a path that doesn't exist yet (parent dir exists but not the sst dir)
-	sstDir := filepath.Join(tmpDir, "data", "sst_new")
+	// 创建一个不存在的文件路径（父目录存在但文件不存在）
+	sstPath := filepath.Join(tmpDir, "data", "sst_new.bin")
 
-	// Mark as writing - should create the directory
-	err := cm.MarkWriting(sstDir)
+	// Mark as writing - 应该创建父目录和 .writing 文件
+	err := cm.MarkWriting(sstPath)
 	if err != nil {
 		t.Fatalf("markSSTableWriting should create parent dir: %v", err)
 	}
 
-	// Verify .writing file exists
-	writingFlag := filepath.Join(sstDir, ".writing")
+	// 验证 sibling .writing 文件存在
+	writingFlag := sstPath + ".writing"
 	if _, err := os.Stat(writingFlag); os.IsNotExist(err) {
 		t.Error(".writing file should exist")
 	}
@@ -449,7 +452,7 @@ func TestCompactionManager_VerifyOutput_NotExist(t *testing.T) {
 	_ = shard.Close()
 }
 
-func TestCompactionManager_VerifyOutput_NotDirectory(t *testing.T) {
+func TestCompactionManager_VerifyOutput_NotFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := ShardConfig{
 		DB:            "testdb",
@@ -465,19 +468,19 @@ func TestCompactionManager_VerifyOutput_NotDirectory(t *testing.T) {
 	shard := NewShard(cfg)
 	cm := shard.compaction
 
-	// Create a file instead of directory
-	filePath := filepath.Join(tmpDir, "notadir")
-	_ = os.WriteFile(filePath, []byte("test"), 0644)
+	// 创建目录而非文件，verifyOutput 应拒绝目录
+	dirPath := filepath.Join(tmpDir, "is_a_dir")
+	_ = os.MkdirAll(dirPath, 0700)
 
-	err := cm.VerifyOutput(filePath)
+	err := cm.VerifyOutput(dirPath)
 	if err == nil {
-		t.Error("verifyOutput should fail for non-directory")
+		t.Error("verifyOutput should fail for directory (expected file)")
 	}
 
 	_ = shard.Close()
 }
 
-func TestCompactionManager_VerifyOutput_MissingFiles(t *testing.T) {
+func TestCompactionManager_VerifyOutput_EmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := ShardConfig{
 		DB:            "testdb",
@@ -493,13 +496,15 @@ func TestCompactionManager_VerifyOutput_MissingFiles(t *testing.T) {
 	shard := NewShard(cfg)
 	cm := shard.compaction
 
-	// Create directory without required files
-	outputPath := filepath.Join(tmpDir, "output")
-	_ = os.MkdirAll(outputPath, 0700)
+	// 创建空文件（不是有效的 SSTable）
+	filePath := filepath.Join(tmpDir, "empty.bin")
+	_ = os.WriteFile(filePath, []byte{}, 0600)
 
-	err := cm.VerifyOutput(outputPath)
-	if err == nil {
-		t.Error("verifyOutput should fail for missing required files")
+	// 空文件 stat 能成功，但不是有效的 SSTable
+	// VerifyOutput 只检查是否为文件，不检查内容
+	err := cm.VerifyOutput(filePath)
+	if err != nil {
+		t.Errorf("verifyOutput should succeed for a regular file: %v", err)
 	}
 
 	_ = shard.Close()
@@ -538,7 +543,7 @@ func TestCompactionManager_VerifyOutput_Success(t *testing.T) {
 	entries, _ := os.ReadDir(dataDir)
 	var sstPath string
 	for _, entry := range entries {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			sstPath = filepath.Join(dataDir, entry.Name())
 			break
 		}
@@ -1029,7 +1034,7 @@ func TestCompactionManager_Commit(t *testing.T) {
 	entries, _ := os.ReadDir(dataDir)
 	var sstPath string
 	for _, entry := range entries {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			sstPath = filepath.Join(dataDir, entry.Name())
 			break
 		}
@@ -1096,7 +1101,7 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 	entries, _ := os.ReadDir(dataDir)
 	var sstPath string
 	for _, entry := range entries {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			sstPath = filepath.Join(dataDir, entry.Name())
 			break
 		}
@@ -1165,7 +1170,7 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 	entries, _ := os.ReadDir(dataDir)
 	var sstPath string
 	for _, entry := range entries {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			sstPath = filepath.Join(dataDir, entry.Name())
 			break
 		}
@@ -1249,7 +1254,7 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 	entries, _ := os.ReadDir(dataDir)
 	var sstPath string
 	for _, entry := range entries {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			sstPath = filepath.Join(dataDir, entry.Name())
 			break
 		}
@@ -1416,7 +1421,7 @@ func TestCompactionManager_Merge_Deduplication(t *testing.T) {
 	entries, _ := os.ReadDir(dataDir)
 	var sstPath1 string
 	for _, entry := range entries {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			sstPath1 = filepath.Join(dataDir, entry.Name())
 			break
 		}
@@ -1442,7 +1447,7 @@ func TestCompactionManager_Merge_Deduplication(t *testing.T) {
 	entries2, _ := os.ReadDir(dataDir)
 	var sstPath2 string
 	for _, entry := range entries2 {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			p := filepath.Join(dataDir, entry.Name())
 			if p != sstPath1 {
 				sstPath2 = p
@@ -1772,10 +1777,10 @@ func TestCompactionManager_markSSTableWriting_Error(t *testing.T) {
 
 	cm := shard.compaction
 
-	// 创建一个有效的 SSTable 路径
-	sstPath := filepath.Join(tmpDir, "001", "data", "sst_test")
+	// 创建 SSTable 文件路径（单文件格式）
+	sstPath := filepath.Join(tmpDir, "001", "data", "sst_test.bin")
 
-	// markSSTableWriting 应该成功（会创建目录和 .writing 文件）
+	// markSSTableWriting 应该成功（会创建父目录和 .writing 文件）
 	err := cm.MarkWriting(sstPath)
 	if err != nil {
 		t.Errorf("markSSTableWriting should succeed: %v", err)
@@ -1930,7 +1935,7 @@ func TestCompactionManager_Compact_VerifyInputFilesDeleted(t *testing.T) {
 	entriesBefore, _ := os.ReadDir(dataDir)
 	var sstPathsBefore []string
 	for _, entry := range entriesBefore {
-		if entry.IsDir() && len(entry.Name()) > 4 && entry.Name()[:4] == "sst_" {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") && strings.HasSuffix(entry.Name(), ".bin") {
 			sstPathsBefore = append(sstPathsBefore, filepath.Join(dataDir, entry.Name()))
 		}
 	}

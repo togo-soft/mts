@@ -127,7 +127,7 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 	}
 
 	outputSeq := cm.ShardAccess.NextSSTSeq()
-	outputPath := filepath.Join(cm.ShardAccess.DataDir(), fmt.Sprintf("sst_%d", outputSeq))
+	outputPath := filepath.Join(cm.ShardAccess.DataDir(), fmt.Sprintf("sst_%d.bin", outputSeq))
 
 	task := NewCompactionTask(sstFiles, outputPath)
 
@@ -145,7 +145,7 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 		cm.CurrentTask.Status = "failed"
 		cm.CurrentTask.Err = err
 		cm.Mu.Unlock()
-		_ = os.RemoveAll(outputPath)
+		_ = os.Remove(outputPath)
 		cm.ReleaseSSTRefs(sstFiles)
 		return "", nil, fmt.Errorf("merge failed: %w", err)
 	}
@@ -160,7 +160,7 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 	cm.CurrentTask.Progress = 100
 
 	if err := cm.Commit(task); err != nil {
-		_ = os.RemoveAll(outputPath)
+		_ = os.Remove(outputPath)
 		return "", nil, fmt.Errorf("commit failed: %w", err)
 	}
 
@@ -176,12 +176,20 @@ func (cm *CompactionManager) GetProgress() *CompactionProgress {
 
 // MarkWriting 开始写入标记。
 func (cm *CompactionManager) MarkWriting(sstPath string) error {
-	if err := os.MkdirAll(sstPath, 0700); err != nil {
-		return err
-	}
-	writingFlag := filepath.Join(sstPath, ".writing")
+	writingFlag := sstPath + ".writing"
 	f, err := os.Create(writingFlag)
 	if err != nil {
+		// 如果父目录不存在，先创建父目录再重试
+		if os.IsNotExist(err) {
+			if mkdirErr := os.MkdirAll(filepath.Dir(sstPath), 0700); mkdirErr != nil {
+				return mkdirErr
+			}
+			f, err = os.Create(writingFlag)
+			if err != nil {
+				return err
+			}
+			return f.Close()
+		}
 		return err
 	}
 	return f.Close()
@@ -189,7 +197,7 @@ func (cm *CompactionManager) MarkWriting(sstPath string) error {
 
 // UnmarkWriting 结束写入标记。
 func (cm *CompactionManager) UnmarkWriting(sstPath string) error {
-	writingFlag := filepath.Join(sstPath, ".writing")
+	writingFlag := sstPath + ".writing"
 	return os.Remove(writingFlag)
 }
 
@@ -219,10 +227,10 @@ func (cm *CompactionManager) collectSSTablesWithRefs() ([]string, error) {
 
 	var sstFiles []string
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() {
 			continue
 		}
-		if !strings.HasPrefix(entry.Name(), "sst_") {
+		if !strings.HasPrefix(entry.Name(), "sst_") || !strings.HasSuffix(entry.Name(), ".bin") {
 			continue
 		}
 
@@ -280,10 +288,10 @@ func (cm *CompactionManager) collectSSTablesWithoutRefs() ([]string, error) {
 
 	var sstFiles []string
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() {
 			continue
 		}
-		if !strings.HasPrefix(entry.Name(), "sst_") {
+		if !strings.HasPrefix(entry.Name(), "sst_") || !strings.HasSuffix(entry.Name(), ".bin") {
 			continue
 		}
 
@@ -304,29 +312,24 @@ func (cm *CompactionManager) collectSSTablesWithoutRefs() ([]string, error) {
 	return sstFiles, nil
 }
 
-// isSSTableComplete 检查 SSTable 是否完整（包含所有必需文件且不在写入中）。
+// isSSTableComplete 检查 SSTable 文件是否完整（不在写入中且可读取）。
 func (cm *CompactionManager) isSSTableComplete(sstPath string) bool {
 	// 如果正在写入中，不视为完整
 	if cm.IsSSTableInWrite(sstPath) {
 		return false
 	}
 
-	requiredFiles := []string{"_timestamps.bin", "_sids.bin"}
-	for _, f := range requiredFiles {
-		if _, err := os.Stat(filepath.Join(sstPath, f)); err != nil {
-			return false
-		}
-	}
-	// 检查 fields 目录是否存在
-	if _, err := os.Stat(filepath.Join(sstPath, "fields")); err != nil {
+	// 单文件格式：检查文件是否存在且可读
+	fi, err := os.Stat(sstPath)
+	if err != nil {
 		return false
 	}
-	return true
+	return fi.Mode().IsRegular() && fi.Size() > 0
 }
 
 // canOpenSSTable 检查 SSTable 是否可以成功打开（验证文件可访问）。
 func (cm *CompactionManager) canOpenSSTable(sstPath string) bool {
-	file, err := os.Open(filepath.Join(sstPath, "_timestamps.bin"))
+	file, err := os.Open(sstPath)
 	if err != nil {
 		return false
 	}
@@ -341,7 +344,7 @@ func (cm *CompactionManager) CollectSSTables() ([]string, error) {
 }
 
 func (cm *CompactionManager) IsSSTableInWrite(sstPath string) bool {
-	writingFlag := filepath.Join(sstPath, ".writing")
+	writingFlag := sstPath + ".writing"
 	_, err := os.Stat(writingFlag)
 	return err == nil
 }
@@ -398,15 +401,15 @@ func (cm *CompactionManager) CalculateShardSize() (int64, error) {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "sst_") {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "sst_") || !strings.HasSuffix(entry.Name(), ".bin") {
 			continue
 		}
-		sstPath := filepath.Join(dataDir, entry.Name())
-		size, err := DirSize(sstPath)
+
+		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
-		totalSize += size
+		totalSize += info.Size()
 	}
 
 	return totalSize, nil

@@ -1,13 +1,6 @@
 package sstable
 
-import (
-	"encoding/binary"
-	"io"
-	"os"
-	"path/filepath"
-)
-
-// loadBlock 加载指定 block 的数据
+// loadBlock 加载指定 block 的数据。
 func (it *Iterator) loadBlock(blockIdx int) error {
 	if blockIdx < 0 || blockIdx >= len(it.blockIndex) {
 		return nil
@@ -17,42 +10,21 @@ func (it *Iterator) loadBlock(blockIdx int) error {
 	it.currentBlock = blockIdx
 	it.blockRowCount = int(entry.RowCount)
 
-	tsFile, err := os.Open(filepath.Join(it.dataDir, "_timestamps.bin"))
+	ts, err := it.reader.readTimestampRange(entry.Offset, entry.RowCount)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tsFile.Close() }()
+	it.blockTimestamps = ts
 
-	if _, err := tsFile.Seek(int64(entry.Offset), io.SeekStart); err != nil {
-		return err
-	}
-
-	it.blockTimestamps = make([]int64, entry.RowCount)
-	for i := uint32(0); i < entry.RowCount; i++ {
-		var buf [8]byte
-		if _, err := tsFile.Read(buf[:]); err != nil {
-			return err
-		}
-		it.blockTimestamps[i] = int64(binary.BigEndian.Uint64(buf[:]))
-	}
-
-	sids, err := it.reader.readSidsRange(it.dataDir, entry.Offset, entry.RowCount)
+	sids, err := it.reader.readSidsRange(entry.Offset, entry.RowCount)
 	if err != nil {
 		return err
 	}
 	it.blockSids = sids
 
-	entries, err := os.ReadDir(filepath.Join(it.dataDir, "fields"))
-	if err != nil {
-		return err
-	}
-
+	fieldNames := it.reader.sectionTable.FieldNames()
 	it.fieldBufs = make(map[string][]byte)
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()[:len(e.Name())-4]
+	for _, name := range fieldNames {
 		fieldType := it.reader.schema.Fields[name]
 
 		var fieldSize int
@@ -68,40 +40,35 @@ func (it *Iterator) loadBlock(blockIdx int) error {
 		}
 
 		if fieldSize > 0 {
-			offset := int(entry.RowCount) * fieldSize * blockIdx
-			data, err := it.readFieldBlock(filepath.Join(it.dataDir, "fields", e.Name()), offset, int(entry.RowCount)*fieldSize)
+			byteOffset := int(entry.Offset) * fieldSize
+			byteCount := int(entry.RowCount) * fieldSize
+			data, err := it.readFieldSection(name, byteOffset, byteCount)
 			if err != nil {
 				return err
 			}
 			it.fieldBufs[name] = data
 		} else {
-			data, err := os.ReadFile(filepath.Join(it.dataDir, "fields", e.Name()))
-			if err != nil {
-				return err
+			// 变长字段（string），读取全部数据
+			fOffset, fSize := it.reader.sectionTable.Lookup(name)
+			if fSize > 0 {
+				data := make([]byte, fSize)
+				if _, err := it.reader.file.ReadAt(data, int64(fOffset)); err != nil {
+					return err
+				}
+				it.fieldBufs[name] = data
 			}
-			it.fieldBufs[name] = data
 		}
 	}
 
 	return nil
 }
 
-// readFieldBlock 读取指定偏移和大小的字段数据
-func (it *Iterator) readFieldBlock(path string, offset, size int) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
-		return nil, err
-	}
-
+// readFieldSection 从单文件中读取字段段的指定范围。
+func (it *Iterator) readFieldSection(name string, offset, size int) ([]byte, error) {
+	fOffset, _ := it.reader.sectionTable.Lookup(name)
 	data := make([]byte, size)
-	n, err := f.Read(data)
-	if err != nil {
+	if _, err := it.reader.file.ReadAt(data, int64(fOffset)+int64(offset)); err != nil {
 		return nil, err
 	}
-	return data[:n], nil
+	return data, nil
 }

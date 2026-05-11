@@ -1,10 +1,7 @@
-// Package sstable 实现 SSTable 流式迭代器。
 package sstable
 
 import (
 	"encoding/binary"
-	"os"
-	"path/filepath"
 	"sort"
 
 	"codeberg.org/micro-ts/mts/types"
@@ -12,8 +9,7 @@ import (
 
 // Iterator 是 SSTable 的流式迭代器。
 type Iterator struct {
-	reader  *Reader
-	dataDir string
+	reader *Reader
 
 	blockIndex   []BlockIndexEntry
 	currentBlock int
@@ -35,7 +31,6 @@ type Iterator struct {
 func (r *Reader) NewIterator() (*Iterator, error) {
 	it := &Iterator{
 		reader:       r,
-		dataDir:      r.dataDir,
 		currentBlock: -1,
 		pos:          -1,
 		fallbackPos:  -1,
@@ -58,50 +53,36 @@ func (r *Reader) NewIterator() (*Iterator, error) {
 	return it, nil
 }
 
-// loadAllData 回退模式下加载所有数据
+// loadAllData 回退模式下加载所有数据。
 func (it *Iterator) loadAllData() error {
-	tsFile, err := os.Open(filepath.Join(it.dataDir, "_timestamps.bin"))
-	if err != nil {
+	tsOffset, tsSize, _ := it.reader.sectionTable.LookupByType(SectionTimestamps)
+	tsData := make([]byte, tsSize)
+	if _, err := it.reader.file.ReadAt(tsData, int64(tsOffset)); err != nil {
 		return err
 	}
-	defer func() { _ = tsFile.Close() }()
-
-	var timestamps []int64
-	buf := make([]byte, 8)
-	for {
-		n, err := tsFile.Read(buf)
-		if err != nil || n == 0 {
-			break
-		}
-		timestamps = append(timestamps, int64(binary.BigEndian.Uint64(buf)))
+	timestamps := make([]int64, 0, len(tsData)/8)
+	for i := 0; i+8 <= len(tsData); i += 8 {
+		timestamps = append(timestamps, int64(binary.BigEndian.Uint64(tsData[i:i+8])))
 	}
-
 	if len(timestamps) == 0 {
 		return nil
 	}
 
-	sids, err := it.reader.readSids(it.dataDir, len(timestamps))
+	sids, err := it.reader.readSids(len(timestamps))
 	if err != nil {
 		return err
 	}
 	it.fallbackSids = sids
 
-	entries, err := os.ReadDir(filepath.Join(it.dataDir, "fields"))
-	if err != nil {
-		return err
-	}
-
-	fieldNames := make([]string, 0)
+	fieldNames := it.reader.sectionTable.FieldNames()
 	fieldData := make(map[string][]byte)
-	for _, e := range entries {
-		if e.IsDir() {
+	for _, name := range fieldNames {
+		fOffset, fSize := it.reader.sectionTable.Lookup(name)
+		if fSize == 0 {
 			continue
 		}
-		name := e.Name()[:len(e.Name())-4]
-		fieldNames = append(fieldNames, name)
-
-		data, err := os.ReadFile(filepath.Join(it.dataDir, "fields", e.Name()))
-		if err != nil {
+		data := make([]byte, fSize)
+		if _, err := it.reader.file.ReadAt(data, int64(fOffset)); err != nil {
 			return err
 		}
 		fieldData[name] = data
@@ -120,7 +101,7 @@ func (it *Iterator) loadAllData() error {
 	return nil
 }
 
-// decodeFieldValueFromData 从原始数据中解码字段值（用于无索引回退模式）
+// decodeFieldValueFromData 从原始数据中解码字段值（用于无索引回退模式）。
 func (it *Iterator) decodeFieldValueFromData(name string, data []byte, pos int) *types.FieldValue {
 	fieldType := it.reader.schema.Fields[name]
 	fixedSize := it.fieldFixedSize(fieldType)

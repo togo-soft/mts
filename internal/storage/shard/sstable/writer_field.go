@@ -23,9 +23,14 @@ func (w *Writer) WritePoints(points []types.InternalPoint) error {
 		}
 	}
 
+	fieldsDir := filepath.Join(w.tmpDir, "fields")
+	if err := storage.SafeMkdirAll(fieldsDir, 0700); err != nil {
+		return fmt.Errorf("create fields tmp dir: %w", err)
+	}
+
 	for name := range fieldNames {
 		f, err := storage.SafeOpenFile(
-			filepath.Join(w.dataDir, "fields", name+".bin"),
+			filepath.Join(fieldsDir, name+".bin"),
 			os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 		if err != nil {
 			return fmt.Errorf("open field file %s: %w", name, err)

@@ -38,7 +38,7 @@ func (ts *TombstoneSet) HasTombstones() bool {
 }
 
 func LoadTombstones(partPath string) (*TombstoneSet, error) {
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
+	tombstonePath := partPath + ".tombstones"
 	data, err := os.ReadFile(tombstonePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -59,11 +59,7 @@ func SaveTombstones(partPath string, ts *TombstoneSet) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(partPath, 0700); err != nil {
-		return fmt.Errorf("create part dir: %w", err)
-	}
-
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
+	tombstonePath := partPath + ".tombstones"
 	tmpPath := tombstonePath + ".tmp"
 
 	data, err := json.Marshal(ts)
@@ -82,7 +78,7 @@ func SaveTombstones(partPath string, ts *TombstoneSet) error {
 }
 
 func RemoveTombstones(partPath string) error {
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
+	tombstonePath := partPath + ".tombstones"
 	err := os.Remove(tombstonePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove tombstones: %w", err)
@@ -104,7 +100,7 @@ func (lcm *LevelCompactionManager) CompactTombstones() error {
 				continue
 			}
 
-			partPath := filepath.Join(lcm.Manifest.GetLevelPath(l.Level), p.Name)
+			partPath := filepath.Join(lcm.Manifest.GetLevelPath(l.Level), p.Name+".bin")
 			ts, err := LoadTombstones(partPath)
 			if err != nil {
 				return fmt.Errorf("load tombstones for %s: %w", p.Name, err)

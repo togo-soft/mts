@@ -192,9 +192,14 @@ func (cm *CompactionManager) Commit(task *CompactionTask) error {
 		if _, err := os.Stat(oldFile); os.IsNotExist(err) {
 			continue
 		}
-		if err := os.RemoveAll(oldFile); err != nil {
+		if err := os.Remove(oldFile); err != nil {
 			slog.Warn("failed to remove old sstable", "path", oldFile, "error", err)
 			lastErr = err
+		}
+		// 清理关联的 tombstones 文件
+		tombstonePath := oldFile + ".tombstones"
+		if _, err := os.Stat(tombstonePath); err == nil {
+			_ = os.Remove(tombstonePath)
 		}
 	}
 
@@ -213,18 +218,9 @@ func (cm *CompactionManager) VerifyOutput(path string) error {
 	if err != nil {
 		return fmt.Errorf("output path stat: %w", err)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("output path is not a directory")
+	if info.IsDir() {
+		return fmt.Errorf("output path is a directory, expected file")
 	}
-
-	requiredFiles := []string{"_timestamps.bin", "_sids.bin"}
-	for _, f := range requiredFiles {
-		filePath := filepath.Join(path, f)
-		if _, err := os.Stat(filePath); err != nil {
-			return fmt.Errorf("missing required file: %s", f)
-		}
-	}
-
 	return nil
 }
 

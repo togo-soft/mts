@@ -68,7 +68,7 @@ func TestTombstoneSet_HasTombstones(t *testing.T) {
 
 func TestLoadTombstones_NotExist(t *testing.T) {
 	tmpDir := t.TempDir()
-	ts, err := LoadTombstones(filepath.Join(tmpDir, "nonexistent"))
+	ts, err := LoadTombstones(filepath.Join(tmpDir, "sst_0.bin"))
 	if err != nil {
 		t.Fatalf("loadTombstones should not error for nonexistent path: %v", err)
 	}
@@ -79,12 +79,9 @@ func TestLoadTombstones_NotExist(t *testing.T) {
 
 func TestLoadTombstones_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
-	partPath := filepath.Join(tmpDir, "part1")
-	if err := os.MkdirAll(partPath, 0700); err != nil {
-		t.Fatalf("MkdirAll failed: %v", err)
-	}
+	partPath := filepath.Join(tmpDir, "sst_0.bin")
 
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
+	tombstonePath := partPath + ".tombstones"
 	if err := os.WriteFile(tombstonePath, []byte("invalid json"), 0600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
@@ -96,17 +93,15 @@ func TestLoadTombstones_InvalidJSON(t *testing.T) {
 	if ts != nil {
 		t.Error("loadTombstones should return nil on error")
 	}
+
 }
 
 func TestLoadTombstones_Valid(t *testing.T) {
 	tmpDir := t.TempDir()
-	partPath := filepath.Join(tmpDir, "part1")
-	if err := os.MkdirAll(partPath, 0700); err != nil {
-		t.Fatalf("MkdirAll failed: %v", err)
-	}
+	partPath := filepath.Join(tmpDir, "sst_0.bin")
 
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
-	data := []byte(`{"Tombstones":[{"sid":1,"mint":100,"maxt":200,"deleted":300}]}`)
+	tombstonePath := partPath + ".tombstones"
+	data := []byte(`{"tombstones":[{"sid":1,"mint":100,"maxt":200,"deleted":300}]}`)
 	if err := os.WriteFile(tombstonePath, data, 0600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
@@ -128,8 +123,9 @@ func TestLoadTombstones_Valid(t *testing.T) {
 
 func TestSaveTombstones_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
+	partPath := filepath.Join(tmpDir, "sst_0.bin")
 	ts := &TombstoneSet{}
-	err := SaveTombstones(tmpDir, ts)
+	err := SaveTombstones(partPath, ts)
 	if err != nil {
 		t.Fatalf("saveTombstones should not error for empty set: %v", err)
 	}
@@ -143,13 +139,13 @@ func TestSaveTombstones_Valid(t *testing.T) {
 		},
 	}
 
-	partPath := filepath.Join(tmpDir, "part1")
+	partPath := filepath.Join(tmpDir, "sst_0.bin")
 	err := SaveTombstones(partPath, ts)
 	if err != nil {
 		t.Fatalf("saveTombstones failed: %v", err)
 	}
 
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
+	tombstonePath := partPath + ".tombstones"
 	if _, err := os.Stat(tombstonePath); os.IsNotExist(err) {
 		t.Error("tombstone file should exist after save")
 	}
@@ -165,12 +161,9 @@ func TestSaveTombstones_Valid(t *testing.T) {
 
 func TestRemoveTombstones(t *testing.T) {
 	tmpDir := t.TempDir()
-	partPath := filepath.Join(tmpDir, "part1")
-	if err := os.MkdirAll(partPath, 0700); err != nil {
-		t.Fatalf("MkdirAll failed: %v", err)
-	}
+	partPath := filepath.Join(tmpDir, "sst_0.bin")
 
-	tombstonePath := filepath.Join(partPath, "_tombstones.json")
+	tombstonePath := partPath + ".tombstones"
 	if err := os.WriteFile(tombstonePath, []byte("{}"), 0600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
@@ -186,7 +179,7 @@ func TestRemoveTombstones(t *testing.T) {
 
 func TestRemoveTombstones_NotExist(t *testing.T) {
 	tmpDir := t.TempDir()
-	err := RemoveTombstones(filepath.Join(tmpDir, "nonexistent"))
+	err := RemoveTombstones(filepath.Join(tmpDir, "sst_0.bin"))
 	if err != nil {
 		t.Fatalf("removeTombstones should not error for nonexistent: %v", err)
 	}

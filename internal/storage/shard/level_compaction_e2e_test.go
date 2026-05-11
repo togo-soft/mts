@@ -22,7 +22,7 @@ func sstDirName(seq uint64) string {
 
 // createTestSSTableInLevel creates a test SSTable file in the specified level directory.
 func createTestSSTableInLevel(t *testing.T, shardDir string, level int, seq uint64, points []*types.Point) string {
-	// 创建 SSTable Writer (会在 shardDir/data/sst_{seq} 创建文件)
+	// 创建 SSTable Writer（会在 shardDir/data/sst_{seq}.bin 创建文件）
 	w, err := sstable.NewWriter(shardDir, seq, 0)
 	if err != nil {
 		t.Fatalf("failed to create SSTable writer: %v", err)
@@ -43,23 +43,23 @@ func createTestSSTableInLevel(t *testing.T, shardDir string, level int, seq uint
 		t.Fatalf("failed to close SSTable writer: %v", err)
 	}
 
-	// SSTable 文件创建在 shardDir/data/sst_{seq}
-	// 需要移动到 shardDir/data/L{level}/sst_{seq}
-	srcDir := filepath.Join(shardDir, "data", sstDirName(seq))
-	dstDir := filepath.Join(shardDir, "data", fmt.Sprintf("L%d", level), sstDirName(seq))
+	// SSTable 文件创建在 shardDir/data/sst_{seq}.bin
+	// 需要移动到 shardDir/data/L{level}/sst_{seq}.bin
+	srcFile := filepath.Join(shardDir, "data", sstDirName(seq)+".bin")
+	dstDir := filepath.Join(shardDir, "data", fmt.Sprintf("L%d", level))
+	dstFile := filepath.Join(dstDir, sstDirName(seq)+".bin")
 
 	// 确保目标目录存在
-	dstParent := filepath.Dir(dstDir)
-	if err := os.MkdirAll(dstParent, 0700); err != nil {
+	if err := os.MkdirAll(dstDir, 0700); err != nil {
 		t.Fatalf("failed to create level dir: %v", err)
 	}
 
-	// 移动目录
-	if err := os.Rename(srcDir, dstDir); err != nil {
+	// 移动文件
+	if err := os.Rename(srcFile, dstFile); err != nil {
 		t.Fatalf("failed to move SSTable to level dir: %v", err)
 	}
 
-	// 返回文件名 (manifest 中使用)
+	// 返回 part 名称（manifest 中使用不带 .bin 的 Name）
 	return sstDirName(seq)
 }
 
