@@ -167,7 +167,7 @@ func EncodeStringValues(values []string) ([]byte, bool) {
 		return encoded, true
 	}
 	// 回退为原始编码
-	return encodeStringRaw(values), false
+	return EncodeStringValuesRaw(values), false
 }
 
 // DecodeStringValues 解码字典编码或原始编码的 string。
@@ -188,8 +188,8 @@ func DecodeBoolValues(data []byte, count int) []bool {
 	return BitmapDecode(data, count)
 }
 
-// encodeStringRaw 原始字符串编码: [str_len:4B BigEndian][data]...
-func encodeStringRaw(values []string) []byte {
+// EncodeStringValuesRaw 原始字符串编码: [str_len:4B BigEndian][data]...
+func EncodeStringValuesRaw(values []string) []byte {
 	if len(values) == 0 {
 		return nil
 	}

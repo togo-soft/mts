@@ -11,11 +11,12 @@ import (
 
 // Reader 是 SSTable 的读取器。
 type Reader struct {
-	file         *os.File
-	header       FileHeader
-	sectionTable SectionTable
-	blockIndex   *BlockIndex
-	schema       Schema
+	file            *os.File
+	header          FileHeader
+	sectionTable    SectionTable
+	blockIndex      *BlockIndex
+	blockSectionMap *BlockSectionMap // v2: 每个 section 内各 block 的字节偏移
+	schema          Schema
 }
 
 // NewReader 创建 SSTable 读取器，接收 .bin 文件路径和 schema。
@@ -72,12 +73,23 @@ func NewReader(filePath string, schema Schema) (*Reader, error) {
 		}
 	}
 
+	// 读取 block section map (v2)
+	var blockSectionMap *BlockSectionMap
+	bmOffset, bmSize := sectionTable.Lookup("_block_map")
+	if bmSize > 0 {
+		bmData := make([]byte, bmSize)
+		if _, err := f.ReadAt(bmData, int64(bmOffset)); err == nil {
+			blockSectionMap, _ = UnmarshalBlockSectionMap(bmData)
+		}
+	}
+
 	return &Reader{
-		file:         f,
-		header:       header,
-		sectionTable: sectionTable,
-		blockIndex:   blockIndex,
-		schema:       schema,
+		file:            f,
+		header:          header,
+		sectionTable:    sectionTable,
+		blockIndex:      blockIndex,
+		blockSectionMap: blockSectionMap,
+		schema:          schema,
 	}, nil
 }
 

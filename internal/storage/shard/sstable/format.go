@@ -9,7 +9,7 @@ import (
 var MagicV2 = [8]byte{0x54, 0x53, 0x45, 0x52, 0x53, 0x54, 0x42, 0x4C}
 
 // FileVersion 单文件 SSTable 格式版本。
-const FileVersion uint32 = 1
+const FileVersion uint32 = 2
 
 // HeaderSize 文件头固定大小 (64 字节)。
 const HeaderSize = 64
@@ -64,8 +64,8 @@ func UnmarshalFileHeader(data [HeaderSize]byte) (FileHeader, error) {
 		return h, fmt.Errorf("invalid magic: expected %q, got %q", MagicV2, h.Magic)
 	}
 	h.Version = binary.BigEndian.Uint32(data[8:12])
-	if h.Version != FileVersion {
-		return h, fmt.Errorf("unsupported version: %d (expected %d)", h.Version, FileVersion)
+	if h.Version != 1 && h.Version != FileVersion {
+		return h, fmt.Errorf("unsupported version: %d (expected 1 or %d)", h.Version, FileVersion)
 	}
 	h.RowCount = binary.BigEndian.Uint32(data[12:16])
 	h.FieldCount = binary.BigEndian.Uint16(data[16:18])

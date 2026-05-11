@@ -101,11 +101,14 @@ func (w *Writer) Close() error {
 	}
 	fieldInfoMap := make(map[string]fieldInfo)
 
+	// 构建 BlockSectionMap
+	blockMap := &BlockSectionMap{}
+
 	currentOffset := uint64(HeaderSize)
 
-	// 1. 编码并写入 timestamps
+	// 1. 编码并写入 timestamps（per-block V2）
 	timestampsOffset = currentOffset
-	timestampsEncoded, tsEncoding, err := w.encodeTimestampsSection(rowCount)
+	timestampsEncoded, tsOffsets, tsEncoding, err := w.encodeTimestampsSectionV2(rowCount)
 	if err != nil {
 		return cleanupErr()
 	}
@@ -113,11 +116,14 @@ func (w *Writer) Close() error {
 		return cleanupErr()
 	}
 	timestampsSize = uint64(len(timestampsEncoded))
+	blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
+		Name: "_timestamps", Offsets: tsOffsets,
+	})
 	currentOffset += timestampsSize
 
-	// 2. 编码并写入 sids
+	// 2. 编码并写入 sids（per-block V2）
 	sidsOffset = currentOffset
-	sidsEncoded, err := w.encodeSidsSection(rowCount)
+	sidsEncoded, sidOffsets, err := w.encodeSidsSectionV2(rowCount)
 	if err != nil {
 		return cleanupErr()
 	}
@@ -125,12 +131,15 @@ func (w *Writer) Close() error {
 		return cleanupErr()
 	}
 	sidsSize = uint64(len(sidsEncoded))
+	blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
+		Name: "_sids", Offsets: sidOffsets,
+	})
 	currentOffset += sidsSize
 
-	// 3. 编码并写入每个 field
+	// 3. 编码并写入每个 field（per-block V2）
 	for _, name := range fieldNames {
 		fi := fieldInfo{offset: currentOffset}
-		encoded, enc, err := w.encodeFieldSection(name, rowCount)
+		encoded, fieldOffsets, enc, err := w.encodeFieldSectionV2(name, rowCount)
 		if err != nil {
 			return cleanupErr()
 		}
@@ -140,6 +149,9 @@ func (w *Writer) Close() error {
 		fi.size = uint64(len(encoded))
 		fi.encoding = enc
 		fieldInfoMap[name] = fi
+		blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
+			Name: name, Offsets: fieldOffsets,
+		})
 		currentOffset += fi.size
 	}
 
@@ -154,12 +166,21 @@ func (w *Writer) Close() error {
 	}
 	currentOffset += uint64(len(indexData))
 
-	// 5. 构建 Section Table
+	// 5. 写入 _block_map section
+	blockMapOffset := currentOffset
+	blockMapData := blockMap.Marshal()
+	if _, err := outFile.Write(blockMapData); err != nil {
+		return cleanupErr()
+	}
+	currentOffset += uint64(len(blockMapData))
+
+	// 6. 构建 Section Table
 	sectionTable := SectionTable{
 		Entries: []SectionEntry{
 			{Type: SectionTimestamps, Name: "_timestamps", Offset: timestampsOffset, Size: timestampsSize, Encoding: tsEncoding},
 			{Type: SectionSids, Name: "_sids", Offset: sidsOffset, Size: sidsSize, Encoding: EncodingVarint},
 			{Type: SectionIndex, Name: "_index", Offset: blockIndexOffset, Size: uint64(len(indexData)), Encoding: EncodingRaw},
+			{Type: SectionIndex, Name: "_block_map", Offset: blockMapOffset, Size: uint64(len(blockMapData)), Encoding: EncodingRaw},
 		},
 	}
 	for _, name := range fieldNames {
@@ -169,14 +190,14 @@ func (w *Writer) Close() error {
 		})
 	}
 
-	// 6. 写入 Section Table
+	// 7. 写入 Section Table
 	sectionTableData := sectionTable.Marshal()
 	sectionTableOffset := currentOffset
 	if _, err := outFile.Write(sectionTableData); err != nil {
 		return cleanupErr()
 	}
 
-	// 7. 回填 header
+	// 8. 回填 header
 	header := FileHeader{
 		Magic:              MagicV2,
 		Version:            FileVersion,
@@ -206,70 +227,114 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// encodeTimestampsSection 读取并编码时间戳。
-func (w *Writer) encodeTimestampsSection(rowCount int) ([]byte, EncodingType, error) {
+// encodeTimestampsSectionV2 按 block 独立编码时间戳，返回编码数据和 per-block 字节偏移。
+func (w *Writer) encodeTimestampsSectionV2(rowCount int) ([]byte, []uint64, EncodingType, error) {
 	rawPath := filepath.Join(w.tmpDir, "_timestamps.bin")
 	raw, err := os.ReadFile(rawPath)
 	if err != nil {
-		return nil, EncodingRaw, fmt.Errorf("read timestamps temp: %w", err)
+		return nil, nil, EncodingRaw, fmt.Errorf("read timestamps temp: %w", err)
 	}
 	values := compression.ExtractInt64Data(raw, rowCount)
-	encoded := compression.EncodeTimestamps(values)
-	return encoded, EncodingDeltaVarint, nil
+	data, offsets := encodePerBlock(w, values, func(vals []int64) []byte {
+		return compression.EncodeTimestamps(vals)
+	})
+	return data, offsets, EncodingDeltaVarint, nil
 }
 
-// encodeSidsSection 读取并编码 SID。
-func (w *Writer) encodeSidsSection(rowCount int) ([]byte, error) {
+// encodeSidsSectionV2 按 block 独立编码 SID，返回编码数据和 per-block 字节偏移。
+func (w *Writer) encodeSidsSectionV2(rowCount int) ([]byte, []uint64, error) {
 	rawPath := filepath.Join(w.tmpDir, "_sids.bin")
 	raw, err := os.ReadFile(rawPath)
 	if err != nil {
-		return nil, fmt.Errorf("read sids temp: %w", err)
+		return nil, nil, fmt.Errorf("read sids temp: %w", err)
 	}
 	values := compression.ExtractUint64Data(raw, rowCount)
-	encoded := compression.EncodeSids(values)
-	return encoded, nil
+	data, offsets := encodePerBlock(w, values, func(vals []uint64) []byte {
+		return compression.EncodeSids(vals)
+	})
+	return data, offsets, nil
 }
 
-// encodeFieldSection 读取并编码字段段。
-func (w *Writer) encodeFieldSection(name string, rowCount int) ([]byte, EncodingType, error) {
+// encodeFieldSectionV2 按 block 独立编码字段段，返回编码数据、per-block 字节偏移和编码类型。
+func (w *Writer) encodeFieldSectionV2(name string, rowCount int) ([]byte, []uint64, EncodingType, error) {
 	ft := w.schema.Fields[name]
 	rawPath := filepath.Join(w.tmpDir, "fields", name+".bin")
 	raw, err := os.ReadFile(rawPath)
 	if err != nil {
-		return nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
+		return nil, nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
 	}
-
-	var encoded []byte
-	var enc EncodingType
 
 	switch ft {
 	case FieldTypeFloat64:
 		values := compression.ExtractFloat64Data(raw, rowCount)
-		encoded = compression.EncodeFloat64Values(values)
-		enc = EncodingXORFloat
+		data, offsets := encodePerBlock(w, values, func(vals []float64) []byte {
+			return compression.EncodeFloat64Values(vals)
+		})
+		return data, offsets, EncodingXORFloat, nil
 	case FieldTypeInt64:
 		values := compression.ExtractInt64Data(raw, rowCount)
-		encoded = compression.EncodeInt64Values(values)
-		enc = EncodingZigZagVarint
+		data, offsets := encodePerBlock(w, values, func(vals []int64) []byte {
+			return compression.EncodeInt64Values(vals)
+		})
+		return data, offsets, EncodingZigZagVarint, nil
 	case FieldTypeString:
 		values := compression.ExtractStringData(raw, rowCount)
-		var isDict bool
-		encoded, isDict = compression.EncodeStringValues(values)
-		if isDict {
-			enc = EncodingDictString
-		} else {
-			enc = EncodingRaw
-		}
+		data, offsets := encodePerBlock(w, values, func(vals []string) []byte {
+			return compression.EncodeStringValuesRaw(vals)
+		})
+		return data, offsets, EncodingRaw, nil
 	case FieldTypeBool:
 		values := compression.ExtractBoolData(raw, rowCount)
-		encoded = compression.EncodeBoolValues(values)
-		enc = EncodingBitmapBool
+		data, offsets := encodePerBlock(w, values, func(vals []bool) []byte {
+			return compression.EncodeBoolValues(vals)
+		})
+		return data, offsets, EncodingBitmapBool, nil
 	default:
-		encoded = raw
-		enc = EncodingRaw
+		// raw bytes: 直接按 block 边界切片，不做编码
+		data, offsets := encodePerBlockRaw(w, raw, rowCount)
+		return data, offsets, EncodingRaw, nil
 	}
+}
 
-	return encoded, enc, nil
+// encodePerBlock 将全部行数据按 BlockIndex 分块后独立编码，返回拼接数据和 per-block 字节偏移。
+func encodePerBlock[T any](w *Writer, values []T, encodeFn func([]T) []byte) ([]byte, []uint64) {
+	var encoded []byte
+	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
+	offset := uint64(0)
+	offsets = append(offsets, offset)
+	for i := 0; i < w.blockIndex.Len(); i++ {
+		entry := w.blockIndex.Entry(i)
+		start := int(entry.Offset)
+		end := start + int(entry.RowCount)
+		blockData := encodeFn(values[start:end])
+		encoded = append(encoded, blockData...)
+		offset += uint64(len(blockData))
+		offsets = append(offsets, offset)
+	}
+	return encoded, offsets
+}
+
+// encodePerBlockRaw 对原始字节数据按 block 的行范围切片。
+// raw 是未处理的原始数据，每行占固定字节数（由 rowSize 隐式确定）。
+// 用于无法用泛型 encodeFn 描述的编码路径（如 raw 回退）。
+func encodePerBlockRaw(w *Writer, raw []byte, rowCount int) ([]byte, []uint64) {
+	var encoded []byte
+	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
+	offset := uint64(0)
+	offsets = append(offsets, offset)
+
+	bytesPerRow := len(raw) / rowCount
+
+	for i := 0; i < w.blockIndex.Len(); i++ {
+		entry := w.blockIndex.Entry(i)
+		start := int(entry.Offset) * bytesPerRow
+		end := start + int(entry.RowCount)*bytesPerRow
+		blockData := raw[start:end]
+		encoded = append(encoded, blockData...)
+		offset += uint64(len(blockData))
+		offsets = append(offsets, offset)
+	}
+	return encoded, offsets
 }
 
 // encodeBlockIndex 将 BlockIndex 序列化为字节。
