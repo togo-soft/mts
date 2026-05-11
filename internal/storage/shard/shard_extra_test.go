@@ -316,7 +316,7 @@ func TestShard_ReadFromSSTable_Empty(t *testing.T) {
 	_ = s.Close()
 }
 
-func TestSerializePoint(t *testing.T) {
+func TestSerializeInternalPoint(t *testing.T) {
 	p := &types.Point{
 		Timestamp: 1000000000,
 		Tags:      map[string]string{"host": "server1"},
@@ -325,28 +325,34 @@ func TestSerializePoint(t *testing.T) {
 			"count": types.NewFieldValue(int64(100)),
 		},
 	}
+	ip := types.PointToInternal(p, 42)
 
-	data, err := serializePoint(p)
+	data, err := serializeInternalPoint(ip)
 	if err != nil {
-		t.Fatalf("serializePoint failed: %v", err)
+		t.Fatalf("serializeInternalPoint failed: %v", err)
 	}
 
 	if len(data) == 0 {
 		t.Error("serialized data should not be empty")
 	}
 
-	// 反序列化验证
-	deserialized, err := deserializePoint(data)
+	deserialized, err := deserializeInternalPoint(data)
 	if err != nil {
-		t.Fatalf("deserializePoint failed: %v", err)
+		t.Fatalf("deserializeInternalPoint failed: %v", err)
 	}
 
-	if deserialized.Timestamp != p.Timestamp {
-		t.Errorf("expected timestamp %d, got %d", p.Timestamp, deserialized.Timestamp)
+	if deserialized.Timestamp != ip.Timestamp {
+		t.Errorf("expected timestamp %d, got %d", ip.Timestamp, deserialized.Timestamp)
+	}
+	if deserialized.Sid != ip.Sid {
+		t.Errorf("expected sid %d, got %d", ip.Sid, deserialized.Sid)
+	}
+	if len(deserialized.Fields) != len(ip.Fields) {
+		t.Errorf("expected %d fields, got %d", len(ip.Fields), len(deserialized.Fields))
 	}
 }
 
-func TestDeserializePoint_AllFieldTypes(t *testing.T) {
+func TestSerializeDeserializeInternalPoint_AllFieldTypes(t *testing.T) {
 	p := &types.Point{
 		Timestamp: 1000000000,
 		Tags:      map[string]string{"host": "server1"},
@@ -357,39 +363,47 @@ func TestDeserializePoint_AllFieldTypes(t *testing.T) {
 			"bool_val":  types.NewFieldValue(true),
 		},
 	}
+	ip := types.PointToInternal(p, 1)
 
-	data, err := serializePoint(p)
+	data, err := serializeInternalPoint(ip)
 	if err != nil {
-		t.Fatalf("serializePoint failed: %v", err)
+		t.Fatalf("serializeInternalPoint failed: %v", err)
 	}
 
-	deserialized, err := deserializePoint(data)
+	deserialized, err := deserializeInternalPoint(data)
 	if err != nil {
-		t.Fatalf("deserializePoint failed: %v", err)
+		t.Fatalf("deserializeInternalPoint failed: %v", err)
 	}
 
-	if deserialized.Fields["float_val"] == nil || deserialized.Fields["int_val"] == nil ||
-		deserialized.Fields["str_val"] == nil || deserialized.Fields["bool_val"] == nil {
+	fields := types.InternalFieldsToMap(deserialized.Fields)
+	if fields["float_val"] == nil || fields["int_val"] == nil ||
+		fields["str_val"] == nil || fields["bool_val"] == nil {
 		t.Error("all fields should be present after deserialization")
 	}
 }
 
-func TestDeserializePoint_InvalidData(t *testing.T) {
-	// 过短的数据
-	_, err := deserializePoint([]byte("short"))
+func TestDeserializeInternalPoint_InvalidData(t *testing.T) {
+	// 过短的数据（少于 19 字节 header）
+	_, err := deserializeInternalPoint([]byte("short"))
 	if err == nil {
 		t.Error("expected error for short data")
 	}
 
-	// 无效的 tag 长度
-	invalidData := make([]byte, 100)
-	// timestamp
-	binary.BigEndian.PutUint64(invalidData[:8], uint64(1000000000))
-	// tagLen 指向不存在的区域
-	binary.BigEndian.PutUint32(invalidData[8:12], uint32(1000))
-	_, err = deserializePoint(invalidData)
+	// 无效版本号
+	invalidData := make([]byte, 19)
+	invalidData[0] = 99 // 无效版本
+	_, err = deserializeInternalPoint(invalidData)
 	if err == nil {
-		t.Error("expected error for invalid tag length")
+		t.Error("expected error for invalid version")
+	}
+
+	// header 完整但 fieldCount 指向不存在的区域
+	shortData := make([]byte, 19)
+	shortData[0] = pointVersion
+	binary.BigEndian.PutUint16(shortData[17:19], uint16(10)) // 10 fields, no data
+	_, err = deserializeInternalPoint(shortData)
+	if err == nil {
+		t.Error("expected error for truncated field data")
 	}
 }
 
@@ -1236,7 +1250,7 @@ func TestShard_Read_EmptyTimeRange(t *testing.T) {
 }
 
 func TestShard_Write_SerializeError(t *testing.T) {
-	// 测试序列化错误 - 实际上 serializePoint 不太可能失败
+	// 测试序列化错误 - 实际上 serializeInternalPoint 不太可能失败
 	// 但我们可以验证正常路径
 	tmpDir := t.TempDir()
 

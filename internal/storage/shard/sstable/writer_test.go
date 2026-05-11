@@ -8,6 +8,18 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+func pointsToInternalWithSids(points []*types.Point, sids []uint64) []types.InternalPoint {
+	result := make([]types.InternalPoint, len(points))
+	for i, p := range points {
+		sid := uint64(0)
+		if i < len(sids) {
+			sid = sids[i]
+		}
+		result[i] = types.PointToInternal(p, sid)
+	}
+	return result
+}
+
 func TestWriter_WritePoints(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -29,7 +41,7 @@ func TestWriter_WritePoints(t *testing.T) {
 		},
 	}
 
-	err = w.WritePoints(points, nil)
+	err = w.WritePoints(pointsToInternalWithSids(points, nil))
 	if err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
@@ -92,7 +104,7 @@ func TestWriter_WritePointsWithSids(t *testing.T) {
 	}
 	sids := []uint64{42, 99}
 
-	if err := w.WritePoints(points, sids); err != nil {
+	if err := w.WritePoints(pointsToInternalWithSids(points, sids)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {

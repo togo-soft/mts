@@ -63,7 +63,7 @@ func (s *Shard) Close() error {
 			slog.Info("Shard.Close: level compaction flush completed")
 		} else {
 			// 平坦 Compaction 的刷盘逻辑
-			points, sids := s.memTable.Flush()
+			points := s.memTable.Flush()
 			slog.Info("Shard.Close: flat compaction flush", "pointsCount", len(points))
 			if len(points) > 0 {
 				w, wErr := sstable.NewWriter(s.dir, s.sstSeq, 0)
@@ -80,7 +80,7 @@ func (s *Shard) Close() error {
 				}
 				s.sstSeq++
 
-				if writeErr := w.WritePoints(points, sids); writeErr != nil {
+				if writeErr := w.WritePoints(points); writeErr != nil {
 					_ = w.Close()
 					if s.wal != nil {
 						if closeErr := s.wal.Close(); closeErr != nil {

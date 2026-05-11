@@ -43,8 +43,23 @@ func (s *Shard) Write(point *types.Point) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// 1. 分配 SID（Tags→Sid 映射持久化到 boltDB，WAL 无需重复存储 Tags）
+	sid, err := s.seriesStore.AllocateSID(point.Tags)
+	if err != nil {
+		return fmt.Errorf("allocate SID: %w", err)
+	}
+
+	// 2. 验证字段类型一致性
+	if err := s.ValidateFieldTypes(point); err != nil {
+		return fmt.Errorf("validate field types: %w", err)
+	}
+
+	// 3. 转换为 InternalPoint
+	ip := types.PointToInternal(point, sid)
+
+	// 4. 写入 WAL（紧凑 InternalPoint 格式，不含 Tags）
 	if s.wal != nil {
-		data, err := serializePoint(point)
+		data, err := serializeInternalPoint(ip)
 		if err != nil {
 			return fmt.Errorf("serialize point: %w", err)
 		}
@@ -53,23 +68,12 @@ func (s *Shard) Write(point *types.Point) error {
 		}
 	}
 
-	// 2. 分配 SID
-	sid, err := s.seriesStore.AllocateSID(point.Tags)
-	if err != nil {
-		return fmt.Errorf("allocate SID: %w", err)
-	}
-
-	// 3. 验证字段类型一致性
-	if err := s.ValidateFieldTypes(point); err != nil {
-		return fmt.Errorf("validate field types: %w", err)
-	}
-
-	// 4. 写入 MemTable（SID 由 entry 携带）
-	if err := s.memTable.Write(point, sid); err != nil {
+	// 5. 写入 MemTable
+	if err := s.memTable.Write(ip); err != nil {
 		return fmt.Errorf("write to memtable: %w", err)
 	}
 
-	// 4. 检查是否需要 flush
+	// 6. 检查是否需要 flush
 	if s.memTable.ShouldFlush() {
 		if err := s.flushLocked(); err != nil {
 			return fmt.Errorf("flush memtable: %w", err)
@@ -109,18 +113,17 @@ func (s *Shard) Read(startTime, endTime int64) ([]*types.PointRow, error) {
 	// 1. 从 MemTable 读取（Tags 通过 Sid 从 SeriesStore 恢复）
 	iter := s.memTable.Iterator()
 	for iter.Next() {
-		p := iter.Point()
-		if p.Timestamp >= startTime && p.Timestamp < endTime {
-			sid := iter.Sid()
+		ip := iter.Point()
+		if ip.Timestamp >= startTime && ip.Timestamp < endTime {
 			var tags map[string]string
 			if s.seriesStore != nil {
-				tags, _ = s.seriesStore.GetTagsBySID(sid)
+				tags, _ = s.seriesStore.GetTagsBySID(ip.Sid)
 			}
 			rows = append(rows, &types.PointRow{
-				Sid:       sid,
-				Timestamp: p.Timestamp,
+				Sid:       ip.Sid,
+				Timestamp: ip.Timestamp,
 				Tags:      tags,
-				Fields:    p.Fields,
+				Fields:    types.InternalFieldsToMap(ip.Fields),
 			})
 		}
 	}

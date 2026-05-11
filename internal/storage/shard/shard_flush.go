@@ -22,7 +22,7 @@ func (s *Shard) Flush() error {
 
 // flushLocked 内部刷写方法（已持有锁）
 func (s *Shard) flushLocked() error {
-	points, sids := s.memTable.Flush()
+	points := s.memTable.Flush()
 	if len(points) == 0 {
 		return nil
 	}
@@ -60,7 +60,7 @@ func (s *Shard) flushLocked() error {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
 
-	if err := w.WritePoints(points, sids); err != nil {
+	if err := w.WritePoints(points); err != nil {
 		if closeErr := w.Close(); closeErr != nil {
 			slog.Warn("failed to close sstable writer after write error", "error", closeErr)
 		}
@@ -126,17 +126,13 @@ func (s *Shard) flushLocked() error {
 	// 不在 flush 时清理 WAL segment
 	// WAL segment 清理由 compaction 模块负责
 
-	for i := range points {
-		points[i] = nil
-	}
-
 	s.triggerBackgroundCompaction()
 
 	return nil
 }
 
 // calcPointTimeRange 计算 points 的时间范围。
-func (s *Shard) calcPointTimeRange(points []*types.Point) (int64, int64) {
+func (s *Shard) calcPointTimeRange(points []types.InternalPoint) (int64, int64) {
 	minTime := int64(0)
 	maxTime := int64(0)
 	for i, p := range points {

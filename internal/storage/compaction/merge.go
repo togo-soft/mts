@@ -102,20 +102,18 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 	merged := NewMergeIterator(iterators)
 
 	seen := make(map[string]bool)
-	var pointsToWrite []*types.Point
-	var sids []uint64
+	var pointsToWrite []types.InternalPoint
 	const batchSize = 1000
 
 	flushBatch := func() error {
 		if len(pointsToWrite) == 0 {
 			return nil
 		}
-		if err := w.WritePoints(pointsToWrite, sids); err != nil {
+		if err := w.WritePoints(pointsToWrite); err != nil {
 			return err
 		}
 		task.OutputCount += len(pointsToWrite)
 		pointsToWrite = pointsToWrite[:0]
-		sids = sids[:0]
 		return nil
 	}
 
@@ -139,13 +137,12 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 		}
 		seen[key] = true
 
-		point := &types.Point{
+		ip := types.InternalPoint{
 			Timestamp: row.Timestamp,
-			Tags:      row.Tags,
-			Fields:    row.Fields,
+			Fields:    types.MapToInternalFields(row.Fields),
+			Sid:       row.Sid,
 		}
-		pointsToWrite = append(pointsToWrite, point)
-		sids = append(sids, row.Sid)
+		pointsToWrite = append(pointsToWrite, ip)
 		if len(pointsToWrite) >= batchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()

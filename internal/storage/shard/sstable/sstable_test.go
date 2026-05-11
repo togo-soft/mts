@@ -24,7 +24,7 @@ func TestIterator_SeekToTime(t *testing.T) {
 		{Timestamp: 5000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(5.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -76,7 +76,7 @@ func TestIterator_SeekToTime_BeforeFirst(t *testing.T) {
 		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -124,7 +124,7 @@ func TestIterator_CurrentBlockTimestamps(t *testing.T) {
 		{Timestamp: 2000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(2.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -172,7 +172,7 @@ func TestIterator_Done(t *testing.T) {
 		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -224,7 +224,7 @@ func TestReader_ReadRange(t *testing.T) {
 		{Timestamp: 5000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(5.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -270,7 +270,7 @@ func TestReader_ReadRange_All(t *testing.T) {
 		{Timestamp: 2000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(2.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -308,7 +308,7 @@ func TestReader_ReadRange_Empty(t *testing.T) {
 		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -356,7 +356,7 @@ func TestWriter_FieldTypes(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	schema := w.Schema()
@@ -416,7 +416,7 @@ func TestWriter_DetectFieldType(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -462,7 +462,7 @@ func TestWriter_AppendZeroValue(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -547,7 +547,7 @@ func TestReader_HasBlockIndex(t *testing.T) {
 		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -587,7 +587,7 @@ func TestIterator_MultipleBlocks(t *testing.T) {
 		}
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -797,7 +797,7 @@ func TestWriter_WritePoints_Empty(t *testing.T) {
 	}
 
 	// 写入空切片
-	if err := w.WritePoints([]*types.Point{}, nil); err != nil {
+	if err := w.WritePoints([]types.InternalPoint{}); err != nil {
 		t.Fatalf("WritePoints with empty slice failed: %v", err)
 	}
 
@@ -843,7 +843,7 @@ func TestWriter_Close_WithFields(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 
@@ -873,7 +873,7 @@ func TestReader_DecodeFieldValue(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	schema := w.Schema()
@@ -934,7 +934,7 @@ func TestReader_FieldSize_AllTypes(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -1000,7 +1000,7 @@ func TestReader_ComputeFieldOffsets(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	schema := w.Schema()
@@ -1034,7 +1034,7 @@ func TestIterator_LoadAllData_Error(t *testing.T) {
 		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -1079,7 +1079,7 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(int64(100))}},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {

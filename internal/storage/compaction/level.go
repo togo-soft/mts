@@ -314,19 +314,17 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 	}
 
 	seen := make(map[string]bool)
-	var pointsToWrite []*types.Point
-	var sids []uint64
+	var pointsToWrite []types.InternalPoint
 	const batchSize = 1000
 
 	flushBatch := func() error {
 		if len(pointsToWrite) == 0 {
 			return nil
 		}
-		if err := w.WritePoints(pointsToWrite, sids); err != nil {
+		if err := w.WritePoints(pointsToWrite); err != nil {
 			return err
 		}
 		pointsToWrite = pointsToWrite[:0]
-		sids = sids[:0]
 		return nil
 	}
 
@@ -349,13 +347,12 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 		}
 		seen[key] = true
 
-		point := &types.Point{
+		ip := types.InternalPoint{
 			Timestamp: row.Timestamp,
-			Tags:      row.Tags,
-			Fields:    row.Fields,
+			Fields:    types.MapToInternalFields(row.Fields),
+			Sid:       row.Sid,
 		}
-		pointsToWrite = append(pointsToWrite, point)
-		sids = append(sids, row.Sid)
+		pointsToWrite = append(pointsToWrite, ip)
 		if len(pointsToWrite) >= batchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()

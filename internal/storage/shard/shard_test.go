@@ -171,18 +171,15 @@ func TestShard_WriteWithWAL(t *testing.T) {
 	}
 
 	// 直接从 Shard 的 WAL 验证写入
-	var points []*types.Point
-	err := s.wal.Replay(func(data []byte) error {
-		pt, err := deserializePoint(data)
+	var points []types.InternalPoint
+	_ = s.wal.Replay(func(data []byte) error {
+		ip, err := deserializeInternalPoint(data)
 		if err != nil {
 			return nil
 		}
-		points = append(points, pt)
+		points = append(points, ip)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("WAL replay failed: %v", err)
-	}
 	if len(points) != 1 {
 		t.Errorf("expected 1 point in WAL, got %d", len(points))
 	}

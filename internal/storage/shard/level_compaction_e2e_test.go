@@ -28,14 +28,14 @@ func createTestSSTableInLevel(t *testing.T, shardDir string, level int, seq uint
 		t.Fatalf("failed to create SSTable writer: %v", err)
 	}
 
-	// 创建并行 sids
-	sids := make([]uint64, len(points))
+	// 转换为 InternalPoint
+	internalPoints := make([]types.InternalPoint, len(points))
 	for i := range points {
-		sids[i] = uint64(1)
+		internalPoints[i] = types.PointToInternal(points[i], uint64(1))
 	}
 
 	// 写入数据
-	if err := w.WritePoints(points, sids); err != nil {
+	if err := w.WritePoints(internalPoints); err != nil {
 		t.Fatalf("failed to write points: %v", err)
 	}
 

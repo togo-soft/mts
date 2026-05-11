@@ -11,15 +11,14 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// WritePoints 写入一批数据点到 SSTable。
-// sids 与 points 一一对应，len(sids)==0 时所有 sid 默认为 0。
-func (w *Writer) WritePoints(points []*types.Point, sids []uint64) error {
+// WritePoints 写入一批 InternalPoint 到 SSTable。
+func (w *Writer) WritePoints(points []types.InternalPoint) error {
 	fieldNames := make(map[string]bool)
-	for _, p := range points {
-		for name, val := range p.Fields {
-			fieldNames[name] = true
-			if _, exists := w.schema.Fields[name]; !exists {
-				w.schema.Fields[name] = detectFieldType(val)
+	for _, ip := range points {
+		for _, fe := range ip.Fields {
+			fieldNames[fe.Key] = true
+			if _, exists := w.schema.Fields[fe.Key]; !exists {
+				w.schema.Fields[fe.Key] = detectFieldType(fe.Value)
 			}
 		}
 	}
@@ -37,13 +36,9 @@ func (w *Writer) WritePoints(points []*types.Point, sids []uint64) error {
 		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
 	}
 
-	for i, p := range points {
-		var sid uint64
-		if i < len(sids) {
-			sid = sids[i]
-		}
-		if err := w.writePointWithSid(p, sid); err != nil {
-			return fmt.Errorf("write point (timestamp=%d): %w", p.Timestamp, err)
+	for _, ip := range points {
+		if err := w.writeInternalPoint(ip); err != nil {
+			return fmt.Errorf("write point (timestamp=%d): %w", ip.Timestamp, err)
 		}
 	}
 
@@ -64,8 +59,8 @@ func (w *Writer) fieldTypeSize(t FieldType) int {
 	}
 }
 
-// writePointWithSid 将单个 point 写入 block buffer，并记录 Sid
-func (w *Writer) writePointWithSid(p *types.Point, sid uint64) error {
+// writeInternalPoint 将单个 InternalPoint 写入 block buffer。
+func (w *Writer) writeInternalPoint(ip types.InternalPoint) error {
 	if w.bufPos >= BlockSize {
 		if err := w.flushBlock(); err != nil {
 			return err
@@ -73,26 +68,36 @@ func (w *Writer) writePointWithSid(p *types.Point, sid uint64) error {
 	}
 
 	if w.rowCount == 0 {
-		w.firstTs = p.Timestamp
+		w.firstTs = ip.Timestamp
 	}
 
 	var tsBuf [8]byte
-	binary.BigEndian.PutUint64(tsBuf[:], uint64(p.Timestamp))
+	binary.BigEndian.PutUint64(tsBuf[:], uint64(ip.Timestamp))
 	copy(w.buf[w.bufPos:w.bufPos+8], tsBuf[:])
 	w.bufPos += 8
 
 	for name := range w.fields {
-		val, ok := p.Fields[name]
+		val, ok := findInternalField(ip.Fields, name)
 		if !ok {
 			val = w.zeroValue(w.schema.Fields[name])
 		}
 		w.appendFieldValue(name, val)
 	}
 
-	w.sidBuf = append(w.sidBuf, sid)
+	w.sidBuf = append(w.sidBuf, ip.Sid)
 
 	w.rowCount++
 	return nil
+}
+
+// findInternalField 从紧凑字段切片中查找指定名称的字段值。
+func findInternalField(fields []types.InternalField, name string) (*types.FieldValue, bool) {
+	for _, f := range fields {
+		if f.Key == name {
+			return f.Value, true
+		}
+	}
+	return nil, false
 }
 
 // zeroValue 返回类型的零值

@@ -81,8 +81,8 @@ func NewShardIterator(shard *Shard, startTime, endTime int64) *ShardIterator {
 	// 创建 MemTable 迭代器
 	si.memIter = shard.memTable.Iterator()
 	if si.memIter.Next() {
-		p := si.memIter.Point()
-		si.memRow = si.pointToRow(p, si.memIter.Sid())
+		ip := si.memIter.Point()
+		si.memRow = si.pointToRow(ip)
 	}
 
 	// 从 SSTable 预读取数据
@@ -100,20 +100,17 @@ func NewShardIterator(shard *Shard, startTime, endTime int64) *ShardIterator {
 	return si
 }
 
-// pointToRow 将 MemTable Point 转换为 PointRow，通过 Sid 从 SeriesStore 恢复 Tags。
-func (si *ShardIterator) pointToRow(p *types.Point, sid uint64) *types.PointRow {
-	if p == nil {
-		return nil
-	}
+// pointToRow 将 InternalPoint 转换为 PointRow，通过 Sid 从 SeriesStore 恢复 Tags。
+func (si *ShardIterator) pointToRow(ip types.InternalPoint) *types.PointRow {
 	var tags map[string]string
 	if si.shard.seriesStore != nil {
-		tags, _ = si.shard.seriesStore.GetTagsBySID(sid)
+		tags, _ = si.shard.seriesStore.GetTagsBySID(ip.Sid)
 	}
 	return &types.PointRow{
-		Sid:       sid,
-		Timestamp: p.Timestamp,
+		Sid:       ip.Sid,
+		Timestamp: ip.Timestamp,
 		Tags:      tags,
-		Fields:    p.Fields,
+		Fields:    types.InternalFieldsToMap(ip.Fields),
 	}
 }
 
@@ -187,8 +184,8 @@ func (si *ShardIterator) filterRowLocked(row *types.PointRow) *types.PointRow {
 // nextMemRow 获取下一个 MemTable row（已持有锁）
 func (si *ShardIterator) nextMemRowLocked() *types.PointRow {
 	for si.memIter.Next() {
-		p := si.memIter.Point()
-		return si.pointToRow(p, si.memIter.Sid())
+		ip := si.memIter.Point()
+		return si.pointToRow(ip)
 	}
 	return nil
 }

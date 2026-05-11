@@ -34,7 +34,7 @@ func TestShardIterator_MemTableOnly(t *testing.T) {
 	}
 
 	for _, p := range points {
-		if err := shard.memTable.Write(p, 0); err != nil {
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 			t.Fatalf("failed to write point: %v", err)
 		}
 	}
@@ -247,7 +247,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
 	}
 	for _, p := range memPoints {
-		if err := shard.memTable.Write(p, 0); err != nil {
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 			t.Fatalf("failed to write point: %v", err)
 		}
 	}
@@ -361,7 +361,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
 	}
 	for _, p := range memPoints {
-		if err := shard.memTable.Write(p, 0); err != nil {
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 			t.Fatalf("failed to write point: %v", err)
 		}
 	}
@@ -421,7 +421,7 @@ func TestShardIterator_Current(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200))}},
 	}
 	for _, p := range points {
-		if err := shard.memTable.Write(p, 0); err != nil {
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 			t.Fatalf("failed to write point: %v", err)
 		}
 	}
@@ -586,7 +586,7 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
 	}
 	for _, p := range memPoints {
-		if err := shard.memTable.Write(p, 0); err != nil {
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 			t.Fatalf("failed to write point: %v", err)
 		}
 	}
@@ -694,7 +694,7 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
 	}
 	for _, p := range memPoints {
-		if err := shard.memTable.Write(p, 0); err != nil {
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 			t.Fatalf("failed to write point: %v", err)
 		}
 	}
@@ -736,7 +736,7 @@ func TestShardIterator_TimeRangeFilter(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
 	}
 	for _, p := range points {
-		if err := shard.memTable.Write(p, 0); err != nil {
+		if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 			t.Fatalf("failed to write point: %v", err)
 		}
 	}
@@ -812,7 +812,7 @@ func TestShardIterator_NextLocked_AllExhausted(t *testing.T) {
 		Timestamp: 1000,
 		Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))},
 	}
-	if err := shard.memTable.Write(p, 0); err != nil {
+	if err := shard.memTable.Write(types.PointToInternal(p, 0)); err != nil {
 		t.Fatalf("failed to write point: %v", err)
 	}
 

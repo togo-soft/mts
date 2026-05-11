@@ -31,7 +31,7 @@ func TestReader_ReadAll(t *testing.T) {
 		},
 	}
 
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -78,7 +78,7 @@ func TestReader_ReadTimestamps(t *testing.T) {
 		{Timestamp: 2000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)}},
 		{Timestamp: 3000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(95.5)}},
 	}
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -120,7 +120,7 @@ func TestReader_ReadRange_NoIndex(t *testing.T) {
 		{Timestamp: 2000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(90.0)}},
 		{Timestamp: 3000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(95.5)}},
 	}
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -170,7 +170,7 @@ func TestReader_ReadRange_AllFields(t *testing.T) {
 			"bool_val":  types.NewFieldValue(true),
 		}},
 	}
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	schema := w.Schema()
@@ -222,7 +222,7 @@ func TestReader_ReadSids_NotExist(t *testing.T) {
 	points := []*types.Point{
 		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
 	}
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -265,7 +265,7 @@ func TestReader_ReadTimestamps_NotExist(t *testing.T) {
 	points := []*types.Point{
 		{Timestamp: 1000, Tags: map[string]string{"host": "server1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
 	}
-	if err := w.WritePoints(points, nil); err != nil {
+	if err := w.WritePoints(pointsToInternal(points)); err != nil {
 		t.Fatalf("WritePoints failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
