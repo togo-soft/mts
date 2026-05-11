@@ -69,21 +69,13 @@ func (r *Reader) readRangeOptimized(startTime, endTime int64) ([]*types.PointRow
 		return nil, nil
 	}
 
+	// 使用编码感知的字段解码器
 	fields := r.sectionTable.FieldNames()
-	fieldData := make(map[string][]byte)
-	for _, name := range fields {
-		fOffset, fSize := r.sectionTable.Lookup(name)
-		if fSize == 0 {
-			continue
-		}
-		data := make([]byte, fSize)
-		if _, err := r.file.ReadAt(data, int64(fOffset)); err != nil {
-			return nil, err
-		}
-		fieldData[name] = data
+	rowCount := int(r.header.RowCount)
+	decodedFields, err := r.ReadAllDecodedFieldSections(fields, rowCount)
+	if err != nil {
+		return nil, err
 	}
-
-	offsets := r.computeOffsets(fields, fieldData, len(allTimestamps))
 
 	rows := make([]*types.PointRow, 0, len(matchingIndices))
 	for _, idx := range matchingIndices {
@@ -94,7 +86,9 @@ func (r *Reader) readRangeOptimized(startTime, endTime int64) ([]*types.PointRow
 			Fields:    make(map[string]*types.FieldValue),
 		}
 		for _, name := range fields {
-			row.Fields[name] = r.decodeFieldValue(fieldData[name], offsets[name][idx], name)
+			if vals, ok := decodedFields[name]; ok && idx < len(vals) {
+				row.Fields[name] = vals[idx]
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -114,20 +108,10 @@ func (r *Reader) readRangeFullScan(startTime, endTime int64) ([]*types.PointRow,
 	}
 
 	fields := r.sectionTable.FieldNames()
-	fieldData := make(map[string][]byte)
-	for _, name := range fields {
-		fOffset, fSize := r.sectionTable.Lookup(name)
-		if fSize == 0 {
-			continue
-		}
-		data := make([]byte, fSize)
-		if _, err := r.file.ReadAt(data, int64(fOffset)); err != nil {
-			return nil, err
-		}
-		fieldData[name] = data
+	decodedFields, err := r.ReadAllDecodedFieldSections(fields, len(timestamps))
+	if err != nil {
+		return nil, err
 	}
-
-	offsets := r.computeOffsets(fields, fieldData, len(timestamps))
 
 	var rows []*types.PointRow
 	for i, ts := range timestamps {
@@ -139,7 +123,9 @@ func (r *Reader) readRangeFullScan(startTime, endTime int64) ([]*types.PointRow,
 				Fields:    make(map[string]*types.FieldValue),
 			}
 			for _, name := range fields {
-				row.Fields[name] = r.decodeFieldValue(fieldData[name], offsets[name][i], name)
+				if vals, ok := decodedFields[name]; ok && i < len(vals) {
+					row.Fields[name] = vals[i]
+				}
 			}
 			rows = append(rows, row)
 		}

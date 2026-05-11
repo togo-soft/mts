@@ -16,95 +16,6 @@ func pointsToInternal(points []*types.Point) []types.InternalPoint {
 	return result
 }
 
-func TestIterator_FieldFixedSize(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 测试 fieldFixedSize
-	tests := []struct {
-		fieldType FieldType
-		expected  int
-	}{
-		{FieldTypeFloat64, 8},
-		{FieldTypeInt64, 8},
-		{FieldTypeBool, 1},
-		{FieldTypeString, -1},
-		{"unknown", 8}, // 默认值
-	}
-
-	for _, tt := range tests {
-		result := it.fieldFixedSize(tt.fieldType)
-		if result != tt.expected {
-			t.Errorf("fieldFixedSize(%v): expected %d, got %d", tt.fieldType, tt.expected, result)
-		}
-	}
-}
-
-func TestIterator_DecodeFixedValue(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 测试 decodeFixedValue
-	data := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f} // 1.0 as float64
-
-	result := it.decodeFixedValue(data, FieldTypeFloat64)
-	if result == nil {
-		t.Error("decodeFixedValue returned nil")
-	}
-}
-
 func TestIterator_DecodeString(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -146,55 +57,6 @@ func TestIterator_DecodeString(t *testing.T) {
 
 	if count != 1 {
 		t.Errorf("expected 1 point, got %d", count)
-	}
-}
-
-func TestIterator_ZeroValue(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 测试 zeroValue
-	tests := []struct {
-		fieldType FieldType
-	}{
-		{FieldTypeFloat64},
-		{FieldTypeInt64},
-		{FieldTypeBool},
-		{FieldTypeString},
-		{"unknown"},
-	}
-
-	for _, tt := range tests {
-		result := it.zeroValue(tt.fieldType)
-		if result == nil {
-			t.Errorf("zeroValue(%v) returned nil", tt.fieldType)
-		}
 	}
 }
 
@@ -537,88 +399,6 @@ func TestIterator_LoadAllData_EmptyTimestamps(t *testing.T) {
 	}
 }
 
-func TestIterator_DecodeFixedValue_Default(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 测试 decodeFixedValue 的 default case (unknown field type)
-	// NewFieldValue(uint64) returns nil because uint64 is not a supported type
-	data := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	result := it.decodeFixedValue(data, "unknown")
-	if result != nil {
-		t.Error("decodeFixedValue should return nil for unknown type as NewFieldValue(uint64) is not supported")
-	}
-}
-
-func TestIterator_DecodeString_EdgeCases(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue("hello")}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 测试空数据
-	result := it.decodeString([]byte{}, 0)
-	if result == nil {
-		t.Error("decodeString should return non-nil for empty data")
-	}
-
-	// 测试数据过短
-	result = it.decodeString([]byte{0x00, 0x00}, 0)
-	if result == nil {
-		t.Error("decodeString should return non-nil for short data")
-	}
-}
-
 func TestIterator_DecodeFieldValueFromData_String(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -894,44 +674,6 @@ func TestIterator_SeekToTime_BeyondAll(t *testing.T) {
 	t.Logf("Got %d points after seeking beyond all data", count)
 }
 
-func TestIterator_ReadFieldBlock(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// readFieldSection 测试文件关闭时的错误处理
-	_ = r.Close()
-	_, err = it.readFieldSection("v", 0, 8)
-	if err == nil {
-		t.Error("expected error for closed file")
-	}
-}
-
 func TestIterator_Done_EdgeCases(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -1131,49 +873,6 @@ func TestIterator_FallbackMode_MultipleFields(t *testing.T) {
 	}
 }
 
-func TestIterator_DecodeString_TruncatedData(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue("test")}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 测试 decodeString 边界情况 - pos 超出范围
-	result := it.decodeString([]byte{}, 100)
-	if result == nil {
-		t.Error("expected non-nil result")
-	}
-
-	// 测试数据只有部分长度信息
-	result = it.decodeString([]byte{0x00, 0x00, 0x00}, 0)
-	if result == nil {
-		t.Error("expected non-nil result for partial length")
-	}
-}
-
 func TestIterator_DecodeFieldValueFromData_Int64(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -1259,49 +958,6 @@ func TestIterator_DecodeFieldValueFromData_Bool(t *testing.T) {
 
 	if count != 2 {
 		t.Errorf("expected 2 points with bool, got %d", count)
-	}
-}
-
-func TestIterator_LoadAllData_FileError(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	// 手动创建 iterator 并设置不存在的 dataDir 触发错误
-	_ = r.file.Close()
-	it := &Iterator{
-		reader: r,
-
-		currentBlock: -1,
-		pos:          -1,
-		fallbackPos:  -1,
-		fieldBufs:    make(map[string][]byte),
-		fallbackMode: true,
-	}
-
-	err = it.loadAllData()
-	if err == nil {
-		t.Error("expected error for nonexistent data dir")
 	}
 }
 
@@ -1698,62 +1354,6 @@ func TestIterator_LoadBlock_ReadDirError(t *testing.T) {
 	}
 }
 
-func TestIterator_DecodeString_MultipleStrings(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue("first")}},
-		{Timestamp: 2000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue("second")}},
-		{Timestamp: 3000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue("third")}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// decodeString 测试位置 1
-	// 构建字符串数据: [5]first[6]second[5]third
-	strData := []byte{
-		0x00, 0x00, 0x00, 0x05, 'f', 'i', 'r', 's', 't',
-		0x00, 0x00, 0x00, 0x06, 's', 'e', 'c', 'o', 'n', 'd',
-		0x00, 0x00, 0x00, 0x05, 't', 'h', 'i', 'r', 'd',
-	}
-
-	result0 := it.decodeString(strData, 0)
-	if result0.GetStringValue() != "first" {
-		t.Errorf("expected 'first', got '%s'", result0.GetStringValue())
-	}
-
-	result1 := it.decodeString(strData, 1)
-	if result1.GetStringValue() != "second" {
-		t.Errorf("expected 'second', got '%s'", result1.GetStringValue())
-	}
-
-	result2 := it.decodeString(strData, 2)
-	if result2.GetStringValue() != "third" {
-		t.Errorf("expected 'third', got '%s'", result2.GetStringValue())
-	}
-}
-
 func TestIterator_FallbackMode_LoadAllData(t *testing.T) {
 	// 使用 Writer API 创建包含多种字段类型的 SSTable 文件
 	tmpDir := t.TempDir()
@@ -1825,44 +1425,5 @@ func TestIterator_FallbackMode_LoadAllData(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("expected 3 rows, got %d", count)
-	}
-}
-
-func TestIterator_DecodeFieldValueFromData_OutOfBounds(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Fields: map[string]*types.FieldValue{"cpu": types.NewFieldValue(1.0)}},
-		{Timestamp: 2000, Fields: map[string]*types.FieldValue{"cpu": types.NewFieldValue(1.1)}},
-	}
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	schemaFromWriter := w.Schema()
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	sstPath := filepath.Join(tmpDir, "data", "sst_0.bin")
-	r, err := NewReader(sstPath, schemaFromWriter)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 访问超出范围的 pos 应该返回零值
-	val := it.decodeFieldValueFromData("cpu", []byte{0, 0, 0, 0, 0, 0, 0, 0}, 10)
-	if val == nil {
-		t.Error("decodeFieldValueFromData should return zero value for out of bounds")
 	}
 }

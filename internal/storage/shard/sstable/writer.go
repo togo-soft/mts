@@ -45,10 +45,10 @@ type Writer struct {
 	schema     Schema
 	blockIndex *BlockIndex
 
-	buf      []byte
-	bufPos   int
-	firstTs  int64
-	rowCount uint32
+	buf       []byte
+	bufPos    int
+	firstTs   int64
+	rowCount  uint32
 	totalRows uint32
 
 	sidBuf     []uint64

@@ -109,72 +109,46 @@ func (r *Reader) SidsOffset() uint64 {
 	return r.header.SidsOffset
 }
 
-// ReadAll 读取 SSTable 中的所有数据。
+// ReadAll 读取 SSTable 中的所有数据，使用编码感知的解码器。
 func (r *Reader) ReadAll(fields []string) ([]*types.PointRow, error) {
-	tsOffset, _, _ := r.sectionTable.LookupByType(SectionTimestamps)
-	sidOffset, _, _ := r.sectionTable.LookupByType(SectionSids)
 	rowCount := int(r.header.RowCount)
 
-	timestamps := make([]int64, rowCount)
-	tsData := make([]byte, rowCount*8)
-	if _, err := r.file.ReadAt(tsData, int64(tsOffset)); err != nil {
+	timestamps, err := r.readTimestamps()
+	if err != nil {
 		return nil, err
 	}
-	for i := 0; i < rowCount; i++ {
-		timestamps[i] = int64(binary.BigEndian.Uint64(tsData[i*8:]))
-	}
-
-	sids := make([]uint64, rowCount)
-	sidData := make([]byte, rowCount*8)
-	if n, _ := r.file.ReadAt(sidData, int64(sidOffset)); n == rowCount*8 {
-		for i := 0; i < rowCount; i++ {
-			sids[i] = binary.BigEndian.Uint64(sidData[i*8:])
-		}
+	sids, err := r.readSids(rowCount)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(fields) == 0 {
 		fields = r.sectionTable.FieldNames()
 	}
 
-	fieldData := make(map[string][]byte)
-	for _, name := range fields {
-		fOffset, fSize := r.sectionTable.Lookup(name)
-		if fSize == 0 {
-			continue
-		}
-		data := make([]byte, fSize)
-		if _, err := r.file.ReadAt(data, int64(fOffset)); err != nil {
-			return nil, err
-		}
-		fieldData[name] = data
+	decodedFields, err := r.ReadAllDecodedFieldSections(fields, rowCount)
+	if err != nil {
+		return nil, err
 	}
-
-	offsets := r.computeOffsets(fields, fieldData, rowCount)
 
 	rows := make([]*types.PointRow, rowCount)
 	for i := 0; i < rowCount; i++ {
 		row := &types.PointRow{
-			Sid:       sids[i],
 			Timestamp: timestamps[i],
-			Tags:      nil,
 			Fields:    make(map[string]*types.FieldValue),
 		}
+		if i < len(sids) {
+			row.Sid = sids[i]
+		}
 		for _, name := range fields {
-			row.Fields[name] = r.decodeFieldValue(fieldData[name], offsets[name][i], name)
+			if vals, ok := decodedFields[name]; ok && i < len(vals) {
+				row.Fields[name] = vals[i]
+			}
 		}
 		rows[i] = row
 	}
 
 	return rows, nil
-}
-
-// computeOffsets 预计算每个字段每个条目的字节偏移量。
-func (r *Reader) computeOffsets(fields []string, fieldData map[string][]byte, rowCount int) map[string][]int {
-	offsets := make(map[string][]int)
-	for _, name := range fields {
-		offsets[name] = r.computeFieldOffsets(name, fieldData[name], rowCount)
-	}
-	return offsets
 }
 
 // computeFieldOffsets 计算单个字段所有条目的字节偏移量。
@@ -210,7 +184,7 @@ func (r *Reader) fieldSize(data []byte, fieldType FieldType) int {
 	}
 }
 
-// decodeFieldValue 解码字段值。
+// decodeFieldValue 解码字段值（用于原始编码）。
 func (r *Reader) decodeFieldValue(data []byte, offset int, fieldName string) *types.FieldValue {
 	fieldType := r.schema.Fields[fieldName]
 

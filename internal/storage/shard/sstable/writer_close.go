@@ -3,12 +3,12 @@ package sstable
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"codeberg.org/micro-ts/mts/internal/storage"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/compression"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -49,27 +49,17 @@ func (w *Writer) flushBlock() error {
 	return nil
 }
 
-// Close 关闭 Writer，合并临时文件到单一 .bin 文件。
+// Close 关闭 Writer，编码并合并临时文件到单一 .bin 文件。
 func (w *Writer) Close() error {
 	if err := w.flushBlock(); err != nil {
 		return fmt.Errorf("flush block: %w", err)
 	}
 
 	// 关闭所有临时文件
-	if w.timestamp != nil {
-		if err := w.timestamp.Close(); err != nil {
-			return fmt.Errorf("close timestamp temp: %w", err)
-		}
-	}
-	if w.sids != nil {
-		if err := w.sids.Close(); err != nil {
-			return fmt.Errorf("close sids temp: %w", err)
-		}
-	}
-	for name, f := range w.fields {
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close field temp %s: %w", name, err)
-		}
+	_ = w.timestamp.Close()
+	_ = w.sids.Close()
+	for _, f := range w.fields {
+		_ = f.Close()
 	}
 
 	// 获取字段名并按字典序排序
@@ -99,41 +89,56 @@ func (w *Writer) Close() error {
 		return cleanupErr()
 	}
 
+	rowCount := int(w.totalRows)
+
 	// 跟踪各段偏移量和大小
 	var timestampsOffset, timestampsSize uint64
 	var sidsOffset, sidsSize uint64
 	type fieldInfo struct {
-		offset uint64
-		size   uint64
+		offset   uint64
+		size     uint64
+		encoding EncodingType
 	}
 	fieldInfoMap := make(map[string]fieldInfo)
 
-	// 计算当前写位置（header 之后）
 	currentOffset := uint64(HeaderSize)
 
-	// 1. 合并 timestamps
+	// 1. 编码并写入 timestamps
 	timestampsOffset = currentOffset
-	timestampsSize, err = copyFile(outFile, filepath.Join(w.tmpDir, "_timestamps.bin"))
+	timestampsEncoded, tsEncoding, err := w.encodeTimestampsSection(rowCount)
 	if err != nil {
 		return cleanupErr()
 	}
+	if _, err := outFile.Write(timestampsEncoded); err != nil {
+		return cleanupErr()
+	}
+	timestampsSize = uint64(len(timestampsEncoded))
 	currentOffset += timestampsSize
 
-	// 2. 合并 sids
+	// 2. 编码并写入 sids
 	sidsOffset = currentOffset
-	sidsSize, err = copyFile(outFile, filepath.Join(w.tmpDir, "_sids.bin"))
+	sidsEncoded, err := w.encodeSidsSection(rowCount)
 	if err != nil {
 		return cleanupErr()
 	}
+	if _, err := outFile.Write(sidsEncoded); err != nil {
+		return cleanupErr()
+	}
+	sidsSize = uint64(len(sidsEncoded))
 	currentOffset += sidsSize
 
-	// 3. 合并每个 field（按字典序）
+	// 3. 编码并写入每个 field
 	for _, name := range fieldNames {
 		fi := fieldInfo{offset: currentOffset}
-		fi.size, err = copyFile(outFile, filepath.Join(w.tmpDir, "fields", name+".bin"))
+		encoded, enc, err := w.encodeFieldSection(name, rowCount)
 		if err != nil {
 			return cleanupErr()
 		}
+		if _, err := outFile.Write(encoded); err != nil {
+			return cleanupErr()
+		}
+		fi.size = uint64(len(encoded))
+		fi.encoding = enc
 		fieldInfoMap[name] = fi
 		currentOffset += fi.size
 	}
@@ -152,15 +157,15 @@ func (w *Writer) Close() error {
 	// 5. 构建 Section Table
 	sectionTable := SectionTable{
 		Entries: []SectionEntry{
-			{Type: SectionTimestamps, Name: "_timestamps", Offset: timestampsOffset, Size: timestampsSize},
-			{Type: SectionSids, Name: "_sids", Offset: sidsOffset, Size: sidsSize},
-			{Type: SectionIndex, Name: "_index", Offset: blockIndexOffset, Size: uint64(len(indexData))},
+			{Type: SectionTimestamps, Name: "_timestamps", Offset: timestampsOffset, Size: timestampsSize, Encoding: tsEncoding},
+			{Type: SectionSids, Name: "_sids", Offset: sidsOffset, Size: sidsSize, Encoding: EncodingVarint},
+			{Type: SectionIndex, Name: "_index", Offset: blockIndexOffset, Size: uint64(len(indexData)), Encoding: EncodingRaw},
 		},
 	}
 	for _, name := range fieldNames {
 		fi := fieldInfoMap[name]
 		sectionTable.Entries = append(sectionTable.Entries, SectionEntry{
-			Type: SectionField, Name: name, Offset: fi.offset, Size: fi.size,
+			Type: SectionField, Name: name, Offset: fi.offset, Size: fi.size, Encoding: fi.encoding,
 		})
 	}
 
@@ -201,22 +206,70 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// copyFile 将源文件内容拷贝到目标文件，返回拷贝的字节数。
-func copyFile(dst *os.File, srcPath string) (uint64, error) {
-	f, err := os.Open(srcPath)
+// encodeTimestampsSection 读取并编码时间戳。
+func (w *Writer) encodeTimestampsSection(rowCount int) ([]byte, EncodingType, error) {
+	rawPath := filepath.Join(w.tmpDir, "_timestamps.bin")
+	raw, err := os.ReadFile(rawPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("open src %s: %w", srcPath, err)
+		return nil, EncodingRaw, fmt.Errorf("read timestamps temp: %w", err)
 	}
-	defer func() { _ = f.Close() }()
+	values := compression.ExtractInt64Data(raw, rowCount)
+	encoded := compression.EncodeTimestamps(values)
+	return encoded, EncodingDeltaVarint, nil
+}
 
-	n, err := io.Copy(dst, f)
+// encodeSidsSection 读取并编码 SID。
+func (w *Writer) encodeSidsSection(rowCount int) ([]byte, error) {
+	rawPath := filepath.Join(w.tmpDir, "_sids.bin")
+	raw, err := os.ReadFile(rawPath)
 	if err != nil {
-		return 0, fmt.Errorf("copy %s: %w", srcPath, err)
+		return nil, fmt.Errorf("read sids temp: %w", err)
 	}
-	return uint64(n), nil
+	values := compression.ExtractUint64Data(raw, rowCount)
+	encoded := compression.EncodeSids(values)
+	return encoded, nil
+}
+
+// encodeFieldSection 读取并编码字段段。
+func (w *Writer) encodeFieldSection(name string, rowCount int) ([]byte, EncodingType, error) {
+	ft := w.schema.Fields[name]
+	rawPath := filepath.Join(w.tmpDir, "fields", name+".bin")
+	raw, err := os.ReadFile(rawPath)
+	if err != nil {
+		return nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
+	}
+
+	var encoded []byte
+	var enc EncodingType
+
+	switch ft {
+	case FieldTypeFloat64:
+		values := compression.ExtractFloat64Data(raw, rowCount)
+		encoded = compression.EncodeFloat64Values(values)
+		enc = EncodingXORFloat
+	case FieldTypeInt64:
+		values := compression.ExtractInt64Data(raw, rowCount)
+		encoded = compression.EncodeInt64Values(values)
+		enc = EncodingZigZagVarint
+	case FieldTypeString:
+		values := compression.ExtractStringData(raw, rowCount)
+		var isDict bool
+		encoded, isDict = compression.EncodeStringValues(values)
+		if isDict {
+			enc = EncodingDictString
+		} else {
+			enc = EncodingRaw
+		}
+	case FieldTypeBool:
+		values := compression.ExtractBoolData(raw, rowCount)
+		encoded = compression.EncodeBoolValues(values)
+		enc = EncodingBitmapBool
+	default:
+		encoded = raw
+		enc = EncodingRaw
+	}
+
+	return encoded, enc, nil
 }
 
 // encodeBlockIndex 将 BlockIndex 序列化为字节。
@@ -224,7 +277,6 @@ func (w *Writer) encodeBlockIndex() ([]byte, error) {
 	idx := w.blockIndex
 	count := idx.Len()
 
-	// header: magic(8) + version(4) + count(4)
 	size := 16 + count*24
 	buf := make([]byte, 0, size)
 

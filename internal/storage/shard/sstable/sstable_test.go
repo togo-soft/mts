@@ -31,7 +31,7 @@ func TestIterator_SeekToTime(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestIterator_SeekToTime_BeforeFirst(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestIterator_CurrentBlockTimestamps(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestIterator_Done(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestReader_ReadRange(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestReader_ReadRange_All(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestReader_ReadRange_Empty(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestWriter_DetectFieldType(t *testing.T) {
 	}
 
 	// 验证能正常读取
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestWriter_AppendZeroValue(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestReader_HasBlockIndex(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -594,7 +594,7 @@ func TestIterator_MultipleBlocks(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -941,7 +941,7 @@ func TestReader_FieldSize_AllTypes(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1042,7 +1042,7 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
+	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), w.Schema())
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1054,24 +1054,26 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
+	_ = it
+	_ = r
 
-	// 测试 int64 类型的解码
+	// 使用 Reader.decodeFieldValue 测试 int64 解码
 	data := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64} // 100
-	result := it.decodeFixedValue(data, FieldTypeInt64)
+	result := r.decodeFieldValue(data, 0, "v")
 	if result == nil || result.GetIntValue() != 100 {
 		t.Errorf("expected int64 100, got %v", result)
 	}
 
-	// 测试 bool true
+	// 测试 bool 解码（修改 schema 中的 v 类型为 bool）
+	r.schema.Fields["v"] = FieldTypeBool
 	data = []byte{0x01}
-	result = it.decodeFixedValue(data, FieldTypeBool)
+	result = r.decodeFieldValue(data, 0, "v")
 	if result == nil || !result.GetBoolValue() {
 		t.Error("expected bool true")
 	}
 
-	// 测试 bool false
 	data = []byte{0x00}
-	result = it.decodeFixedValue(data, FieldTypeBool)
+	result = r.decodeFieldValue(data, 0, "v")
 	if result == nil || result.GetBoolValue() {
 		t.Error("expected bool false")
 	}

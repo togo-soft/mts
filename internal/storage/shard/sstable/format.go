@@ -80,10 +80,11 @@ func UnmarshalFileHeader(data [HeaderSize]byte) (FileHeader, error) {
 
 // SectionEntry 描述文件中一个段的元数据。
 type SectionEntry struct {
-	Type   SectionType
-	Name   string // 仅字段段有值
-	Offset uint64
-	Size   uint64
+	Type     SectionType
+	Name     string // 仅字段段有值
+	Offset   uint64
+	Size     uint64
+	Encoding EncodingType
 }
 
 // SectionTable 是文件末尾的段目录。
@@ -91,12 +92,12 @@ type SectionTable struct {
 	Entries []SectionEntry
 }
 
-// sectionEntrySize 每个 entry 的固定开销 (Type+NameLen+Offset+Size)。
-const sectionEntrySize = 18
+// sectionEntrySize 每个 entry 的固定开销 (Type+Encoding+NameLen+Offset+Size)。
+const sectionEntrySize = 19
 
 // Marshal 序列化 SectionTable。
 // 格式: [count:2B][reserved:2B][entries...]
-// 每个 entry: [type:1B][nameLen:1B][offset:8B][size:8B][name:nameLen]
+// 每个 entry: [type:1B][encoding:1B][nameLen:1B][offset:8B][size:8B][name:nameLen]
 func (st *SectionTable) Marshal() []byte {
 	nameLenSum := 0
 	for _, e := range st.Entries {
@@ -110,7 +111,7 @@ func (st *SectionTable) Marshal() []byte {
 	buf = append(buf, 0, 0) // reserved
 
 	for _, e := range st.Entries {
-		buf = append(buf, byte(e.Type), byte(len(e.Name)))
+		buf = append(buf, byte(e.Type), byte(e.Encoding), byte(len(e.Name)))
 		var off [8]byte
 		binary.BigEndian.PutUint64(off[:], e.Offset)
 		buf = append(buf, off[:]...)
@@ -137,12 +138,13 @@ func UnmarshalSectionTable(data []byte) (SectionTable, error) {
 			return SectionTable{}, fmt.Errorf("section table truncated at entry %d", i)
 		}
 		e := SectionEntry{
-			Type:   SectionType(data[pos]),
-			Name:   "",
-			Offset: binary.BigEndian.Uint64(data[pos+2 : pos+10]),
-			Size:   binary.BigEndian.Uint64(data[pos+10 : pos+18]),
+			Type:     SectionType(data[pos]),
+			Encoding: EncodingType(data[pos+1]),
+			Name:     "",
+			Offset:   binary.BigEndian.Uint64(data[pos+3 : pos+11]),
+			Size:     binary.BigEndian.Uint64(data[pos+11 : pos+19]),
 		}
-		nameLen := int(data[pos+1])
+		nameLen := int(data[pos+2])
 		pos += sectionEntrySize
 		if nameLen > 0 {
 			if pos+nameLen > len(data) {
@@ -185,4 +187,14 @@ func (st *SectionTable) FieldNames() []string {
 		}
 	}
 	return names
+}
+
+// LookupEncoding 按名称查找段编码。未找到返回 EncodingRaw。
+func (st *SectionTable) LookupEncoding(name string) EncodingType {
+	for _, e := range st.Entries {
+		if e.Name == name {
+			return e.Encoding
+		}
+	}
+	return EncodingRaw
 }
