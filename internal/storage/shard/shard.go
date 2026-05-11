@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
@@ -120,8 +121,10 @@ type Shard struct {
 	flushDone       chan struct{} // MemTable 定期刷盘停止信号
 	flushTicker     *time.Ticker
 	flushWg         sync.WaitGroup
-	closeOnce       sync.Once // 防止 Close 重复调用
-	replaying       bool      // 表示当前是否正在 replay WAL
+	compactionWg    sync.WaitGroup // 等待后台 compaction goroutine 完成
+	closeOnce       sync.Once      // 防止 Close 重复调用
+	closed          atomic.Bool    // 标记 Shard 已关闭
+	replaying       bool           // 表示当前是否正在 replay WAL
 	seriesStore     SeriesStore
 	schemaStore     SchemaStore
 	schema          *metadata.Schema // 内存 schema 缓存

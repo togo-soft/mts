@@ -17,8 +17,10 @@ import (
 //  3. 刷盘 MemTable 数据到 SSTable
 //  4. WAL 清理（仅当 flush 成功时）
 //  5. 关闭 WAL
-//  6. 停止 Compaction Manager
-//  7. 停止 Level Compaction Manager
+//  6. 标记 closed，阻止新的后台 compaction
+//  7. 停止 Compaction Manager
+//  8. 停止 Level Compaction Manager
+//  9. 等待所有后台 compaction goroutine 完成
 //
 // 错误处理：
 //
@@ -123,17 +125,23 @@ func (s *Shard) Close() error {
 			slog.Info("Shard.Close: WAL closed and purged")
 		}
 
-		slog.Info("Shard.Close: completed")
+		// 6. 标记关闭，阻止新的后台 compaction 触发
+		s.closed.Store(true)
 
-		// 6. 停止 Compaction Manager
+		// 7. 停止 Compaction Manager（阻止新的周期性触发）
 		if s.compaction != nil {
 			s.compaction.Stop()
 		}
 
-		// 7. 停止 Level Compaction Manager
+		// 8. 停止 Level Compaction Manager
 		if s.levelCompaction != nil {
 			s.levelCompaction.Stop()
 		}
+
+		// 9. 等待所有后台 compaction goroutine 完成
+		s.compactionWg.Wait()
+
+		slog.Info("Shard.Close: completed")
 	})
 	return err
 }

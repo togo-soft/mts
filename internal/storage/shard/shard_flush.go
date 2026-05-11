@@ -148,20 +148,38 @@ func (s *Shard) calcPointTimeRange(points []types.InternalPoint) (int64, int64) 
 
 // triggerBackgroundCompaction 在后台触发 compaction。
 func (s *Shard) triggerBackgroundCompaction() {
+	if s.closed.Load() {
+		return
+	}
+
 	if s.levelCompaction != nil && s.levelCompaction.ShouldCompact() {
+		s.compactionWg.Add(1)
 		go func() {
+			defer s.compactionWg.Done()
+			if s.closed.Load() {
+				return
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), s.levelCompaction.Timeout())
 			defer cancel()
 			if _, _, err := s.levelCompaction.Compact(ctx); err != nil {
-				slog.Error("background level compaction failed", "error", err)
+				if !s.closed.Load() {
+					slog.Error("background level compaction failed", "error", err)
+				}
 			}
 		}()
 	} else if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
+		s.compactionWg.Add(1)
 		go func() {
+			defer s.compactionWg.Done()
+			if s.closed.Load() {
+				return
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), s.compaction.Timeout())
 			defer cancel()
 			if _, _, err := s.compaction.Compact(ctx); err != nil {
-				slog.Error("background compaction failed", "error", err)
+				if !s.closed.Load() {
+					slog.Error("background compaction failed", "error", err)
+				}
 			} else {
 				s.compaction.ResetTimer()
 			}

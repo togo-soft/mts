@@ -1,96 +1,100 @@
 // tests/e2e/query_1m/main.go
+// 查询端测用例：1M 数据写入 → 多次刷盘 → Compaction 合并 → 分页查询延迟/内存分析
 package main
 
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/framework"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 func main() {
-	tmpDir := filepath.Join(os.TempDir(), "microts_query_1m")
-	_ = os.RemoveAll(tmpDir)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	cfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          3000,
-			IdleDurationNanos: int64(10 * time.Second),
-		},
-	}
-
-	db, err := microts.Open(cfg)
-	if err != nil {
-		fmt.Printf("Open failed: %v\n", err)
-		os.Exit(1)
-	}
-	defer func() { _ = db.Close() }()
-
-	// 先写入 1M 数据
-	gen := data_gen.NewDataGenerator(42)
-	baseTime := time.Now().UnixNano()
 	const count = 1000000
+	const pointInterval = int64(100 * time.Microsecond) // 集中在 1 个 Shard
+	maxCount := int32(count / 6)
+
+	h, err := framework.NewTestHarness("query_1m",
+		framework.WithMaxCount(maxCount),
+		framework.WithIdleDuration(1*time.Minute),
+		framework.WithCompaction(3, 5*time.Second),
+	)
+	if err != nil {
+		fmt.Printf("FAIL: setup: %v\n", err)
+		return
+	}
+	defer func() { _ = h.Close() }()
+
+	gen := data_gen.NewDataGenerator(42)
+	baseTime := h.StartTime()
+	endTime := baseTime + int64(count)*pointInterval
 
 	metrics.GC()
-	memBeforeWrite := metrics.ReadMemStats()
+	memBefore := metrics.ReadMemStats()
+
+	fmt.Printf("Query 1M Benchmark\n")
+	fmt.Printf("==================\n")
+	fmt.Printf("Total points:   %d\n", count)
+	fmt.Printf("MaxCount/flush: %d (~%d flushes)\n\n", maxCount, count/int(maxCount))
 
 	for i := 0; i < count; i++ {
-		ts := baseTime + int64(i)*int64(time.Second)
-		p := gen.GeneratePoint("db1", "cpu", ts)
-		if err := db.Write(context.Background(), p); err != nil {
-			fmt.Printf("Write failed at %d: %v\n", i, err)
-			os.Exit(1)
+		ts := baseTime + int64(i)*pointInterval
+		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
+		if err := h.DB().Write(context.Background(), p); err != nil {
+			fmt.Printf("FAIL: write at %d: %v\n", i, err)
+			return
 		}
 	}
 
 	metrics.GC()
 	memAfterWrite := metrics.ReadMemStats()
-	writeDelta := metrics.CalcDelta(memBeforeWrite, memAfterWrite)
+	writeDelta := metrics.CalcDelta(memBefore, memAfterWrite)
+	fmt.Printf("Write: %s, Δ: %s\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
+	fmt.Printf("SSTables after write: %d\n\n", h.SSTableCount())
 
-	fmt.Printf("Write 1M: %d points\n", count)
-	fmt.Printf("After write: %s, Δ: %s\n\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
+	fmt.Println("Waiting for compaction...")
+	_ = h.WaitForCompaction(10, 120*time.Second)
+	time.Sleep(5 * time.Second)
 
-	// 等待 15 秒确保 idle flush 触发
-	fmt.Printf("Waiting 15s for idle flush to trigger...\n")
-	time.Sleep(15 * time.Second)
+	sstCount := h.SSTableCount()
+	diskBytes := h.DiskUsage()
+	fmt.Printf("SSTables after compaction: %d\n", sstCount)
+	fmt.Printf("Disk usage: %.2f MB (%.2f bytes/point)\n\n",
+		float64(diskBytes)/(1024*1024), float64(diskBytes)/float64(count))
 
-	// 查询（使用分页策略：每次查询 2000 条）
 	metrics.GC()
 	memBeforeQuery := metrics.ReadMemStats()
-	fmt.Printf("Before query: %s\n", metrics.FormatMemStats(memBeforeQuery))
 
 	const queryLimit = 2000
 	timer := metrics.NewTimer()
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
-		Database:    "db1",
-		Measurement: "cpu",
+	resp, err := h.DB().QueryRange(context.Background(), &types.QueryRangeRequest{
+		Database:    h.Config().DBName,
+		Measurement: h.Config().MeasurementName,
 		StartTime:   baseTime,
-		EndTime:     baseTime + int64(count)*int64(time.Second),
+		EndTime:     endTime,
 		Offset:      0,
 		Limit:       queryLimit,
 	})
 	elapsed := timer.Elapsed()
 
 	if err != nil {
-		fmt.Printf("Query failed: %v\n", err)
-		os.Exit(1)
+		fmt.Printf("FAIL: query: %v\n", err)
+		return
 	}
 
 	metrics.GC()
 	memAfterQuery := metrics.ReadMemStats()
 	queryDelta := metrics.CalcDelta(memBeforeQuery, memAfterQuery)
 
-	fmt.Printf("Query 1M (paginated): %d rows in %v, TPS: %.2f (limit=%d)\n", len(resp.Rows), elapsed, metrics.TPS(len(resp.Rows), elapsed), queryLimit)
-	fmt.Printf("After query: %s\n", metrics.FormatMemStats(memAfterQuery))
-	fmt.Printf("Query memory delta: %s\n", queryDelta.Format())
+	fmt.Printf("=== Query Result (paginated, limit=%d) ===\n", queryLimit)
+	fmt.Printf("Rows returned:  %d\n", len(resp.Rows))
+	fmt.Printf("Query latency:  %v\n", elapsed)
+	fmt.Printf("Query TPS:      %.2f\n", metrics.TPS(len(resp.Rows), elapsed))
+	fmt.Printf("Memory before:  %s\n", metrics.FormatMemStats(memBeforeQuery))
+	fmt.Printf("Memory after:   %s\n", metrics.FormatMemStats(memAfterQuery))
+	fmt.Printf("Memory delta:   %s\n", queryDelta.Format())
 }

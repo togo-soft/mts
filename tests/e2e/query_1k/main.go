@@ -1,4 +1,5 @@
 // tests/e2e/query_1k/main.go
+// 查询端测用例：1K 数据写入 → 多次刷盘 → Compaction 合并 → 查询延迟/内存分析
 package main
 
 import (
@@ -12,49 +13,67 @@ import (
 )
 
 func main() {
-	h, err := framework.NewTestHarness("query_1k")
+	const count = 1000
+	const pointInterval = int64(100 * time.Microsecond) // 集中在 1 个 Shard
+	maxCount := int32(count / 6) // 确保 6+ 次刷盘
+
+	h, err := framework.NewTestHarness("query_1k",
+		framework.WithMaxCount(maxCount),
+		framework.WithIdleDuration(1*time.Minute),
+		framework.WithCompaction(3, 3*time.Second), // MaxParts=3 更容易触发
+	)
 	if err != nil {
-		fmt.Printf("Setup failed: %v\n", err)
+		fmt.Printf("FAIL: setup: %v\n", err)
 		return
 	}
 	defer func() { _ = h.Close() }()
 
 	gen := data_gen.NewDataGenerator(42)
 	baseTime := h.StartTime()
-	const count = 1000
+	endTime := baseTime + int64(count)*pointInterval
 
 	metrics.GC()
-	memBeforeWrite := metrics.ReadMemStats()
+	memBefore := metrics.ReadMemStats()
+
+	fmt.Printf("Query 1K Benchmark\n")
+	fmt.Printf("==================\n")
+	fmt.Printf("Total points:   %d\n", count)
+	fmt.Printf("MaxCount/flush: %d (~%d flushes)\n\n", maxCount, count/int(maxCount))
 
 	for i := 0; i < count; i++ {
-		ts := baseTime + int64(i)*int64(time.Second)
+		ts := baseTime + int64(i)*pointInterval
 		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
 		if err := h.DB().Write(context.Background(), p); err != nil {
-			fmt.Printf("Write failed at %d: %v\n", i, err)
+			fmt.Printf("FAIL: write at %d: %v\n", i, err)
 			return
 		}
 	}
 
 	metrics.GC()
 	memAfterWrite := metrics.ReadMemStats()
-	writeDelta := metrics.CalcDelta(memBeforeWrite, memAfterWrite)
+	writeDelta := metrics.CalcDelta(memBefore, memAfterWrite)
+	fmt.Printf("Write: %s, Δ: %s\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
+	fmt.Printf("SSTables after write: %d\n\n", h.SSTableCount())
 
-	fmt.Printf("Write 1K: %d points\n", count)
-	fmt.Printf("After write: %s, Δ: %s\n\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
+	fmt.Println("Waiting for compaction...")
+	_ = h.WaitForCompaction(4, 30*time.Second)
+	time.Sleep(2 * time.Second)
 
-	fmt.Printf("Waiting 15s for idle flush to trigger...\n")
-	time.Sleep(15 * time.Second)
+	sstCount := h.SSTableCount()
+	diskBytes := h.DiskUsage()
+	fmt.Printf("SSTables after compaction: %d\n", sstCount)
+	fmt.Printf("Disk usage: %.2f KB (%.2f bytes/point)\n\n",
+		float64(diskBytes)/1024, float64(diskBytes)/float64(count))
 
 	metrics.GC()
 	memBeforeQuery := metrics.ReadMemStats()
-	fmt.Printf("Before query: %s\n", metrics.FormatMemStats(memBeforeQuery))
 
 	timer := metrics.NewTimer()
-	resp, err := h.QueryRange(context.Background(), baseTime, baseTime+int64(count)*int64(time.Second))
+	resp, err := h.QueryRange(context.Background(), baseTime, endTime)
 	elapsed := timer.Elapsed()
 
 	if err != nil {
-		fmt.Printf("Query failed: %v\n", err)
+		fmt.Printf("FAIL: query: %v\n", err)
 		return
 	}
 
@@ -62,7 +81,11 @@ func main() {
 	memAfterQuery := metrics.ReadMemStats()
 	queryDelta := metrics.CalcDelta(memBeforeQuery, memAfterQuery)
 
-	fmt.Printf("Query 1K: %d rows in %v, TPS: %.2f\n", len(resp.Rows), elapsed, metrics.TPS(len(resp.Rows), elapsed))
-	fmt.Printf("After query: %s\n", metrics.FormatMemStats(memAfterQuery))
-	fmt.Printf("Query memory delta: %s\n", queryDelta.Format())
+	fmt.Printf("=== Query Result ===\n")
+	fmt.Printf("Rows returned:  %d\n", len(resp.Rows))
+	fmt.Printf("Query latency:  %v\n", elapsed)
+	fmt.Printf("Query TPS:      %.2f\n", metrics.TPS(len(resp.Rows), elapsed))
+	fmt.Printf("Memory before:  %s\n", metrics.FormatMemStats(memBeforeQuery))
+	fmt.Printf("Memory after:   %s\n", metrics.FormatMemStats(memAfterQuery))
+	fmt.Printf("Memory delta:   %s\n", queryDelta.Format())
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
@@ -14,27 +15,31 @@ import (
 
 // Config 数据库配置选项
 type Config struct {
-	DBName                 string
-	MeasurementName        string
-	ShardDuration          time.Duration
-	MaxSize                int64
-	MaxCount               int32
-	IdleDurationNanos      int64
-	RetentionPeriod        time.Duration
-	RetentionCheckInterval time.Duration
+	DBName                  string
+	MeasurementName         string
+	ShardDuration           time.Duration
+	MaxSize                 int64
+	MaxCount                int32
+	IdleDurationNanos       int64
+	RetentionPeriod         time.Duration
+	RetentionCheckInterval  time.Duration
+	CompactionMaxParts      int // 0 使用默认值 4
+	CompactionCheckInterval time.Duration
 }
 
 // DefaultConfig 返回默认配置
 func DefaultConfig(name string) *Config {
 	return &Config{
-		DBName:                 "db1",
-		MeasurementName:        "cpu",
-		ShardDuration:          time.Hour,
-		MaxSize:                64 * 1024 * 1024,
-		MaxCount:               3000,
-		IdleDurationNanos:      int64(10 * time.Second),
-		RetentionPeriod:        0,         // 默认不启用 retention
-		RetentionCheckInterval: time.Hour, // 默认检查间隔 1 小时
+		DBName:                  "db1",
+		MeasurementName:         "cpu",
+		ShardDuration:           time.Hour,
+		MaxSize:                 64 * 1024 * 1024,
+		MaxCount:                3000,
+		IdleDurationNanos:       int64(10 * time.Second),
+		RetentionPeriod:         0,
+		RetentionCheckInterval:  time.Hour,
+		CompactionMaxParts:      4,
+		CompactionCheckInterval: 10 * time.Second,
 	}
 }
 
@@ -64,6 +69,17 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("microts_%s", name))
 	_ = os.RemoveAll(tmpDir)
 
+	var compCfg *types.CompactionConfig
+	if cfg.CompactionMaxParts > 0 {
+		compCfg = &types.CompactionConfig{
+			MaxSSTableCount:    cfg.CompactionMaxParts,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckInterval:      cfg.CompactionCheckInterval,
+			Timeout:            30 * time.Minute,
+		}
+	}
+
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
 		ShardDuration: cfg.ShardDuration,
@@ -72,6 +88,7 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 			MaxCount:          cfg.MaxCount,
 			IdleDurationNanos: cfg.IdleDurationNanos,
 		},
+		CompactionCfg:          compCfg,
 		RetentionPeriod:        cfg.RetentionPeriod,
 		RetentionCheckInterval: cfg.RetentionCheckInterval,
 	}
@@ -196,6 +213,43 @@ func (h *TestHarness) VerifyDataIntegrity(count int, interval time.Duration) err
 	return nil
 }
 
+// SSTableCount 统计 .bin 文件数量
+func (h *TestHarness) SSTableCount() int {
+	n := 0
+	_ = filepath.Walk(h.DataDir(), func(_ string, fi os.FileInfo, _ error) error {
+		if fi != nil && !fi.IsDir() && strings.HasSuffix(fi.Name(), ".bin") {
+			n++
+		}
+		return nil
+	})
+	return n
+}
+
+// DiskUsage 返回数据目录磁盘占用（字节）
+func (h *TestHarness) DiskUsage() int64 {
+	var total int64
+	_ = filepath.Walk(h.DataDir(), func(_ string, fi os.FileInfo, _ error) error {
+		if fi != nil && !fi.IsDir() {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// WaitForCompaction 等待 compaction 完成（SSTable 数量 ≤ maxParts 或超时）
+func (h *TestHarness) WaitForCompaction(maxParts int, maxWait time.Duration) (finalCount int) {
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		n := h.SSTableCount()
+		if n > 0 && n <= maxParts {
+			return n
+		}
+	}
+	return h.SSTableCount()
+}
+
 // WithConfig 自定义配置选项
 func WithConfig(cfg *Config) func(*Config) {
 	return func(c *Config) {
@@ -235,5 +289,13 @@ func WithRetentionPeriod(d time.Duration) func(*Config) {
 func WithRetentionCheckInterval(d time.Duration) func(*Config) {
 	return func(c *Config) {
 		c.RetentionCheckInterval = d
+	}
+}
+
+// WithCompaction 设置 compaction 参数
+func WithCompaction(maxParts int, checkInterval time.Duration) func(*Config) {
+	return func(c *Config) {
+		c.CompactionMaxParts = maxParts
+		c.CompactionCheckInterval = checkInterval
 	}
 }
