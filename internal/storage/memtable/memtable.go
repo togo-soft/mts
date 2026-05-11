@@ -20,10 +20,20 @@ func DefaultMemTableConfig() *MemTableConfig {
 	}
 }
 
-// entry 是 MemTable 中的条目
+// FieldEntry 紧凑字段条目，避免每行分配 map。
+type FieldEntry struct {
+	Key   string
+	Value *types.FieldValue
+}
+
+// entry 是 MemTable 中的紧凑条目。
+// Database/Measurement 为 Shard 级别常量，不存储。
+// Tags 通过 Sid 从 SeriesStore 恢复，不存储。
+// Fields 使用紧凑切片存储，消除 map 开销。
 type entry struct {
-	Point types.Point
-	Sid   uint64
+	Timestamp int64
+	Fields    []FieldEntry
+	Sid       uint64
 }
 
 // MemTable 是内存中的写入缓冲区，按时间戳排序存储数据点。
@@ -50,36 +60,27 @@ func NewMemTable(cfg *MemTableConfig) *MemTable {
 }
 
 // Write 写入一个数据点到 MemTable。
+// 仅存储 Timestamp + Fields（紧凑切片） + Sid，不存储 Database/Measurement/Tags。
 func (m *MemTable) Write(p *types.Point, sid uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	tags := make(map[string]string, len(p.Tags))
-	for k, v := range p.Tags {
-		tags[k] = v
-	}
-
-	fields := make(map[string]*types.FieldValue, len(p.Fields))
+	fields := make([]FieldEntry, 0, len(p.Fields))
 	for k, v := range p.Fields {
-		fields[k] = v
+		fields = append(fields, FieldEntry{Key: k, Value: v})
 	}
 
 	m.entries = append(m.entries, &entry{
-		Point: types.Point{
-			Database:    p.Database,
-			Measurement: p.Measurement,
-			Tags:        tags,
-			Timestamp:   p.Timestamp,
-			Fields:      fields,
-		},
-		Sid: sid,
+		Timestamp: p.Timestamp,
+		Fields:    fields,
+		Sid:       sid,
 	})
 	m.count++
 	m.lastWrite = time.Now()
 
-	if m.count > 1 && m.entries[m.count-1].Point.Timestamp < m.entries[m.count-2].Point.Timestamp {
+	if m.count > 1 && m.entries[m.count-1].Timestamp < m.entries[m.count-2].Timestamp {
 		sort.Slice(m.entries, func(i, j int) bool {
-			return m.entries[i].Point.Timestamp < m.entries[j].Point.Timestamp
+			return m.entries[i].Timestamp < m.entries[j].Timestamp
 		})
 		m.sorted = true
 	} else {
@@ -120,6 +121,7 @@ func (m *MemTable) shouldFlushUnsafe() bool {
 }
 
 // Flush 将 MemTable 数据刷盘并返回。
+// 返回的 Point 仅填充 Timestamp 和 Fields（SSTable Writer 不使用 Tags/Database/Measurement）。
 func (m *MemTable) Flush() ([]*types.Point, []uint64) {
 	m.mu.Lock()
 	result := m.entries
@@ -135,7 +137,10 @@ func (m *MemTable) Flush() ([]*types.Point, []uint64) {
 	points := make([]*types.Point, len(result))
 	sids := make([]uint64, len(result))
 	for i, e := range result {
-		points[i] = &e.Point
+		points[i] = &types.Point{
+			Timestamp: e.Timestamp,
+			Fields:    fieldsToMap(e.Fields),
+		}
 		sids[i] = e.Sid
 	}
 
@@ -171,7 +176,28 @@ func (i *MemTableIterator) Next() bool {
 	return i.pos < len(i.entries)
 }
 
-// Point 返回当前位置的 Point
+// Point 返回当前位置的 Point（Tags 为空，需通过 Sid 恢复）。
 func (i *MemTableIterator) Point() *types.Point {
-	return &i.entries[i.pos].Point
+	e := i.entries[i.pos]
+	return &types.Point{
+		Timestamp: e.Timestamp,
+		Fields:    fieldsToMap(e.Fields),
+	}
+}
+
+// Sid 返回当前条目的 Series ID。
+func (i *MemTableIterator) Sid() uint64 {
+	return i.entries[i.pos].Sid
+}
+
+// fieldsToMap 将紧凑 FieldEntry 切片还原为 map[string]*types.FieldValue。
+func fieldsToMap(fields []FieldEntry) map[string]*types.FieldValue {
+	if len(fields) == 0 {
+		return nil
+	}
+	m := make(map[string]*types.FieldValue, len(fields))
+	for _, fe := range fields {
+		m[fe.Key] = fe.Value
+	}
+	return m
 }

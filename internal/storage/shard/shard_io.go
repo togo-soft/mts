@@ -53,12 +53,11 @@ func (s *Shard) Write(point *types.Point) error {
 		}
 	}
 
-	// 2. 分配 SID 并更新 sidCache
+	// 2. 分配 SID
 	sid, err := s.seriesStore.AllocateSID(point.Tags)
 	if err != nil {
 		return fmt.Errorf("allocate SID: %w", err)
 	}
-	s.sidCache[sid] = copyTagsMap(point.Tags)
 
 	// 3. 验证字段类型一致性
 	if err := s.ValidateFieldTypes(point); err != nil {
@@ -107,14 +106,20 @@ func (s *Shard) Read(startTime, endTime int64) ([]*types.PointRow, error) {
 
 	var rows []*types.PointRow
 
-	// 1. 从 MemTable 读取
+	// 1. 从 MemTable 读取（Tags 通过 Sid 从 SeriesStore 恢复）
 	iter := s.memTable.Iterator()
 	for iter.Next() {
 		p := iter.Point()
 		if p.Timestamp >= startTime && p.Timestamp < endTime {
+			sid := iter.Sid()
+			var tags map[string]string
+			if s.seriesStore != nil {
+				tags, _ = s.seriesStore.GetTagsBySID(sid)
+			}
 			rows = append(rows, &types.PointRow{
+				Sid:       sid,
 				Timestamp: p.Timestamp,
-				Tags:      p.Tags,
+				Tags:      tags,
 				Fields:    p.Fields,
 			})
 		}

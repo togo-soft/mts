@@ -161,15 +161,3 @@ func (s *Shard) NextSSTSeq() uint64 {
 	s.sstSeq++
 	return seq
 }
-
-// copyTagsMap 复制 tags map，避免共享底层数据结构。
-func copyTagsMap(tags map[string]string) map[string]string {
-	if tags == nil {
-		return nil
-	}
-	copied := make(map[string]string, len(tags))
-	for k, v := range tags {
-		copied[k] = v
-	}
-	return copied
-}

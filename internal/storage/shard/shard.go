@@ -105,8 +105,6 @@ type SchemaStore interface {
 //   - memTable: 内存表
 //   - wal: 预写日志
 //   - seriesStore: Series ID 分配与查询
-//   - sidCache: Sid→Tags 缓存（用于从 SSTable 恢复 Tags）
-//   - sidCache: Sid→Tags 缓存（用于从 SSTable 恢复 Tags），Sid 现由 MemTable entry 携带
 //   - mu: 读写锁
 //   - sstSeq: SSTable 序列号（文件名生成）
 //   - compaction: Compaction 管理器
@@ -126,9 +124,8 @@ type Shard struct {
 	replaying       bool      // 表示当前是否正在 replay WAL
 	seriesStore     SeriesStore
 	schemaStore     SchemaStore
-	schema          *metadata.Schema             // 内存 schema 缓存
-	schemaMu        sync.RWMutex                 // 保护 schema
-	sidCache        map[uint64]map[string]string // sid → tags 缓存
+	schema          *metadata.Schema // 内存 schema 缓存
+	schemaMu        sync.RWMutex     // 保护 schema
 	mu              sync.RWMutex
 	sstSeq          uint64 // SSTable序列号，用于生成唯一的文件名
 	sstRefs         *sstRefs
@@ -193,7 +190,6 @@ func NewShard(cfg ShardConfig) *Shard {
 		flushDone:   make(chan struct{}),
 		seriesStore: cfg.SeriesStore,
 		schemaStore: cfg.SchemaStore,
-		sidCache:    make(map[uint64]map[string]string),
 		sstRefs:     newSSTRefs(),
 	}
 
@@ -559,7 +555,6 @@ func (s *Shard) ReplayWAL() error {
 		if err != nil {
 			return fmt.Errorf("WAL replay: allocate SID: %w", err)
 		}
-		s.sidCache[sid] = copyTagsMap(point.Tags)
 
 		if err := s.memTable.Write(point, sid); err != nil {
 			return fmt.Errorf("WAL replay: write to memtable: %w", err)
