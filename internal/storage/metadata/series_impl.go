@@ -70,6 +70,64 @@ func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]
 	h := tagsHash(tags)
 	hashKey := encodeSIDKey(h)
 
+	// 先用只读事务快速查找已存在的 SID（不触发 fsync）
+	if sid, ok := s.lookupSIDReadOnly(database, measurement, hashKey, tags); ok {
+		return sid, nil
+	}
+
+	// 未命中：走写事务分配新 SID
+	sid, err := s.allocateSIDWriteTx(database, measurement, tags, hashKey)
+	if err != nil {
+		return 0, err
+	}
+
+	// 更新内存缓存
+	s.cache.Store(s.cacheKey(database, measurement, sid), copyTags(tags))
+	return sid, nil
+}
+
+// lookupSIDReadOnly 在只读事务中查找已存在的 SID（不触发 fsync）。
+func (s *seriesStore) lookupSIDReadOnly(database, measurement string, hashKey []byte, tags map[string]string) (uint64, bool) {
+	var sid uint64
+	found := false
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return nil
+		}
+		measBucket := dbBucket.Bucket([]byte(measurement))
+		if measBucket == nil {
+			return nil
+		}
+		hashIdxBucket := measBucket.Bucket([]byte("hash_idx"))
+		if hashIdxBucket == nil {
+			return nil
+		}
+		seriesBucket := measBucket.Bucket([]byte("series"))
+		if seriesBucket == nil {
+			return nil
+		}
+
+		existingSIDRaw := hashIdxBucket.Get(hashKey)
+		if existingSIDRaw == nil {
+			return nil
+		}
+		existingSID := decodeSIDKey(existingSIDRaw)
+		existingTags, err := getTagsFromSeriesBucket(seriesBucket, existingSID)
+		if err == nil && tagsEqual(existingTags, tags) {
+			sid = existingSID
+			found = true
+		}
+		return nil
+	})
+	if found {
+		return sid, true
+	}
+	return 0, false
+}
+
+// allocateSIDWriteTx 在写事务中为新 tags 分配 SID。
+func (s *seriesStore) allocateSIDWriteTx(database, measurement string, tags map[string]string, hashKey []byte) (uint64, error) {
 	var sid uint64
 
 	err := s.db.Update(func(tx *bolt.Tx) error {
@@ -88,13 +146,13 @@ func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]
 			return err
 		}
 
-		// 通过 hash_idx 快速查找已存在的 SID
+		// 二次检查：其他 goroutine 可能在 View 和 Update 之间已插入
 		if existingSIDRaw := hashIdxBucket.Get(hashKey); existingSIDRaw != nil {
 			existingSID := decodeSIDKey(existingSIDRaw)
 			existingTags, err := getTagsFromSeriesBucket(seriesBucket, existingSID)
 			if err == nil && tagsEqual(existingTags, tags) {
 				sid = existingSID
-				return nil // 已存在，直接返回
+				return nil
 			}
 		}
 
@@ -147,9 +205,6 @@ func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]
 	if err != nil {
 		return 0, err
 	}
-
-	// 更新内存缓存
-	s.cache.Store(s.cacheKey(database, measurement, sid), copyTags(tags))
 	return sid, nil
 }
 
