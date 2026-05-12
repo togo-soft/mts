@@ -3,6 +3,7 @@ package sstable
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -76,17 +77,17 @@ func (w *Writer) Close() error {
 		_ = os.RemoveAll(w.tmpDir)
 		return fmt.Errorf("create output file: %w", err)
 	}
-	cleanupErr := func() error {
+	cleanupErr := func(cause error) error {
 		_ = outFile.Close()
 		_ = os.Remove(outPath)
 		_ = os.RemoveAll(w.tmpDir)
-		return fmt.Errorf("failed to finalize SSTable")
+		return fmt.Errorf("failed to finalize SSTable: %w", cause)
 	}
 
 	// 写入占位 header (64B)
 	var placeholder [HeaderSize]byte
 	if _, err := outFile.Write(placeholder[:]); err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 
 	rowCount := int(w.totalRows)
@@ -106,14 +107,14 @@ func (w *Writer) Close() error {
 
 	currentOffset := uint64(HeaderSize)
 
-	// 1. 编码并写入 timestamps（per-block V2）
+	// 1. 编码并写入 timestamps
 	timestampsOffset = currentOffset
-	timestampsEncoded, tsOffsets, tsEncoding, err := w.encodeTimestampsSectionV2(rowCount)
+	timestampsEncoded, tsOffsets, tsEncoding, err := w.encodeTimestampsSection(rowCount)
 	if err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 	if _, err := outFile.Write(timestampsEncoded); err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 	timestampsSize = uint64(len(timestampsEncoded))
 	blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
@@ -121,14 +122,14 @@ func (w *Writer) Close() error {
 	})
 	currentOffset += timestampsSize
 
-	// 2. 编码并写入 sids（per-block V2）
+	// 2. 编码并写入 sids
 	sidsOffset = currentOffset
 	sidsEncoded, sidOffsets, err := w.encodeSidsSection(rowCount)
 	if err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 	if _, err := outFile.Write(sidsEncoded); err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 	sidsSize = uint64(len(sidsEncoded))
 	blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
@@ -136,15 +137,15 @@ func (w *Writer) Close() error {
 	})
 	currentOffset += sidsSize
 
-	// 3. 编码并写入每个 field（per-block V2）
+	// 3. 编码并写入每个 field
 	for _, name := range fieldNames {
 		fi := fieldInfo{offset: currentOffset}
-		encoded, fieldOffsets, enc, err := w.encodeFieldSectionV2(name, rowCount)
+		encoded, fieldOffsets, enc, err := w.encodeFieldSection(name, rowCount)
 		if err != nil {
-			return cleanupErr()
+			return cleanupErr(err)
 		}
 		if _, err := outFile.Write(encoded); err != nil {
-			return cleanupErr()
+			return cleanupErr(err)
 		}
 		fi.size = uint64(len(encoded))
 		fi.encoding = enc
@@ -159,10 +160,10 @@ func (w *Writer) Close() error {
 	blockIndexOffset := currentOffset
 	indexData, err := w.encodeBlockIndex()
 	if err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 	if _, err := outFile.Write(indexData); err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 	currentOffset += uint64(len(indexData))
 
@@ -170,7 +171,7 @@ func (w *Writer) Close() error {
 	blockMapOffset := currentOffset
 	blockMapData := blockMap.Marshal()
 	if _, err := outFile.Write(blockMapData); err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 	currentOffset += uint64(len(blockMapData))
 
@@ -194,12 +195,12 @@ func (w *Writer) Close() error {
 	sectionTableData := sectionTable.Marshal()
 	sectionTableOffset := currentOffset
 	if _, err := outFile.Write(sectionTableData); err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 
 	// 8. 回填 header
 	header := FileHeader{
-		Magic:              MagicV2,
+		Magic:              Magic,
 		Version:            FileVersion,
 		RowCount:           w.totalRows,
 		FieldCount:         uint16(len(fieldNames)),
@@ -212,7 +213,7 @@ func (w *Writer) Close() error {
 	}
 	headerBuf := header.Marshal()
 	if _, err := outFile.WriteAt(headerBuf[:], 0); err != nil {
-		return cleanupErr()
+		return cleanupErr(err)
 	}
 
 	if err := outFile.Close(); err != nil {
@@ -227,73 +228,148 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// encodeTimestampsSectionV2 按 block 独立编码时间戳，返回编码数据和 per-block 字节偏移。
-func (w *Writer) encodeTimestampsSectionV2(rowCount int) ([]byte, []uint64, EncodingType, error) {
+// encodeTimestampsSection 逐 block 流式编码时间戳。
+func (w *Writer) encodeTimestampsSection(rowCount int) ([]byte, []uint64, EncodingType, error) {
 	rawPath := filepath.Join(w.tmpDir, "_timestamps.bin")
-	raw, err := os.ReadFile(rawPath)
+	f, err := os.Open(rawPath)
 	if err != nil {
-		return nil, nil, EncodingRaw, fmt.Errorf("read timestamps temp: %w", err)
+		return nil, nil, EncodingRaw, fmt.Errorf("open timestamps temp: %w", err)
 	}
-	values := compression.ExtractInt64Data(raw, rowCount)
-	data, offsets := encodePerBlock(w, values, func(vals []int64) []byte {
-		return compression.EncodeTimestamps(vals)
-	})
-	return data, offsets, EncodingDeltaVarint, nil
+	defer func() { _ = f.Close() }()
+
+	var encoded []byte
+	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
+	off := uint64(0)
+	offsets = append(offsets, off)
+
+	for i := 0; i < w.blockIndex.Len(); i++ {
+		entry := w.blockIndex.Entry(i)
+		n := int(entry.RowCount)
+		raw := make([]byte, n*8)
+		if _, err := io.ReadFull(f, raw); err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("read timestamps block %d: %w", i, err)
+		}
+		values := compression.ExtractInt64Data(raw, n)
+		blockData := compression.EncodeTimestamps(values)
+		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		encoded = append(encoded, compressed...)
+		off += uint64(len(compressed))
+		offsets = append(offsets, off)
+	}
+	return encoded, offsets, EncodingDeltaVarint, nil
 }
 
-// encodeSidsSectionV2 按 block 独立编码 SID，返回编码数据和 per-block 字节偏移。
+// encodeSidsSection 逐 block 流式编码 SID。
 func (w *Writer) encodeSidsSection(rowCount int) ([]byte, []uint64, error) {
 	rawPath := filepath.Join(w.tmpDir, "_sids.bin")
-	raw, err := os.ReadFile(rawPath)
+	f, err := os.Open(rawPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read sids temp: %w", err)
+		return nil, nil, fmt.Errorf("open sids temp: %w", err)
 	}
-	values := compression.ExtractUint64Data(raw, rowCount)
-	data, offsets := encodePerBlock(w, values, func(vals []uint64) []byte {
-		return compression.EncodeSidsDelta(vals)
-	})
-	return data, offsets, nil
+	defer func() { _ = f.Close() }()
+
+	var encoded []byte
+	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
+	off := uint64(0)
+	offsets = append(offsets, off)
+
+	for i := 0; i < w.blockIndex.Len(); i++ {
+		entry := w.blockIndex.Entry(i)
+		n := int(entry.RowCount)
+		raw := make([]byte, n*8)
+		if _, err := io.ReadFull(f, raw); err != nil {
+			return nil, nil, fmt.Errorf("read sids block %d: %w", i, err)
+		}
+		values := compression.ExtractUint64Data(raw, n)
+		blockData := compression.EncodeSidsDelta(values)
+		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		encoded = append(encoded, compressed...)
+		off += uint64(len(compressed))
+		offsets = append(offsets, off)
+	}
+	return encoded, offsets, nil
 }
 
-// encodeFieldSectionV2 按 block 独立编码字段段，返回编码数据、per-block 字节偏移和编码类型。
-func (w *Writer) encodeFieldSectionV2(name string, rowCount int) ([]byte, []uint64, EncodingType, error) {
+// encodeFieldSection 逐 block 流式编码字段段（定长类型），变长类型（string）回退到全量读取。
+func (w *Writer) encodeFieldSection(name string, rowCount int) ([]byte, []uint64, EncodingType, error) {
 	ft := w.schema.Fields[name]
 	rawPath := filepath.Join(w.tmpDir, "fields", name+".bin")
-	raw, err := os.ReadFile(rawPath)
-	if err != nil {
-		return nil, nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
-	}
 
 	switch ft {
 	case FieldTypeFloat64:
-		values := compression.ExtractFloat64Data(raw, rowCount)
-		data, offsets := encodePerBlock(w, values, func(vals []float64) []byte {
-			return compression.EncodeFloat64Values(vals)
-		})
-		return data, offsets, EncodingXORFloat, nil
+		return w.encodeFixedFieldSection(rawPath, ft, 8, rowCount,
+			func(raw []byte, n int) ([]byte, error) {
+				values := compression.ExtractFloat64Data(raw, n)
+				return compression.EncodeFloat64Values(values), nil
+			}, EncodingXORFloat)
 	case FieldTypeInt64:
-		values := compression.ExtractInt64Data(raw, rowCount)
-		data, offsets := encodePerBlock(w, values, func(vals []int64) []byte {
-			return compression.EncodeInt64Values(vals)
-		})
-		return data, offsets, EncodingZigZagVarint, nil
+		return w.encodeFixedFieldSection(rawPath, ft, 8, rowCount,
+			func(raw []byte, n int) ([]byte, error) {
+				values := compression.ExtractInt64Data(raw, n)
+				return compression.EncodeInt64Values(values), nil
+			}, EncodingZigZagVarint)
+	case FieldTypeBool:
+		return w.encodeFixedFieldSection(rawPath, ft, 1, rowCount,
+			func(raw []byte, n int) ([]byte, error) {
+				values := compression.ExtractBoolData(raw, n)
+				return compression.EncodeBoolValues(values), nil
+			}, EncodingBitmapBool)
 	case FieldTypeString:
+		// 变长类型：回退到全量读取
+		raw, err := os.ReadFile(rawPath)
+		if err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
+		}
 		values := compression.ExtractStringData(raw, rowCount)
 		data, offsets := encodePerBlock(w, values, func(vals []string) []byte {
 			return compression.EncodeStringValuesRaw(vals)
 		})
 		return data, offsets, EncodingRaw, nil
-	case FieldTypeBool:
-		values := compression.ExtractBoolData(raw, rowCount)
-		data, offsets := encodePerBlock(w, values, func(vals []bool) []byte {
-			return compression.EncodeBoolValues(vals)
-		})
-		return data, offsets, EncodingBitmapBool, nil
 	default:
 		// raw bytes: 直接按 block 边界切片，不做编码
+		raw, err := os.ReadFile(rawPath)
+		if err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
+		}
 		data, offsets := encodePerBlockRaw(w, raw, rowCount)
 		return data, offsets, EncodingRaw, nil
 	}
+}
+
+// encodeFixedFieldSection 逐 block 流式编码定长字段。
+func (w *Writer) encodeFixedFieldSection(
+	rawPath string, _ FieldType, bytesPerRow int, rowCount int,
+	encodeFn func(raw []byte, n int) ([]byte, error),
+	encType EncodingType,
+) ([]byte, []uint64, EncodingType, error) {
+	f, err := os.Open(rawPath)
+	if err != nil {
+		return nil, nil, EncodingRaw, fmt.Errorf("open field temp %s: %w", rawPath, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var encoded []byte
+	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
+	off := uint64(0)
+	offsets = append(offsets, off)
+
+	for i := 0; i < w.blockIndex.Len(); i++ {
+		entry := w.blockIndex.Entry(i)
+		n := int(entry.RowCount)
+		raw := make([]byte, n*bytesPerRow)
+		if _, err := io.ReadFull(f, raw); err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("read field block %d: %w", i, err)
+		}
+		blockData, err := encodeFn(raw, n)
+		if err != nil {
+			return nil, nil, EncodingRaw, err
+		}
+		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		encoded = append(encoded, compressed...)
+		off += uint64(len(compressed))
+		offsets = append(offsets, off)
+	}
+	return encoded, offsets, encType, nil
 }
 
 // encodePerBlock 将全部行数据按 BlockIndex 分块后独立编码，返回拼接数据和 per-block 字节偏移。

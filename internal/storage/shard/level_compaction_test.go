@@ -66,31 +66,6 @@ func TestLevelCompactionManager_ShouldCompact_Empty(t *testing.T) {
 	}
 }
 
-func TestLevelCompactionManager_IsOldFormat(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	cfg := ShardConfig{
-		DB:          "testdb",
-		Measurement: "test",
-		StartTime:   0,
-		EndTime:     time.Hour.Nanoseconds(),
-		Dir:         tmpDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
-	}
-
-	shard := NewShard(cfg)
-	defer func() { _ = shard.Close() }()
-
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
-
-	// 新格式应该有 L0 目录
-	if lcm.IsOldFormat() {
-		t.Error("freshly created should not be old format")
-	}
-}
-
 func TestLevelCompactionManager_Recover_NoCheckpoint(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -331,50 +306,6 @@ func TestLevelCompactionManager_StartStop(t *testing.T) {
 	// 立即停止应该安全
 	lcm.Stop()
 	lcm.Stop() // 多次调用应该安全
-}
-
-func TestLevelCompactionManager_MigrateFromOldFormat(t *testing.T) {
-	tmpDir := t.TempDir()
-	dataDir := filepath.Join(tmpDir, "data")
-	_ = os.MkdirAll(dataDir, 0700)
-
-	// 创建旧的扁平结构 SSTable 目录
-	oldSstDir := filepath.Join(dataDir, "sst_00000000000000000001")
-	_ = os.MkdirAll(oldSstDir, 0700)
-
-	// 创建 shard
-	cfg := ShardConfig{
-		DB:          "testdb",
-		Measurement: "test",
-		StartTime:   0,
-		EndTime:     time.Hour.Nanoseconds(),
-		Dir:         tmpDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
-	}
-
-	shard := NewShard(cfg)
-
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
-
-	// 旧格式应该被检测到
-	if !lcm.IsOldFormat() {
-		t.Log("IsOldFormat returned false, possibly L0 dir already created by NewLevelManifest")
-	}
-
-	// 执行迁移
-	if err := lcm.MigrateFromOldFormat(); err != nil {
-		t.Fatalf("MigrateFromOldFormat failed: %v", err)
-	}
-
-	// 验证 L0 目录存在
-	l0Dir := filepath.Join(dataDir, "L0")
-	if _, err := os.Stat(l0Dir); os.IsNotExist(err) {
-		t.Error("L0 directory should exist after migration")
-	}
-
-	_ = shard.Close()
 }
 
 func TestLevelManifest_RemoveParts(t *testing.T) {

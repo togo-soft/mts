@@ -82,19 +82,19 @@ func writeLargePoints(db *microts.DB, dbName, measurement string, startTime int6
 			Database:    dbName,
 			Measurement: measurement,
 			Tags: map[string]string{
-				"host":     fmt.Sprintf("server%d", i%5+1),
-				"region":    fmt.Sprintf("us-west-%d", i%3+1),
+				"host":       fmt.Sprintf("server%d", i%5+1),
+				"region":     fmt.Sprintf("us-west-%d", i%3+1),
 				"datacenter": fmt.Sprintf("dc%d", i%2+1),
 			},
 			Timestamp: startTime + int64(i)*int64(1000000), // 1ms 间隔
 			Fields: map[string]*types.FieldValue{
-				"cpu_usage":    types.NewFieldValue(float64(50.0 + float64(i%50))),
-				"memory_usage": types.NewFieldValue(float64(30.0 + float64(i%30))),
-				"disk_io":      types.NewFieldValue(float64(100.0 + float64(i%100))),
-				"network_in":   types.NewFieldValue(float64(1000.0 + float64(i%500))),
-				"network_out":  types.NewFieldValue(float64(500.0 + float64(i%300))),
+				"cpu_usage":     types.NewFieldValue(float64(50.0 + float64(i%50))),
+				"memory_usage":  types.NewFieldValue(float64(30.0 + float64(i%30))),
+				"disk_io":       types.NewFieldValue(float64(100.0 + float64(i%100))),
+				"network_in":    types.NewFieldValue(float64(1000.0 + float64(i%500))),
+				"network_out":   types.NewFieldValue(float64(500.0 + float64(i%300))),
 				"request_count": types.NewFieldValue(int64(i * 10)),
-				"error_count":  types.NewFieldValue(int64(i % 10)),
+				"error_count":   types.NewFieldValue(int64(i % 10)),
 			},
 		}
 		if err := db.Write(context.Background(), p); err != nil {

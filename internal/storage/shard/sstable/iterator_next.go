@@ -6,11 +6,6 @@ import (
 
 // Next 移动到下一个数据点。
 func (it *Iterator) Next() bool {
-	if it.fallbackMode {
-		it.fallbackPos++
-		return it.fallbackPos < len(it.fallbackTimestamps)
-	}
-
 	if it.currentBlock < 0 {
 		if len(it.blockIndex) == 0 {
 			return false
@@ -37,20 +32,6 @@ func (it *Iterator) Next() bool {
 
 // Point 返回当前迭代位置的数据点。
 func (it *Iterator) Point() *types.PointRow {
-	if it.fallbackMode {
-		if it.fallbackPos < 0 || it.fallbackPos >= len(it.fallbackTimestamps) {
-			return nil
-		}
-		row := &types.PointRow{
-			Timestamp: it.fallbackTimestamps[it.fallbackPos],
-			Fields:    it.fallbackFields[it.fallbackPos],
-		}
-		if it.fallbackPos < len(it.fallbackSids) {
-			row.Sid = it.fallbackSids[it.fallbackPos]
-		}
-		return row
-	}
-
 	if it.currentBlock < 0 || it.currentBlock >= len(it.blockIndex) {
 		return nil
 	}

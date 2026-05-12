@@ -91,16 +91,16 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 
 	shardDir := filepath.Join(m.dir, db, measurementName, formatTimeRange(startTime, endTime))
 	s = NewShard(ShardConfig{
-		DB:            db,
-		Measurement:   measurementName,
-		StartTime:     startTime,
-		EndTime:       endTime,
-		Dir:           shardDir,
-		SeriesStore:   seriesStore,
-		SchemaStore:   m.manager.Catalog(),
-		MemTableCfg:   m.memTableCfg,
-		CompactionCfg: m.compactionCfg,
-		CompressionAlgorithm:   m.compressionAlgo,
+		DB:                   db,
+		Measurement:          measurementName,
+		StartTime:            startTime,
+		EndTime:              endTime,
+		Dir:                  shardDir,
+		SeriesStore:          seriesStore,
+		SchemaStore:          m.manager.Catalog(),
+		MemTableCfg:          m.memTableCfg,
+		CompactionCfg:        m.compactionCfg,
+		CompressionAlgorithm: m.compressionAlgo,
 	})
 	if err := s.ReplayWAL(); err != nil {
 		slog.Warn("failed to replay WAL for new shard", "key", key, "error", err)
@@ -191,15 +191,15 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 
 		shardDir := filepath.Join(measurementDir, entry.Name())
 		shard := NewShard(ShardConfig{
-			DB:            db,
-			Measurement:   measurementName,
-			StartTime:     startTime,
-			EndTime:       endTime,
-			Dir:           shardDir,
-			SeriesStore:   seriesStore,
-			MemTableCfg:   m.memTableCfg,
-			CompactionCfg: m.compactionCfg,
-		CompressionAlgorithm:   m.compressionAlgo,
+			DB:                   db,
+			Measurement:          measurementName,
+			StartTime:            startTime,
+			EndTime:              endTime,
+			Dir:                  shardDir,
+			SeriesStore:          seriesStore,
+			MemTableCfg:          m.memTableCfg,
+			CompactionCfg:        m.compactionCfg,
+			CompressionAlgorithm: m.compressionAlgo,
 		})
 		if err := shard.ReplayWAL(); err != nil {
 			slog.Warn("failed to replay WAL for discovered shard", "key", key, "error", err)
@@ -247,16 +247,16 @@ func (m *ShardManager) discoverAndReplayWAL() error {
 func (m *ShardManager) loadShardFromIndex(db, measurement string, info metadata.ShardInfo) *Shard {
 	seriesStore := m.manager.GetOrCreateSeriesStore(db, measurement)
 	s := NewShard(ShardConfig{
-		DB:            db,
-		Measurement:   measurement,
-		StartTime:     info.StartTime,
-		EndTime:       info.EndTime,
-		Dir:           info.DataDir,
-		SeriesStore:   seriesStore,
-		SchemaStore:   m.manager.Catalog(),
-		MemTableCfg:   m.memTableCfg,
-		CompactionCfg: m.compactionCfg,
-		CompressionAlgorithm:   m.compressionAlgo,
+		DB:                   db,
+		Measurement:          measurement,
+		StartTime:            info.StartTime,
+		EndTime:              info.EndTime,
+		Dir:                  info.DataDir,
+		SeriesStore:          seriesStore,
+		SchemaStore:          m.manager.Catalog(),
+		MemTableCfg:          m.memTableCfg,
+		CompactionCfg:        m.compactionCfg,
+		CompressionAlgorithm: m.compressionAlgo,
 	})
 	if err := s.ReplayWAL(); err != nil {
 		slog.Warn("failed to replay WAL for discovered shard", "key", info.ID, "error", err)

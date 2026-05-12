@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-// MagicV2 是单文件 SSTable 的魔数 "TSERSTBL"。
-var MagicV2 = [8]byte{0x54, 0x53, 0x45, 0x52, 0x53, 0x54, 0x42, 0x4C}
+// Magic 是 SSTable 文件的魔数 "TSERSTBL"。
+var Magic = [8]byte{0x54, 0x53, 0x45, 0x52, 0x53, 0x54, 0x42, 0x4C}
 
 // FileVersion 单文件 SSTable 格式版本。
 const FileVersion uint32 = 2
@@ -60,12 +60,12 @@ func (h *FileHeader) Marshal() [HeaderSize]byte {
 func UnmarshalFileHeader(data [HeaderSize]byte) (FileHeader, error) {
 	var h FileHeader
 	copy(h.Magic[:], data[0:8])
-	if h.Magic != MagicV2 {
-		return h, fmt.Errorf("invalid magic: expected %q, got %q", MagicV2, h.Magic)
+	if h.Magic != Magic {
+		return h, fmt.Errorf("invalid magic: expected %q, got %q", Magic, h.Magic)
 	}
 	h.Version = binary.BigEndian.Uint32(data[8:12])
-	if h.Version != 1 && h.Version != FileVersion {
-		return h, fmt.Errorf("unsupported version: %d (expected 1 or %d)", h.Version, FileVersion)
+	if h.Version != FileVersion {
+		return h, fmt.Errorf("unsupported version: %d (expected %d)", h.Version, FileVersion)
 	}
 	h.RowCount = binary.BigEndian.Uint32(data[12:16])
 	h.FieldCount = binary.BigEndian.Uint16(data[16:18])

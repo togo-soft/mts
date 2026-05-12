@@ -562,10 +562,8 @@ func TestReader_HasBlockIndex(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	// Writer 写入时会 flush block，所以应该有索引
-	hasIdx := r.HasBlockIndex()
-	if !hasIdx {
-		t.Logf("HasBlockIndex returned false - this is OK if block was flushed but index not written yet")
+	if r.blockIndex == nil || r.blockIndex.Len() == 0 {
+		t.Log("block index is empty - this is OK if block was flushed but index not written yet")
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/golang/snappy"
-	"github.com/pierrec/lz4/v4"
+	lz4 "github.com/pierrec/lz4/v4"
 )
 
 // CompressionAlgorithm 通用块压缩算法。

@@ -142,7 +142,11 @@ func Test1_LargeScaleIntegrity() error {
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	db, err := microts.Open(defaultDBConfig(tmpDir))
+	cfg := defaultDBConfig(tmpDir)
+	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+	cfg.CompactionCfg.MaxCompactionBatch = 1000
+
+	db, err := microts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
@@ -154,7 +158,7 @@ func Test1_LargeScaleIntegrity() error {
 	fmt.Printf("写入 %d 点 (每 200 触发 flush)...\n", total)
 	for i := 0; i < total; i++ {
 		p := &types.Point{
-			Database:    "db", Measurement: "cpu",
+			Database: "db", Measurement: "cpu",
 			Tags:      map[string]string{"host": fmt.Sprintf("s%d", i%50+1)},
 			Timestamp: baseTime + int64(i)*int64(time.Microsecond),
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
@@ -169,9 +173,7 @@ func Test1_LargeScaleIntegrity() error {
 
 	fmt.Println("触发 compaction...")
 	_ = db.FlushAll()
-	time.Sleep(2 * time.Second)
-	_ = db.FlushAll()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(6 * time.Second)
 
 	afterCompact := countSSTableDirs(dataDir)
 	fmt.Printf("compaction 后 SSTable 数: %d\n", afterCompact)
@@ -276,12 +278,17 @@ func Test3_WriteProtection() error {
 
 	// 对前一半 SSTable 加 .writing 标志
 	if len(sstDirs) > 1 {
-		for i := 0; i < len(sstDirs)/2; i++ {
+		half := len(sstDirs) / 2
+		for i := 0; i < half; i++ {
 			writingFlag := filepath.Join(sstDirs[i], ".writing")
 			_ = os.WriteFile(writingFlag, nil, 0600)
-			defer os.Remove(writingFlag)
 		}
-		fmt.Printf("已对 %d 个 SSTable 添加 .writing 标志\n", len(sstDirs)/2)
+		fmt.Printf("已对 %d 个 SSTable 添加 .writing 标志\n", half)
+		defer func() {
+			for i := 0; i < half; i++ {
+				_ = os.Remove(filepath.Join(sstDirs[i], ".writing"))
+			}
+		}()
 	}
 
 	fmt.Println("触发 compaction...")
@@ -322,7 +329,7 @@ func Test4_ConcurrentWriteCompaction() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.MemTableCfg.MaxCount = 100   // 更频繁 flush
+	cfg.MemTableCfg.MaxCount = 100 // 更频繁 flush
 	cfg.MemTableCfg.MaxSize = 32 * 1024
 	cfg.CompactionCfg.MaxSSTableCount = 4
 	cfg.CompactionCfg.CheckInterval = 3 * time.Second
@@ -349,7 +356,7 @@ func Test4_ConcurrentWriteCompaction() error {
 			offset := int64(workerID * pointsPerWorker)
 			for i := 0; i < pointsPerWorker; i++ {
 				p := &types.Point{
-					Database:    "db", Measurement: "cpu",
+					Database: "db", Measurement: "cpu",
 					Tags:      map[string]string{"host": fmt.Sprintf("w%d", workerID)},
 					Timestamp: baseTime + offset + int64(i)*int64(time.Microsecond),
 					Fields:    map[string]*types.FieldValue{"val": types.NewFieldValue(int64(workerID*10000 + i))},
@@ -413,14 +420,17 @@ func Test5_RestartRecovery() error {
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	db1, err := microts.Open(defaultDBConfig(tmpDir))
+	cfg := defaultDBConfig(tmpDir)
+	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+	cfg.CompactionCfg.MaxCompactionBatch = 1000
+
+	db1, err := microts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open db1: %w", err)
 	}
 
 	baseTime := time.Now().UnixNano()
 	total := 10000
-	cfg := defaultDBConfig(tmpDir)
 
 	fmt.Printf("Session 1: 写入 %d 点\n", total)
 	if err := writePoints(db1, "db", "cpu", baseTime, total, time.Microsecond, 30); err != nil {
@@ -429,7 +439,7 @@ func Test5_RestartRecovery() error {
 	}
 	time.Sleep(300 * time.Millisecond)
 	_ = db1.FlushAll()
-	time.Sleep(2 * time.Second)
+	time.Sleep(6 * time.Second)
 
 	if err := db1.Close(); err != nil {
 		return fmt.Errorf("close db1: %w", err)

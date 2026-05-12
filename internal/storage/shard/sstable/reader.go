@@ -15,7 +15,7 @@ type Reader struct {
 	header          FileHeader
 	sectionTable    SectionTable
 	blockIndex      *BlockIndex
-	blockSectionMap *BlockSectionMap // v2: 每个 section 内各 block 的字节偏移
+	blockSectionMap *BlockSectionMap // 每个 section 内各 block 的字节偏移
 	schema          Schema
 }
 
@@ -73,7 +73,7 @@ func NewReader(filePath string, schema Schema) (*Reader, error) {
 		}
 	}
 
-	// 读取 block section map (v2)
+	// 读取 block section map
 	var blockSectionMap *BlockSectionMap
 	bmOffset, bmSize := sectionTable.Lookup("_block_map")
 	if bmSize > 0 {
@@ -99,11 +99,6 @@ func (r *Reader) Close() error {
 		return r.file.Close()
 	}
 	return nil
-}
-
-// HasBlockIndex 返回是否有可用的 BlockIndex。
-func (r *Reader) HasBlockIndex() bool {
-	return r.blockIndex != nil && r.blockIndex.Len() > 0
 }
 
 // GetBlockIndex 返回 BlockIndex。

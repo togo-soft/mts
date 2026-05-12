@@ -6,8 +6,7 @@ import (
 )
 
 // BlockSectionMap 记录每个 section 内各 block 的字节偏移，支持按 block 粒度定位数据。
-//
-// v2 文件格式新增 _block_map section，包含此结构。
+// 通过 _block_map section 持久化到文件。
 type BlockSectionMap struct {
 	Sections []BlockSectionOffsets
 }

@@ -29,6 +29,9 @@ func (w *Writer) WritePoints(points []types.InternalPoint) error {
 	}
 
 	for name := range fieldNames {
+		if _, exists := w.fields[name]; exists {
+			continue
+		}
 		f, err := storage.SafeOpenFile(
 			filepath.Join(fieldsDir, name+".bin"),
 			os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
@@ -36,7 +39,6 @@ func (w *Writer) WritePoints(points []types.InternalPoint) error {
 			return fmt.Errorf("open field file %s: %w", name, err)
 		}
 		w.fields[name] = f
-
 		w.fieldBufs[name] = make([]byte, 0, BlockSize)
 		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
 	}

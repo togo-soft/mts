@@ -62,15 +62,15 @@ type SeriesStore interface {
 //   - LevelCompactionCfg: Level Compaction 配置（可选，nil 表示使用平坦 compaction）
 //   - Logger:      日志记录器（nil 使用 slog.Default()）
 type ShardConfig struct {
-	DB                 string
-	Measurement        string
-	StartTime          int64
-	EndTime            int64
-	Dir                string
-	SeriesStore        SeriesStore
-	SchemaStore        SchemaStore
-	MemTableCfg        *memtable.MemTableConfig
-	CompactionCfg      *compaction.CompactionConfig
+	DB                   string
+	Measurement          string
+	StartTime            int64
+	EndTime              int64
+	Dir                  string
+	SeriesStore          SeriesStore
+	SchemaStore          SchemaStore
+	MemTableCfg          *memtable.MemTableConfig
+	CompactionCfg        *compaction.CompactionConfig
 	LevelCompactionCfg   *compaction.LevelCompactionConfig
 	CompressionAlgorithm sstable.CompressionAlgorithm
 	Logger               *slog.Logger
@@ -185,17 +185,17 @@ func NewShard(cfg ShardConfig) *Shard {
 
 	// 创建 Shard 实例
 	shard := &Shard{
-		db:          cfg.DB,
-		measurement: cfg.Measurement,
-		startTime:   cfg.StartTime,
-		endTime:     cfg.EndTime,
-		dir:         cfg.Dir,
-		memTable:    memTable,
-		wal:         w,
-		flushDone:   make(chan struct{}),
-		seriesStore: cfg.SeriesStore,
-		schemaStore: cfg.SchemaStore,
-		sstRefs:     newSSTRefs(),
+		db:              cfg.DB,
+		measurement:     cfg.Measurement,
+		startTime:       cfg.StartTime,
+		endTime:         cfg.EndTime,
+		dir:             cfg.Dir,
+		memTable:        memTable,
+		wal:             w,
+		flushDone:       make(chan struct{}),
+		seriesStore:     cfg.SeriesStore,
+		schemaStore:     cfg.SchemaStore,
+		sstRefs:         newSSTRefs(),
 		compressionAlgo: cfg.CompressionAlgorithm,
 	}
 

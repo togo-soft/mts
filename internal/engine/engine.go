@@ -19,9 +19,9 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 

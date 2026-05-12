@@ -3,7 +3,7 @@ package wal
 import (
 	"encoding/binary"
 
-	"github.com/pierrec/lz4/v4"
+	lz4 "github.com/pierrec/lz4/v4"
 )
 
 // CompressPayload 使用 LZ4 压缩 payload。

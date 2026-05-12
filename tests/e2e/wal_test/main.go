@@ -526,8 +526,8 @@ func Test6_WALRestartRecovery() error {
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          100,                          // 边界：刚好等于写入数量，触发刷盘
-			IdleDurationNanos: int64(5 * time.Second),        // 5 秒空闲触发刷盘
+			MaxCount:          100,                    // 边界：刚好等于写入数量，触发刷盘
+			IdleDurationNanos: int64(5 * time.Second), // 5 秒空闲触发刷盘
 		},
 	}
 

@@ -15,7 +15,7 @@ import (
 func main() {
 	const count = 1000
 	const pointInterval = int64(100 * time.Microsecond) // 集中在 1 个 Shard
-	maxCount := int32(count / 6) // 确保 6+ 次刷盘
+	maxCount := int32(count / 6)                        // 确保 6+ 次刷盘
 
 	h, err := framework.NewTestHarness("query_1k",
 		framework.WithMaxCount(maxCount),

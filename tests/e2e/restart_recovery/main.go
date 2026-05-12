@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	cycles      = 10
+	cycles         = 10
 	pointsPerCycle = 100
 	expectedTotal  = cycles * pointsPerCycle
 )
@@ -47,7 +47,7 @@ func main() {
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          pointsPerCycle,             // 边界：等于写入数量，每次都会触发刷盘
+			MaxCount:          pointsPerCycle, // 边界：等于写入数量，每次都会触发刷盘
 			IdleDurationNanos: int64(5 * time.Second),
 		},
 	}

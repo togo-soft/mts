@@ -8,35 +8,8 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// readTimestamps 读取并解码全部 timestamps。
+// readTimestamps 逐 block 独立解码全部 timestamps。
 func (r *Reader) readTimestamps() ([]int64, error) {
-	// v2 路径：逐 block 独立解码
-	if r.HasBlockSectionMap() {
-		return r.readTimestampsV2()
-	}
-
-	tsOffset, tsSize, _ := r.sectionTable.LookupByType(SectionTimestamps)
-	if tsSize == 0 {
-		return nil, nil
-	}
-	data := make([]byte, tsSize)
-	if _, err := r.file.ReadAt(data, int64(tsOffset)); err != nil {
-		return nil, err
-	}
-
-	enc := r.sectionTable.LookupEncoding("_timestamps")
-	rowCount := int(r.header.RowCount)
-
-	switch enc {
-	case EncodingDeltaVarint:
-		return compression.DecodeTimestamps(data, rowCount)
-	default:
-		return decodeTimestampBatch(data), nil
-	}
-}
-
-// readTimestampsV2 逐 block 独立解码 timestamps（v2 格式）。
-func (r *Reader) readTimestampsV2() ([]int64, error) {
 	var all []int64
 	for i := 0; i < r.blockIndex.Len(); i++ {
 		ts, err := r.readTimestampsBlock(i)
@@ -48,44 +21,8 @@ func (r *Reader) readTimestampsV2() ([]int64, error) {
 	return all, nil
 }
 
-// readTimestampRange 读取指定行偏移和行数的 timestamps。
-// 编码后的数据为变长，因此解码全部后切片。
-func (r *Reader) readTimestampRange(offset uint32, numRows uint32) ([]int64, error) {
-	all, err := r.readTimestamps()
-	if err != nil {
-		return nil, err
-	}
-	end := int(offset) + int(numRows)
-	if end > len(all) {
-		end = len(all)
-	}
-	if int(offset) >= len(all) {
-		return nil, nil
-	}
-	return all[offset:end], nil
-}
-
-// readSids 读取并解码全部 sids。
+// readSids 逐 block 独立解码全部 sids。
 func (r *Reader) readSids(expectedCount int) ([]uint64, error) {
-	// v2 路径：逐 block 独立解码
-	if r.HasBlockSectionMap() {
-		return r.readSidsV2()
-	}
-
-	sidOffset, sidSize, _ := r.sectionTable.LookupByType(SectionSids)
-	if sidSize == 0 {
-		return make([]uint64, expectedCount), nil
-	}
-	data := make([]byte, sidSize)
-	if _, err := r.file.ReadAt(data, int64(sidOffset)); err != nil {
-		return nil, err
-	}
-
-	return compression.DecodeSidsDelta(data, expectedCount)
-}
-
-// readSidsV2 逐 block 独立解码 sids（v2 格式）。
-func (r *Reader) readSidsV2() ([]uint64, error) {
 	var all []uint64
 	for i := 0; i < r.blockIndex.Len(); i++ {
 		sids, err := r.readSidsBlock(i)
@@ -97,83 +34,8 @@ func (r *Reader) readSidsV2() ([]uint64, error) {
 	return all, nil
 }
 
-// readSidsRange 读取指定行偏移和行数的 sids。
-func (r *Reader) readSidsRange(offset uint32, numRows uint32) ([]uint64, error) {
-	all, err := r.readSids(int(r.header.RowCount))
-	if err != nil {
-		return nil, err
-	}
-	end := int(offset) + int(numRows)
-	if end > len(all) {
-		end = len(all)
-	}
-	if int(offset) >= len(all) {
-		return nil, nil
-	}
-	return all[offset:end], nil
-}
-
-// decodeFieldSection 读取并解码整个字段段。
+// decodeFieldSection 逐 block 独立解码全部字段段。
 func (r *Reader) decodeFieldSection(name string, rowCount int) ([]*types.FieldValue, error) {
-	// v2 路径：逐 block 独立解码
-	if r.HasBlockSectionMap() {
-		return r.decodeFieldSectionV2(name)
-	}
-
-	fOffset, fSize := r.sectionTable.Lookup(name)
-	if fSize == 0 {
-		values := make([]*types.FieldValue, rowCount)
-		ft := r.schema.Fields[name]
-		for i := 0; i < rowCount; i++ {
-			values[i] = zeroFieldValue(ft)
-		}
-		return values, nil
-	}
-
-	data := make([]byte, fSize)
-	if _, err := r.file.ReadAt(data, int64(fOffset)); err != nil {
-		return nil, err
-	}
-
-	enc := r.sectionTable.LookupEncoding(name)
-	ft := r.schema.Fields[name]
-
-	switch enc {
-	case EncodingXORFloat:
-		floatVals, err := compression.DecodeFloat64Values(data, rowCount)
-		if err != nil {
-			return nil, fmt.Errorf("decode xor float field %s: %w", name, err)
-		}
-		return float64ValuesToFieldValues(floatVals), nil
-
-	case EncodingZigZagVarint:
-		intVals, err := compression.DecodeInt64Values(data, rowCount)
-		if err != nil {
-			return nil, fmt.Errorf("decode zigzag int field %s: %w", name, err)
-		}
-		return int64ValuesToFieldValues(intVals), nil
-
-	case EncodingDictString:
-		strVals, err := compression.DecodeStringValues(data, rowCount, true)
-		if err != nil {
-			return nil, fmt.Errorf("decode dict string field %s: %w", name, err)
-		}
-		return stringValuesToFieldValues(strVals), nil
-
-	case EncodingBitmapBool:
-		boolVals := compression.DecodeBoolValues(data, rowCount)
-		return boolValuesToFieldValues(boolVals), nil
-
-	case EncodingRaw:
-		return r.decodeRawFieldSection(data, rowCount, ft, name), nil
-
-	default:
-		return r.decodeRawFieldSection(data, rowCount, ft, name), nil
-	}
-}
-
-// decodeFieldSectionV2 逐 block 独立解码字段段（v2 格式）。
-func (r *Reader) decodeFieldSectionV2(name string) ([]*types.FieldValue, error) {
 	var all []*types.FieldValue
 	for i := 0; i < r.blockIndex.Len(); i++ {
 		vals, err := r.decodeFieldSectionBlock(name, i)
@@ -259,11 +121,6 @@ func zeroFieldValue(ft FieldType) *types.FieldValue {
 	}
 }
 
-// HasBlockSectionMap 返回是否有 BlockSectionMap（v2 文件格式）。
-func (r *Reader) HasBlockSectionMap() bool {
-	return r.blockSectionMap != nil && r.blockSectionMap.Lookup("_timestamps") != nil
-}
-
 // readTimestampsBlock 只解码指定块（按字节范围）的 timestamps。
 func (r *Reader) readTimestampsBlock(blockIdx int) ([]int64, error) {
 	bso := r.blockSectionMap.Lookup("_timestamps")
@@ -336,7 +193,6 @@ func (r *Reader) readSidsBlock(blockIdx int) ([]uint64, error) {
 func (r *Reader) decodeFieldSectionBlock(name string, blockIdx int) ([]*types.FieldValue, error) {
 	bso := r.blockSectionMap.Lookup(name)
 	if bso == nil {
-		// v1 文件或无此字段：回退到全量解码
 		entry := r.blockIndex.Entry(blockIdx)
 		rowCount := int(entry.RowCount)
 		return make([]*types.FieldValue, rowCount), nil

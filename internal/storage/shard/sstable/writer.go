@@ -23,16 +23,10 @@ type Schema struct {
 	Fields map[string]FieldType `json:"fields"`
 }
 
-// Magic 旧格式魔数（多文件目录结构）。
-var Magic = [8]byte{0x54, 0x53, 0x45, 0x52, 0x50, 0x45, 0x47, 0x46}
-
-// Version 旧格式版本。
-const Version = 1
-
 // BlockSize 默认块大小 64KB。
 const BlockSize = 64 * 1024
 
-// Writer SSTable 写入器（单文件格式 v2）。
+// Writer SSTable 写入器。
 type Writer struct {
 	shardDir   string
 	seq        uint64
@@ -89,21 +83,21 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 	}
 
 	w := &Writer{
-		shardDir:   shardDir,
-		seq:        seq,
-		blockSize:  blockSize,
-		dataDir:    dataDir,
-		tmpDir:     tmpDir,
-		timestamp:  tsFile,
-		sids:       sidFile,
-		fields:     make(map[string]*os.File),
-		schema:     Schema{Fields: make(map[string]FieldType)},
-		blockIndex: NewBlockIndex(),
-		buf:        make([]byte, blockSize),
-		bufPos:     0,
-		rowCount:   0,
-		fieldBufs:  make(map[string][]byte),
-		fieldSizes:  make(map[string]int),
+		shardDir:     shardDir,
+		seq:          seq,
+		blockSize:    blockSize,
+		dataDir:      dataDir,
+		tmpDir:       tmpDir,
+		timestamp:    tsFile,
+		sids:         sidFile,
+		fields:       make(map[string]*os.File),
+		schema:       Schema{Fields: make(map[string]FieldType)},
+		blockIndex:   NewBlockIndex(),
+		buf:          make([]byte, blockSize),
+		bufPos:       0,
+		rowCount:     0,
+		fieldBufs:    make(map[string][]byte),
+		fieldSizes:   make(map[string]int),
 		compressAlgo: compressAlgo,
 	}
 

@@ -292,68 +292,6 @@ func TestLevelCompactionE2E_CheckpointRecovery(t *testing.T) {
 }
 
 // TestLevelCompactionE2E_OldFormatMigration tests migration from old flat format.
-func TestLevelCompactionE2E_OldFormatMigration(t *testing.T) {
-	tmpDir := t.TempDir()
-	dataDir := filepath.Join(tmpDir, "data")
-
-	// 创建旧的扁平结构 SSTable
-	oldSstDir := filepath.Join(dataDir, "sst_00000000000000000001")
-	if err := os.MkdirAll(oldSstDir, 0700); err != nil {
-		t.Fatalf("failed to create old SSTable dir: %v", err)
-	}
-
-	// 在旧目录中创建一些测试文件
-	tsFile := filepath.Join(oldSstDir, "_timestamps.bin")
-	if err := os.WriteFile(tsFile, []byte("test"), 0600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
-
-	cfg := ShardConfig{
-		DB:          "testdb",
-		Measurement: "cpu",
-		StartTime:   0,
-		EndTime:     time.Hour.Nanoseconds(),
-		Dir:         tmpDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
-	}
-
-	shard := NewShard(cfg)
-	defer func() { _ = shard.Close() }()
-
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
-	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
-	}
-
-	// 验证检测到旧格式
-	if !lcm.IsOldFormat() {
-		t.Error("should detect old format")
-	}
-
-	// 执行迁移
-	if err := lcm.MigrateFromOldFormat(); err != nil {
-		t.Fatalf("MigrateFromOldFormat failed: %v", err)
-	}
-
-	// 验证 L0 目录已创建
-	l0Dir := filepath.Join(dataDir, "L0")
-	if _, err := os.Stat(l0Dir); os.IsNotExist(err) {
-		t.Fatal("L0 directory should exist after migration")
-	}
-
-	// 验证旧目录已迁移
-	if _, err := os.Stat(oldSstDir); !os.IsNotExist(err) {
-		t.Error("old SSTable directory should be moved or removed")
-	}
-
-	// 验证新格式不再是旧格式
-	if lcm.IsOldFormat() {
-		t.Error("should not detect old format after migration")
-	}
-}
-
 // TestLevelCompactionE2E_DataIntegrity tests that data is correctly merged and deduplicated.
 func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 	tmpDir := t.TempDir()

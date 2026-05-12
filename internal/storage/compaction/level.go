@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"codeberg.org/micro-ts/mts/internal/storage"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -331,7 +330,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 		return err
 	}
 
-	seen := make(map[string]bool)
+	seen := make(map[uint64]bool)
 	var pointsToWrite []types.InternalPoint
 	const batchSize = 1000
 
@@ -355,7 +354,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 		}
 
 		row := merged.Point()
-		key := fmt.Sprintf("%d-%d", row.Timestamp, row.Sid)
+		key := uint64(row.Timestamp) ^ (row.Sid * 0x9e3779b97f4a7c15)
 
 		if seen[key] {
 			continue
@@ -613,57 +612,5 @@ func (lcm *LevelCompactionManager) Recover() error {
 	_ = cp.Clear(dataDir)
 
 	slog.Info("cleaned up incomplete compaction", "level", cp.Level)
-	return nil
-}
-
-// IsOldFormat 检测是否为旧的扁平结构。
-func (lcm *LevelCompactionManager) IsOldFormat() bool {
-	dataDir := filepath.Join(lcm.shard.Dir(), "data")
-
-	entries, err := os.ReadDir(dataDir)
-	if err != nil {
-		return false
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") {
-			return true
-		}
-	}
-
-	return false
-}
-
-// MigrateFromOldFormat 从旧格式迁移。
-func (lcm *LevelCompactionManager) MigrateFromOldFormat() error {
-	dataDir := filepath.Join(lcm.shard.Dir(), "data")
-
-	l0Dir := filepath.Join(dataDir, "L0")
-	if err := storage.SafeMkdirAll(l0Dir, 0700); err != nil {
-		return fmt.Errorf("create L0 dir: %w", err)
-	}
-
-	entries, err := os.ReadDir(dataDir)
-	if err != nil {
-		return fmt.Errorf("read data dir: %w", err)
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "sst_") {
-			continue
-		}
-
-		oldPath := filepath.Join(dataDir, entry.Name())
-		newPath := filepath.Join(l0Dir, entry.Name())
-
-		if err := os.Rename(oldPath, newPath); err != nil {
-			slog.Warn("failed to migrate SSTable", "from", oldPath, "to", newPath, "error", err)
-		}
-	}
-
-	if err := lcm.Manifest.Save(); err != nil {
-		return fmt.Errorf("save manifest: %w", err)
-	}
-
 	return nil
 }

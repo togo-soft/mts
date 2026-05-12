@@ -18,12 +18,6 @@ type Iterator struct {
 	blockFieldValues map[string][]*types.FieldValue
 	blockRowCount    int
 	pos              int
-
-	fallbackMode       bool
-	fallbackTimestamps []int64
-	fallbackSids       []uint64
-	fallbackFields     []map[string]*types.FieldValue
-	fallbackPos        int
 }
 
 // NewIterator 创建新的流式迭代器。
@@ -32,60 +26,17 @@ func (r *Reader) NewIterator() (*Iterator, error) {
 		reader:       r,
 		currentBlock: -1,
 		pos:          -1,
-		fallbackPos:  -1,
 	}
 
-	if r.HasBlockIndex() {
-		idx := r.GetBlockIndex()
+	if r.blockIndex != nil {
+		idx := r.blockIndex
 		it.blockIndex = make([]BlockIndexEntry, idx.Len())
 		for i := 0; i < idx.Len(); i++ {
 			it.blockIndex[i] = idx.Entry(i)
 		}
-	} else {
-		it.fallbackMode = true
-		if err := it.loadAllData(); err != nil {
-			return nil, err
-		}
 	}
 
 	return it, nil
-}
-
-// loadAllData 回退模式下加载所有数据（使用编码感知的解码器）。
-func (it *Iterator) loadAllData() error {
-	timestamps, err := it.reader.readTimestamps()
-	if err != nil {
-		return err
-	}
-	if len(timestamps) == 0 {
-		return nil
-	}
-
-	sids, err := it.reader.readSids(len(timestamps))
-	if err != nil {
-		return err
-	}
-	it.fallbackSids = sids
-
-	fieldNames := it.reader.sectionTable.FieldNames()
-	decodedFields, err := it.reader.ReadAllDecodedFieldSections(fieldNames, len(timestamps))
-	if err != nil {
-		return err
-	}
-
-	it.fallbackTimestamps = timestamps
-	it.fallbackFields = make([]map[string]*types.FieldValue, len(timestamps))
-	for i := 0; i < len(timestamps); i++ {
-		row := make(map[string]*types.FieldValue)
-		for _, name := range fieldNames {
-			if vals, ok := decodedFields[name]; ok && i < len(vals) {
-				row[name] = vals[i]
-			}
-		}
-		it.fallbackFields[i] = row
-	}
-
-	return nil
 }
 
 // SeekToTime 定位到指定时间的 Block。

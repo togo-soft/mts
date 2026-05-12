@@ -7,19 +7,14 @@ import (
 // ReadRange 读取指定时间范围内的数据。
 // maxRows 限制返回行数（0 表示无限制）。
 func (r *Reader) ReadRange(startTime, endTime int64, maxRows int) ([]*types.PointRow, error) {
-	if r.blockIndex != nil && r.blockIndex.Len() > 0 {
-		return r.readRangeOptimized(startTime, endTime, maxRows)
+	if r.blockIndex == nil || r.blockIndex.Len() == 0 {
+		return nil, nil
 	}
-	return r.readRangeFullScan(startTime, endTime, maxRows)
-}
-
-func (r *Reader) readRangeOptimized(startTime, endTime int64, maxRows int) ([]*types.PointRow, error) {
 	startBlock := r.blockIndex.FindBlock(startTime)
 	if startBlock >= r.blockIndex.Len() {
 		return nil, nil
 	}
 
-	// 收集与 [startTime, endTime) 重叠的 block 索引
 	var matchingBlocks []int
 	for i := startBlock; i < r.blockIndex.Len(); i++ {
 		entry := r.blockIndex.Entry(i)
@@ -37,18 +32,11 @@ func (r *Reader) readRangeOptimized(startTime, endTime int64, maxRows int) ([]*t
 	}
 
 	fields := r.sectionTable.FieldNames()
-
-	// v2 优化路径：逐 block 独立解码
-	if r.HasBlockSectionMap() {
-		return r.readRangeBlocksV2(matchingBlocks, startTime, endTime, fields, maxRows)
-	}
-
-	// v1 路径：全量解码后切片
-	return r.readRangeBlocksV1(matchingBlocks, startTime, endTime, fields, maxRows)
+	return r.readRangeBlocks(matchingBlocks, startTime, endTime, fields, maxRows)
 }
 
-// readRangeBlocksV2 使用 BlockSectionMap 逐 block 按需解码（v2 格式）。
-func (r *Reader) readRangeBlocksV2(matchingBlocks []int, startTime, endTime int64, fields []string, maxRows int) ([]*types.PointRow, error) {
+// readRangeBlocks 使用 BlockSectionMap 逐 block 按需解码。
+func (r *Reader) readRangeBlocks(matchingBlocks []int, startTime, endTime int64, fields []string, maxRows int) ([]*types.PointRow, error) {
 	var rows []*types.PointRow
 
 	for _, blockIdx := range matchingBlocks {
@@ -89,118 +77,6 @@ func (r *Reader) readRangeBlocksV2(matchingBlocks []int, startTime, endTime int6
 				if maxRows > 0 && len(rows) >= maxRows {
 					return rows, nil
 				}
-			}
-		}
-	}
-
-	return rows, nil
-}
-
-// readRangeBlocksV1 全量解码后按匹配索引切片（v1 格式兼容）。
-func (r *Reader) readRangeBlocksV1(matchingBlocks []int, startTime, endTime int64, fields []string, maxRows int) ([]*types.PointRow, error) {
-	type blockInfo struct {
-		offset   uint32
-		rowCount uint32
-	}
-
-	var blocks []blockInfo
-	for _, idx := range matchingBlocks {
-		entry := r.blockIndex.Entry(idx)
-		blocks = append(blocks, blockInfo{
-			offset:   entry.Offset,
-			rowCount: entry.RowCount,
-		})
-	}
-
-	var allTimestamps []int64
-	var allSids []uint64
-
-	for _, b := range blocks {
-		ts, err := r.readTimestampRange(b.offset, b.rowCount)
-		if err != nil {
-			return nil, err
-		}
-		sids, err := r.readSidsRange(b.offset, b.rowCount)
-		if err != nil {
-			return nil, err
-		}
-		allTimestamps = append(allTimestamps, ts...)
-		allSids = append(allSids, sids...)
-	}
-
-	var matchingIndices []int
-	for i, ts := range allTimestamps {
-		if ts >= startTime && (endTime <= 0 || ts < endTime) {
-			matchingIndices = append(matchingIndices, i)
-		}
-	}
-
-	if len(matchingIndices) == 0 {
-		return nil, nil
-	}
-
-	rowCount := int(r.header.RowCount)
-	decodedFields, err := r.ReadAllDecodedFieldSections(fields, rowCount)
-	if err != nil {
-		return nil, err
-	}
-
-	rows := make([]*types.PointRow, 0, len(matchingIndices))
-	for _, idx := range matchingIndices {
-		row := &types.PointRow{
-			Sid:       allSids[idx],
-			Timestamp: allTimestamps[idx],
-			Tags:      nil,
-			Fields:    make(map[string]*types.FieldValue),
-		}
-		for _, name := range fields {
-			if vals, ok := decodedFields[name]; ok && idx < len(vals) {
-				row.Fields[name] = vals[idx]
-			}
-		}
-		rows = append(rows, row)
-		if maxRows > 0 && len(rows) >= maxRows {
-			break
-		}
-	}
-
-	return rows, nil
-}
-
-func (r *Reader) readRangeFullScan(startTime, endTime int64, maxRows int) ([]*types.PointRow, error) {
-	timestamps, err := r.readTimestamps()
-	if err != nil {
-		return nil, err
-	}
-
-	sids, err := r.readSids(len(timestamps))
-	if err != nil {
-		return nil, err
-	}
-
-	fields := r.sectionTable.FieldNames()
-	decodedFields, err := r.ReadAllDecodedFieldSections(fields, len(timestamps))
-	if err != nil {
-		return nil, err
-	}
-
-	var rows []*types.PointRow
-	for i, ts := range timestamps {
-		if ts >= startTime && (endTime <= 0 || ts < endTime) {
-			row := &types.PointRow{
-				Sid:       sids[i],
-				Timestamp: ts,
-				Tags:      nil,
-				Fields:    make(map[string]*types.FieldValue),
-			}
-			for _, name := range fields {
-				if vals, ok := decodedFields[name]; ok && i < len(vals) {
-					row.Fields[name] = vals[i]
-				}
-			}
-			rows = append(rows, row)
-			if maxRows > 0 && len(rows) >= maxRows {
-				break
 			}
 		}
 	}

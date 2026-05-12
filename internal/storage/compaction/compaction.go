@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const ShardSizeLimit = 1 * 1024 * 1024 * 1024 // 1GB
+const (
+	ShardSizeLimit    = 1 * 1024 * 1024 * 1024 // 1GB
+	twoPhaseThreshold = 10                     // 输入 SSTable 超过此数时启用两阶段合并
+)
 
 // CompactionConfig Compaction 配置。
 type CompactionConfig struct {
@@ -134,42 +137,43 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 		return "", nil, nil
 	}
 
-	if cm.Config.MaxCompactionBatch > 0 && len(sstFiles) > cm.Config.MaxCompactionBatch {
-		sstFiles = sstFiles[:cm.Config.MaxCompactionBatch]
+	batchLimit := cm.Config.MaxCompactionBatch
+	if batchLimit <= 0 {
+		batchLimit = twoPhaseThreshold
+	}
+	if len(sstFiles) > batchLimit {
+		sstFiles = sstFiles[:batchLimit]
 	}
 
 	outputSeq := cm.ShardAccess.NextSSTSeq()
 	outputPath := filepath.Join(cm.ShardAccess.DataDir(), fmt.Sprintf("sst_%d.bin", outputSeq))
 
-	task := NewCompactionTask(sstFiles, outputPath)
-
-	cm.CurrentTask = &CompactionProgress{
-		InputFiles: sstFiles,
-		OutputFile: outputPath,
-		Status:     "running",
-		StartedAt:  time.Now(),
-	}
-
 	cm.Mu.Unlock()
 
-	if err := cm.Merge(ctx, task); err != nil {
+	// 两阶段合并：当文件数超过阈值时分批合并为中间文件，再合并中间文件。
+	mergedFiles, mergeErr := cm.compactWithTwoPhase(ctx, sstFiles, outputPath)
+	if mergeErr != nil {
 		cm.Mu.Lock()
-		cm.CurrentTask.Status = "failed"
-		cm.CurrentTask.Err = err
+		cm.CurrentTask = &CompactionProgress{Status: "failed", Err: mergeErr}
 		cm.Mu.Unlock()
-		_ = os.Remove(outputPath)
 		cm.ReleaseSSTRefs(sstFiles)
-		return "", nil, fmt.Errorf("merge failed: %w", err)
+		return "", nil, fmt.Errorf("merge failed: %w", mergeErr)
 	}
 
-	// Release refs from CollectSSTables BEFORE Commit so Commit can correctly
-	// check if files are truly unused (only Merge's refs remain if queries aren't reading)
 	cm.ReleaseSSTRefs(sstFiles)
 
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
-	cm.CurrentTask.Status = "completed"
-	cm.CurrentTask.Progress = 100
+
+	task := NewCompactionTask(sstFiles, outputPath)
+	task.MergedFiles = mergedFiles
+	cm.CurrentTask = &CompactionProgress{
+		InputFiles: sstFiles,
+		OutputFile: outputPath,
+		Status:     "completed",
+		Progress:   100,
+		StartedAt:  time.Now(),
+	}
 
 	if err := cm.Commit(task); err != nil {
 		_ = os.Remove(outputPath)
@@ -177,6 +181,57 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 	}
 
 	return task.OutputPath, task.InputFiles, nil
+}
+
+// compactWithTwoPhase 执行合并，当输入文件数超过 twoPhaseThreshold 时使用两阶段合并。
+func (cm *CompactionManager) compactWithTwoPhase(ctx context.Context, inputFiles []string, outputPath string) ([]string, error) {
+	if len(inputFiles) <= twoPhaseThreshold {
+		task := NewCompactionTask(inputFiles, outputPath)
+		if err := cm.Merge(ctx, task); err != nil {
+			return nil, err
+		}
+		return task.MergedFiles, nil
+	}
+
+	// 分批合并为中间文件
+	var intermediates []string
+	for i := 0; i < len(inputFiles); i += twoPhaseThreshold {
+		end := i + twoPhaseThreshold
+		if end > len(inputFiles) {
+			end = len(inputFiles)
+		}
+		batch := inputFiles[i:end]
+
+		intermediateSeq := cm.ShardAccess.NextSSTSeq()
+		intermediatePath := filepath.Join(cm.ShardAccess.DataDir(), fmt.Sprintf("sst_%d.bin", intermediateSeq))
+
+		task := NewCompactionTask(batch, intermediatePath)
+		if err := cm.Merge(ctx, task); err != nil {
+			// 清理已创建的中间文件
+			for _, p := range intermediates {
+				_ = os.Remove(p)
+			}
+			_ = os.Remove(intermediatePath)
+			return nil, fmt.Errorf("phase 1 merge batch %d: %w", i/twoPhaseThreshold, err)
+		}
+		intermediates = append(intermediates, intermediatePath)
+	}
+
+	// 合并中间文件为最终输出
+	task := NewCompactionTask(intermediates, outputPath)
+	if err := cm.Merge(ctx, task); err != nil {
+		for _, p := range intermediates {
+			_ = os.Remove(p)
+		}
+		return nil, fmt.Errorf("phase 2 merge: %w", err)
+	}
+
+	// 清理中间文件
+	for _, p := range intermediates {
+		_ = os.Remove(p)
+	}
+
+	return nil, nil
 }
 
 // GetProgress 获取当前 compaction 进度，无活跃任务时返回 nil。

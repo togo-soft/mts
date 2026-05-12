@@ -101,7 +101,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 
 	merged := NewMergeIterator(iterators)
 
-	seen := make(map[string]bool)
+	seen := make(map[uint64]bool)
 	var pointsToWrite []types.InternalPoint
 	const batchSize = 1000
 
@@ -126,7 +126,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 		}
 
 		row := merged.Point()
-		key := fmt.Sprintf("%d-%d", row.Timestamp, row.Sid)
+		key := uint64(row.Timestamp) ^ (row.Sid * 0x9e3779b97f4a7c15)
 
 		if seen[key] {
 			task.DuplicateCount++

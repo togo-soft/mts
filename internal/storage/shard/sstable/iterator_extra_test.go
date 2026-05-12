@@ -60,56 +60,6 @@ func TestIterator_DecodeString(t *testing.T) {
 	}
 }
 
-func TestIterator_LoadAllData(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	// 写入多个数据点
-	points := make([]*types.Point, 10)
-	for i := 0; i < 10; i++ {
-		points[i] = &types.Point{
-			Timestamp: int64(i) * 1000,
-			Tags:      map[string]string{"host": "s1"},
-			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
-		}
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 遍历所有数据
-	count := 0
-	for it.Next() {
-		pt := it.Point()
-		if pt != nil {
-			count++
-		}
-	}
-
-	if count != 10 {
-		t.Errorf("expected 10 points, got %d", count)
-	}
-}
-
 func TestIterator_DecodeFieldValueFromData(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -295,17 +245,6 @@ func TestWriter_AppendZeroValue_AllTypes(t *testing.T) {
 	}
 }
 
-func TestReader_HasBlockIndex_WithoutIndex(t *testing.T) {
-	_ = t.TempDir()
-
-	r := &Reader{}
-	r.blockIndex = nil
-
-	if r.HasBlockIndex() {
-		t.Error("expected HasBlockIndex()=false for nil index")
-	}
-}
-
 func TestReader_GetBlockIndex(t *testing.T) {
 	_ = t.TempDir()
 
@@ -369,36 +308,6 @@ func TestIterator_LoadBlock_InvalidIndex(t *testing.T) {
 	}
 }
 
-func TestIterator_LoadAllData_EmptyTimestamps(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	// 写入空数据
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 空数据应该正常工作
-	if it.Next() {
-		t.Errorf("expected false for empty data")
-	}
-}
-
 func TestIterator_DecodeFieldValueFromData_String(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -439,58 +348,6 @@ func TestIterator_DecodeFieldValueFromData_String(t *testing.T) {
 
 	if count != 2 {
 		t.Errorf("expected 2 points, got %d", count)
-	}
-}
-
-func TestIterator_LoadAllData_WithMultipleFields(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{
-			Timestamp: 1000,
-			Tags:      map[string]string{"host": "s1"},
-			Fields: map[string]*types.FieldValue{
-				"f1": types.NewFieldValue(1.0),
-				"f2": types.NewFieldValue(int64(100)),
-				"f3": types.NewFieldValue("hello"),
-				"f4": types.NewFieldValue(true),
-			},
-		},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	count := 0
-	for it.Next() {
-		pt := it.Point()
-		if pt != nil {
-			count++
-		}
-	}
-
-	if count != 1 {
-		t.Errorf("expected 1 point, got %d", count)
 	}
 }
 
@@ -565,54 +422,6 @@ func TestIterator_CurrentBlockTimestamps_NoIndex(t *testing.T) {
 	last := it.CurrentBlockLastTimestamp()
 	if last != 0 {
 		t.Errorf("expected 0 for no index, got %d", last)
-	}
-}
-
-func TestIterator_FallbackMode(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := make([]*types.Point, 10)
-	for i := 0; i < 10; i++ {
-		points[i] = &types.Point{
-			Timestamp: int64(i+1) * 1000,
-			Tags:      map[string]string{"host": "s1"},
-			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
-		}
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	count := 0
-	for it.Next() {
-		pt := it.Point()
-		if pt != nil {
-			count++
-		}
-	}
-
-	if count != 10 {
-		t.Errorf("expected 10 points, got %d", count)
 	}
 }
 
@@ -752,127 +561,6 @@ func TestIterator_Next_ErrorHandling(t *testing.T) {
 	}
 }
 
-func TestIterator_Point_FallbackMode(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 首次 Next
-	if !it.Next() {
-		t.Error("expected true")
-	}
-
-	// Point 在回退模式下
-	pt := it.Point()
-	if pt == nil {
-		t.Error("expected non-nil point")
-	}
-}
-
-func TestIterator_FallbackMode_Empty(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	// 不写入任何数据
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 应该没有数据
-	if it.Next() {
-		t.Error("expected false for empty sstable")
-	}
-}
-
-func TestIterator_FallbackMode_MultipleFields(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{
-			Timestamp: 1000,
-			Tags:      map[string]string{"host": "s1"},
-			Fields: map[string]*types.FieldValue{
-				"str_field": types.NewFieldValue("hello"),
-			},
-		},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), schema)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	count := 0
-	for it.Next() {
-		pt := it.Point()
-		if pt != nil {
-			count++
-		}
-	}
-
-	if count != 1 {
-		t.Errorf("expected 1 point, got %d", count)
-	}
-}
-
 func TestIterator_DecodeFieldValueFromData_Int64(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -958,41 +646,6 @@ func TestIterator_DecodeFieldValueFromData_Bool(t *testing.T) {
 
 	if count != 2 {
 		t.Errorf("expected 2 points with bool, got %d", count)
-	}
-}
-
-func TestIterator_LoadAllData_FieldsDirError(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{Timestamp: 1000, Tags: map[string]string{"host": "s1"}, Fields: map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)}},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-	schema := w.Schema()
-	_ = schema
-
-	// 单文件格式使用 .bin 文件路径
-	r, err := NewReader(filepath.Join(tmpDir, "data", "sst_0.bin"), Schema{Fields: make(map[string]FieldType)})
-	if err != nil {
-		t.Logf("NewReader failed as expected: %v", err)
-		return
-	}
-	defer func() { _ = r.Close() }()
-
-	_, err = r.NewIterator()
-	if err != nil {
-		t.Logf("NewIterator returned error: %v", err)
 	}
 }
 
@@ -1351,79 +1004,5 @@ func TestIterator_LoadBlock_ReadDirError(t *testing.T) {
 	err = it.loadBlock(0)
 	if err == nil {
 		t.Error("expected error for closed file")
-	}
-}
-
-func TestIterator_FallbackMode_LoadAllData(t *testing.T) {
-	// 使用 Writer API 创建包含多种字段类型的 SSTable 文件
-	tmpDir := t.TempDir()
-
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
-	if err != nil {
-		t.Fatalf("NewWriter failed: %v", err)
-	}
-
-	points := []*types.Point{
-		{
-			Timestamp: 1000,
-			Fields: map[string]*types.FieldValue{
-				"cpu":    types.NewFieldValue(1.0),
-				"memory": types.NewFieldValue(int64(100)),
-				"status": types.NewFieldValue("start"),
-				"active": types.NewFieldValue(true),
-			},
-		},
-		{
-			Timestamp: 2000,
-			Fields: map[string]*types.FieldValue{
-				"cpu":    types.NewFieldValue(1.1),
-				"memory": types.NewFieldValue(int64(101)),
-				"status": types.NewFieldValue("middle"),
-				"active": types.NewFieldValue(false),
-			},
-		},
-		{
-			Timestamp: 3000,
-			Fields: map[string]*types.FieldValue{
-				"cpu":    types.NewFieldValue(1.2),
-				"memory": types.NewFieldValue(int64(102)),
-				"status": types.NewFieldValue("end"),
-				"active": types.NewFieldValue(true),
-			},
-		},
-	}
-
-	if err := w.WritePoints(pointsToInternal(points)); err != nil {
-		t.Fatalf("WritePoints failed: %v", err)
-	}
-	schemaFromWriter := w.Schema()
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	sstPath := filepath.Join(tmpDir, "data", "sst_0.bin")
-	r, err := NewReader(sstPath, schemaFromWriter)
-	if err != nil {
-		t.Fatalf("NewReader failed: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	// 通过 Iterator 验证数据
-	it, err := r.NewIterator()
-	if err != nil {
-		t.Fatalf("NewIterator failed: %v", err)
-	}
-
-	// 验证可以迭代所有 3 行
-	count := 0
-	for it.Next() {
-		p := it.Point()
-		if p == nil {
-			t.Fatal("unexpected nil point")
-		}
-		count++
-	}
-	if count != 3 {
-		t.Errorf("expected 3 rows, got %d", count)
 	}
 }
