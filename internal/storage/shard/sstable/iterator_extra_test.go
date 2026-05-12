@@ -2,6 +2,7 @@ package sstable
 
 import (
 	"encoding/binary"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -1004,5 +1005,57 @@ func TestIterator_LoadBlock_ReadDirError(t *testing.T) {
 	err = it.loadBlock(0)
 	if err == nil {
 		t.Error("expected error for closed file")
+	}
+}
+
+func TestReadRange_EarlyTermination(t *testing.T) {
+	tmpDir := t.TempDir()
+	// NOTE: NewWriter(dir, seq, blockSize, compressAlgo). blockSize=0 uses default 64KB.
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// 写入 200 个数据点，全部在同一 block 内
+	points := make([]*types.Point, 200)
+	for i := 0; i < 200; i++ {
+		points[i] = &types.Point{
+			Timestamp: int64(i+1) * 1_000_000_000,
+			Tags:      map[string]string{"host": "a"},
+			Fields: map[string]*types.FieldValue{
+				"value": types.NewFieldValue(float64(i)),
+			},
+		}
+	}
+	if err := w.WritePoints(pointsToInternalWithSids(points, nil)); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	sstPath := fmt.Sprintf("%s/data/sst_1.bin", tmpDir)
+	r, err := NewReader(sstPath, w.Schema())
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	// 请求 LIMIT 10，验证仅返回 10 行
+	rows, err := r.ReadRange(0, 0, 10)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+	if len(rows) != 10 {
+		t.Errorf("expected 10 rows with maxRows=10, got %d", len(rows))
+	}
+
+	// 验证数据正确性（前 10 个点）
+	for i, row := range rows {
+		expectedVal := float64(i)
+		got := row.Fields["value"].GetFloatValue()
+		if got != expectedVal {
+			t.Errorf("row[%d]: expected value=%f, got %f", i, expectedVal, got)
+		}
 	}
 }

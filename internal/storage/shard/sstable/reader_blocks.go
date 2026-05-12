@@ -285,6 +285,67 @@ func (r *Reader) readFieldBlockRaw(name string, blockIdx int) ([]byte, error) {
 	return DecompressBlock(data, comp)
 }
 
+// decodeFieldSectionBlockUpTo 解码指定 block 的字段数据，最多解码 maxRow 行。
+func (r *Reader) decodeFieldSectionBlockUpTo(name string, blockIdx int, maxRow int) ([]*types.FieldValue, error) {
+	bso := r.blockSectionMap.Lookup(name)
+	if bso == nil {
+		values := make([]*types.FieldValue, maxRow)
+		for i := 0; i < maxRow; i++ {
+			values[i] = zeroFieldValue(r.schema.Fields[name])
+		}
+		return values, nil
+	}
+	offset, size := bso.BlockRange(blockIdx)
+	if size == 0 {
+		values := make([]*types.FieldValue, maxRow)
+		ft := r.schema.Fields[name]
+		for i := 0; i < maxRow; i++ {
+			values[i] = zeroFieldValue(ft)
+		}
+		return values, nil
+	}
+
+	secOffset, _ := r.sectionTable.Lookup(name)
+	data := make([]byte, size)
+	if _, err := r.file.ReadAt(data, int64(secOffset+offset)); err != nil {
+		return nil, err
+	}
+
+	comp := r.sectionTable.LookupCompression(name)
+	var decErr error
+	data, decErr = DecompressBlock(data, comp)
+	if decErr != nil {
+		return nil, fmt.Errorf("decompress field %s block %d: %w", name, blockIdx, decErr)
+	}
+
+	enc := r.sectionTable.LookupEncoding(name)
+	switch enc {
+	case EncodingXORFloat:
+		floatVals, err := compression.DecodeFloat64Values(data, maxRow)
+		if err != nil {
+			return nil, fmt.Errorf("decode xor float field %s: %w", name, err)
+		}
+		return float64ValuesToFieldValues(floatVals), nil
+	case EncodingZigZagVarint:
+		intVals, err := compression.DecodeInt64Values(data, maxRow)
+		if err != nil {
+			return nil, fmt.Errorf("decode zigzag int field %s: %w", name, err)
+		}
+		return int64ValuesToFieldValues(intVals), nil
+	case EncodingDictString:
+		strVals, err := compression.DecodeStringValues(data, maxRow, true)
+		if err != nil {
+			return nil, fmt.Errorf("decode dict string field %s: %w", name, err)
+		}
+		return stringValuesToFieldValues(strVals), nil
+	case EncodingBitmapBool:
+		boolVals := compression.DecodeBoolValues(data, maxRow)
+		return boolValuesToFieldValues(boolVals), nil
+	default:
+		return r.decodeRawFieldSection(data, maxRow, r.schema.Fields[name], name), nil
+	}
+}
+
 // decodeFieldSectionBlockFromData 从已解压的原始字节解码字段值。
 func (r *Reader) decodeFieldSectionBlockFromData(name string, data []byte, rowCount int) ([]*types.FieldValue, error) {
 	if data == nil {

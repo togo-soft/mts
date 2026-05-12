@@ -49,15 +49,39 @@ func (r *Reader) readRangeBlocks(matchingBlocks []int, startTime, endTime int64,
 			return nil, err
 		}
 
+		// 先扫描 timestamps 找出匹配行，确定需要解码的最大行号
+		maxNeeded := 0
+		matchCount := 0
+		remaining := maxRows - len(rows)
+		if maxRows <= 0 {
+			remaining = -1 // unlimited
+		}
+		for i, ts := range timestamps {
+			if ts >= startTime && (endTime <= 0 || ts < endTime) {
+				if i+1 > maxNeeded {
+					maxNeeded = i + 1
+				}
+				matchCount++
+				if remaining > 0 && matchCount >= remaining {
+					break
+				}
+			}
+		}
+		if maxNeeded == 0 {
+			continue
+		}
+
+		// 仅解码到最后一个匹配行的位置，而非全部 rowCount
 		decodedFields := make(map[string][]*types.FieldValue, len(fields))
 		for _, name := range fields {
-			vals, err := r.decodeFieldSectionBlock(name, blockIdx)
+			vals, err := r.decodeFieldSectionBlockUpTo(name, blockIdx, maxNeeded)
 			if err != nil {
 				return nil, err
 			}
 			decodedFields[name] = vals
 		}
 
+		// 逐行组装结果
 		for i, ts := range timestamps {
 			if ts >= startTime && (endTime <= 0 || ts < endTime) {
 				row := &types.PointRow{
