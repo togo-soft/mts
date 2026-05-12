@@ -2,6 +2,7 @@
 package sstable
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -223,5 +224,125 @@ func TestIterator_NextBeyondRange(t *testing.T) {
 	// 第三次 Next（仍然超出范围）
 	if it.Next() {
 		t.Errorf("expected false when beyond range")
+	}
+}
+
+func TestIterator_ProjectedFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	points := []*types.Point{
+		{
+			Timestamp: 1_000_000_000,
+			Tags:      map[string]string{"host": "a"},
+			Fields: map[string]*types.FieldValue{
+				"cpu":  types.NewFieldValue(float64(1.5)),
+				"mem":  types.NewFieldValue(float64(60.0)),
+				"disk": types.NewFieldValue(float64(30.0)),
+			},
+		},
+		{
+			Timestamp: 2_000_000_000,
+			Tags:      map[string]string{"host": "a"},
+			Fields: map[string]*types.FieldValue{
+				"cpu":  types.NewFieldValue(float64(2.0)),
+				"mem":  types.NewFieldValue(float64(65.0)),
+				"disk": types.NewFieldValue(float64(35.0)),
+			},
+		},
+	}
+	if err := w.WritePoints(pointsToInternalWithSids(points, nil)); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	sstPath := fmt.Sprintf("%s/data/sst_1.bin", tmpDir)
+	r, err := NewReader(sstPath, w.Schema())
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	it, err := r.NewIterator([]string{"cpu"})
+	if err != nil {
+		t.Fatalf("NewIterator with fields failed: %v", err)
+	}
+
+	if !it.Next() {
+		t.Fatal("expected first row")
+	}
+	row := it.Point()
+	if row == nil {
+		t.Fatal("expected non-nil row")
+	}
+	if _, ok := row.Fields["cpu"]; !ok {
+		t.Error("expected cpu field")
+	}
+	if _, ok := row.Fields["mem"]; ok {
+		t.Error("mem should not be present with field projection")
+	}
+	if _, ok := row.Fields["disk"]; ok {
+		t.Error("disk should not be present with field projection")
+	}
+	if row.Fields["cpu"].GetFloatValue() != float64(1.5) {
+		t.Errorf("expected cpu=1.5, got %v", row.Fields["cpu"])
+	}
+
+	if !it.Next() {
+		t.Fatal("expected second row")
+	}
+	row2 := it.Point()
+	if row2.Fields["cpu"].GetFloatValue() != float64(2.0) {
+		t.Errorf("expected cpu=2.0, got %v", row2.Fields["cpu"])
+	}
+}
+
+func TestIterator_AllFieldsNil(t *testing.T) {
+	tmpDir := t.TempDir()
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	points := []*types.Point{
+		{
+			Timestamp: 1_000_000_000,
+			Tags:      map[string]string{"host": "a"},
+			Fields: map[string]*types.FieldValue{
+				"cpu": types.NewFieldValue(float64(1.0)),
+				"mem": types.NewFieldValue(float64(60.0)),
+			},
+		},
+	}
+	if err := w.WritePoints(pointsToInternalWithSids(points, nil)); err != nil {
+		t.Fatalf("WritePoints failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	sstPath := fmt.Sprintf("%s/data/sst_1.bin", tmpDir)
+	r, err := NewReader(sstPath, w.Schema())
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	it, err := r.NewIterator(nil)
+	if err != nil {
+		t.Fatalf("NewIterator(nil) failed: %v", err)
+	}
+
+	if !it.Next() {
+		t.Fatal("expected row")
+	}
+	row := it.Point()
+	if len(row.Fields) != 2 {
+		t.Errorf("expected 2 fields, got %d", len(row.Fields))
 	}
 }
