@@ -80,11 +80,12 @@ func UnmarshalFileHeader(data [HeaderSize]byte) (FileHeader, error) {
 
 // SectionEntry 描述文件中一个段的元数据。
 type SectionEntry struct {
-	Type     SectionType
-	Name     string // 仅字段段有值
-	Offset   uint64
-	Size     uint64
-	Encoding EncodingType
+	Type        SectionType
+	Name        string // 仅字段段有值
+	Offset      uint64
+	Size        uint64
+	Encoding    EncodingType
+	Compression CompressionAlgorithm
 }
 
 // SectionTable 是文件末尾的段目录。
@@ -92,12 +93,12 @@ type SectionTable struct {
 	Entries []SectionEntry
 }
 
-// sectionEntrySize 每个 entry 的固定开销 (Type+Encoding+NameLen+Offset+Size)。
-const sectionEntrySize = 19
+// sectionEntrySize 每个 entry 的固定开销 (Type+Encoding+Compression+NameLen+Offset+Size)。
+const sectionEntrySize = 20
 
 // Marshal 序列化 SectionTable。
 // 格式: [count:2B][reserved:2B][entries...]
-// 每个 entry: [type:1B][encoding:1B][nameLen:1B][offset:8B][size:8B][name:nameLen]
+// 每个 entry: [type:1B][encoding:1B][compression:1B][nameLen:1B][offset:8B][size:8B][name:nameLen]
 func (st *SectionTable) Marshal() []byte {
 	nameLenSum := 0
 	for _, e := range st.Entries {
@@ -111,7 +112,7 @@ func (st *SectionTable) Marshal() []byte {
 	buf = append(buf, 0, 0) // reserved
 
 	for _, e := range st.Entries {
-		buf = append(buf, byte(e.Type), byte(e.Encoding), byte(len(e.Name)))
+		buf = append(buf, byte(e.Type), byte(e.Encoding), byte(e.Compression), byte(len(e.Name)))
 		var off [8]byte
 		binary.BigEndian.PutUint64(off[:], e.Offset)
 		buf = append(buf, off[:]...)
@@ -138,13 +139,14 @@ func UnmarshalSectionTable(data []byte) (SectionTable, error) {
 			return SectionTable{}, fmt.Errorf("section table truncated at entry %d", i)
 		}
 		e := SectionEntry{
-			Type:     SectionType(data[pos]),
-			Encoding: EncodingType(data[pos+1]),
-			Name:     "",
-			Offset:   binary.BigEndian.Uint64(data[pos+3 : pos+11]),
-			Size:     binary.BigEndian.Uint64(data[pos+11 : pos+19]),
+			Type:        SectionType(data[pos]),
+			Encoding:    EncodingType(data[pos+1]),
+			Compression: CompressionAlgorithm(data[pos+2]),
+			Name:        "",
+			Offset:      binary.BigEndian.Uint64(data[pos+4 : pos+12]),
+			Size:        binary.BigEndian.Uint64(data[pos+12 : pos+20]),
 		}
-		nameLen := int(data[pos+2])
+		nameLen := int(data[pos+3])
 		pos += sectionEntrySize
 		if nameLen > 0 {
 			if pos+nameLen > len(data) {
@@ -197,4 +199,14 @@ func (st *SectionTable) LookupEncoding(name string) EncodingType {
 		}
 	}
 	return EncodingRaw
+}
+
+// LookupCompression 按名称查找段压缩算法。未找到返回 CompressionNone。
+func (st *SectionTable) LookupCompression(name string) CompressionAlgorithm {
+	for _, e := range st.Entries {
+		if e.Name == name {
+			return e.Compression
+		}
+	}
+	return CompressionNone
 }
