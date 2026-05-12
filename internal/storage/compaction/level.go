@@ -121,6 +121,9 @@ type LevelCompactionManager struct {
 	wg       sync.WaitGroup
 
 	seqMu sync.Mutex
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewLevelCompactionManager 创建 LevelCompactionManager。
@@ -140,11 +143,15 @@ func NewLevelCompactionManager(shard ShardAccess, config *LevelCompactionConfig)
 		slog.Warn("failed to load manifest, starting fresh", "error", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	lcm := &LevelCompactionManager{
 		shard:    shard,
 		config:   config,
 		Manifest: manifest,
 		stopCh:   make(chan struct{}),
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 
 	return lcm, nil
@@ -153,6 +160,12 @@ func NewLevelCompactionManager(shard ShardAccess, config *LevelCompactionConfig)
 // Timeout 返回 level compaction 超时配置。
 func (lcm *LevelCompactionManager) Timeout() time.Duration {
 	return lcm.config.Timeout
+}
+
+// Context 返回 manager 的可取消 context，Stop() 时会取消。
+// 调用方应使用此 context 创建子 context，以便 Stop() 能打断运行中的 compaction。
+func (lcm *LevelCompactionManager) Context() context.Context {
+	return lcm.ctx
 }
 
 // Compact 执行 compaction。
@@ -313,7 +326,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 		_, _ = fmt.Sscanf(parts[1], "%d", &seq)
 	}
 
-	w, err := sstable.NewWriter(lcm.shard.Dir(), seq, 0)
+	w, err := sstable.NewWriter(lcm.shard.Dir(), seq, 0, lcm.shard.CompressionAlgorithm())
 	if err != nil {
 		return err
 	}
@@ -552,9 +565,12 @@ func (lcm *LevelCompactionManager) StartPeriodicCheck() {
 }
 
 // Stop 停止定期检查。
+// 先 close(stopCh) + cancel context 让运行中的 compaction 感知退出，
+// 再等待 goroutine 退出。
 func (lcm *LevelCompactionManager) Stop() {
 	lcm.stopOnce.Do(func() {
 		close(lcm.stopCh)
+		lcm.cancel()
 	})
 	lcm.wg.Wait()
 }
@@ -569,7 +585,7 @@ func (lcm *LevelCompactionManager) doPeriodicCompaction() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), lcm.config.Timeout)
+	ctx, cancel := context.WithTimeout(lcm.ctx, lcm.config.Timeout)
 	defer cancel()
 
 	_, _, err := lcm.Compact(ctx)

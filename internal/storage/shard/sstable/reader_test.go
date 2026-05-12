@@ -11,7 +11,7 @@ import (
 func TestReader_ReadAll(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestReader_ReadAll(t *testing.T) {
 func TestReader_ReadTimestamps(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestReader_ReadRange_NoIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// blockSize=0 表示无索引（全扫描模式）
-	w, err := NewWriter(tmpDir, 0, 0)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestReader_ReadRange_NoIndex(t *testing.T) {
 func TestReader_ReadRange_AllFields(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}

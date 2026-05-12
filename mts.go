@@ -38,6 +38,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/internal/query"
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -136,6 +137,7 @@ type Config struct {
 	ShardDuration          time.Duration
 	MemTableCfg            *types.MemTableConfig
 	CompactionCfg          *types.CompactionConfig
+	CompressionAlgorithm   sstable.CompressionAlgorithm
 	RetentionPeriod        time.Duration
 	RetentionCheckInterval time.Duration
 }
@@ -238,6 +240,7 @@ func Open(cfg Config) (*DB, error) {
 		ShardDuration:          shardDuration,
 		MemTableCfg:            memTableCfg,
 		CompactionCfg:          compactionCfg,
+		CompressionAlgorithm:   cfg.CompressionAlgorithm,
 		RetentionPeriod:        cfg.RetentionPeriod,
 		RetentionCheckInterval: cfg.RetentionCheckInterval,
 	})

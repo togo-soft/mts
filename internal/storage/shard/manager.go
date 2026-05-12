@@ -16,6 +16,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 )
 
 // ShardManager 管理所有 Shard 的生命周期。
@@ -24,6 +25,7 @@ type ShardManager struct {
 	shardDuration          time.Duration
 	memTableCfg            *memtable.MemTableConfig
 	compactionCfg          *compaction.CompactionConfig
+	compressionAlgo        sstable.CompressionAlgorithm
 	manager                *metadata.Manager
 	shards                 map[string]*Shard
 	discoveredMeasurements map[string]bool
@@ -33,12 +35,13 @@ type ShardManager struct {
 }
 
 // NewShardManager 创建新的 Shard 管理器。
-func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memtable.MemTableConfig, compactionCfg *compaction.CompactionConfig, mgr *metadata.Manager) *ShardManager {
+func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memtable.MemTableConfig, compactionCfg *compaction.CompactionConfig, mgr *metadata.Manager, compressionAlgo sstable.CompressionAlgorithm) *ShardManager {
 	sm := &ShardManager{
 		dir:                    dir,
 		shardDuration:          shardDuration,
 		memTableCfg:            memTableCfg,
 		compactionCfg:          compactionCfg,
+		compressionAlgo:        compressionAlgo,
 		manager:                mgr,
 		shards:                 make(map[string]*Shard),
 		discoveredMeasurements: make(map[string]bool),
@@ -97,6 +100,7 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		SchemaStore:   m.manager.Catalog(),
 		MemTableCfg:   m.memTableCfg,
 		CompactionCfg: m.compactionCfg,
+		CompressionAlgorithm:   m.compressionAlgo,
 	})
 	if err := s.ReplayWAL(); err != nil {
 		slog.Warn("failed to replay WAL for new shard", "key", key, "error", err)
@@ -195,6 +199,7 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 			SeriesStore:   seriesStore,
 			MemTableCfg:   m.memTableCfg,
 			CompactionCfg: m.compactionCfg,
+		CompressionAlgorithm:   m.compressionAlgo,
 		})
 		if err := shard.ReplayWAL(); err != nil {
 			slog.Warn("failed to replay WAL for discovered shard", "key", key, "error", err)
@@ -251,6 +256,7 @@ func (m *ShardManager) loadShardFromIndex(db, measurement string, info metadata.
 		SchemaStore:   m.manager.Catalog(),
 		MemTableCfg:   m.memTableCfg,
 		CompactionCfg: m.compactionCfg,
+		CompressionAlgorithm:   m.compressionAlgo,
 	})
 	if err := s.ReplayWAL(); err != nil {
 		slog.Warn("failed to replay WAL for discovered shard", "key", info.ID, "error", err)

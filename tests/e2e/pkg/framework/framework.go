@@ -10,6 +10,7 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -25,6 +26,7 @@ type Config struct {
 	RetentionCheckInterval  time.Duration
 	CompactionMaxParts      int // 0 使用默认值 4
 	CompactionCheckInterval time.Duration
+	CompressionAlgo         string // "none", "snappy", "lz4"
 }
 
 // DefaultConfig 返回默认配置
@@ -80,6 +82,18 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 		}
 	}
 
+	var compressionAlgo sstable.CompressionAlgorithm
+	switch cfg.CompressionAlgo {
+	case "snappy":
+		compressionAlgo = sstable.CompressionSnappy
+	case "lz4":
+		compressionAlgo = sstable.CompressionLZ4
+	case "", "none":
+		compressionAlgo = sstable.CompressionNone
+	default:
+		return nil, fmt.Errorf("unknown compression algorithm: %s", cfg.CompressionAlgo)
+	}
+
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
 		ShardDuration: cfg.ShardDuration,
@@ -89,6 +103,7 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 			IdleDurationNanos: cfg.IdleDurationNanos,
 		},
 		CompactionCfg:          compCfg,
+		CompressionAlgorithm:   compressionAlgo,
 		RetentionPeriod:        cfg.RetentionPeriod,
 		RetentionCheckInterval: cfg.RetentionCheckInterval,
 	}
@@ -297,5 +312,12 @@ func WithCompaction(maxParts int, checkInterval time.Duration) func(*Config) {
 	return func(c *Config) {
 		c.CompactionMaxParts = maxParts
 		c.CompactionCheckInterval = checkInterval
+	}
+}
+
+// WithCompression 设置压缩算法
+func WithCompression(algo string) func(*Config) {
+	return func(c *Config) {
+		c.CompressionAlgo = algo
 	}
 }

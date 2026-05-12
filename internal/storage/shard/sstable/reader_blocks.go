@@ -285,6 +285,13 @@ func (r *Reader) readTimestampsBlock(blockIdx int) ([]int64, error) {
 		return nil, err
 	}
 
+	comp := r.sectionTable.LookupCompression("_timestamps")
+	var decErr error
+	data, decErr = DecompressBlock(data, comp)
+	if decErr != nil {
+		return nil, fmt.Errorf("decompress timestamps block %d: %w", blockIdx, decErr)
+	}
+
 	enc := r.sectionTable.LookupEncoding("_timestamps")
 	switch enc {
 	case EncodingDeltaVarint:
@@ -313,6 +320,13 @@ func (r *Reader) readSidsBlock(blockIdx int) ([]uint64, error) {
 	data := make([]byte, size)
 	if _, err := r.file.ReadAt(data, int64(sidsOffset+offset)); err != nil {
 		return nil, err
+	}
+
+	comp := r.sectionTable.LookupCompression("_sids")
+	var decErr error
+	data, decErr = DecompressBlock(data, comp)
+	if decErr != nil {
+		return nil, fmt.Errorf("decompress sids block %d: %w", blockIdx, decErr)
 	}
 
 	return compression.DecodeSidsDelta(data, rowCount)
@@ -346,6 +360,13 @@ func (r *Reader) decodeFieldSectionBlock(name string, blockIdx int) ([]*types.Fi
 	data := make([]byte, size)
 	if _, err := r.file.ReadAt(data, int64(secOffset+offset)); err != nil {
 		return nil, err
+	}
+
+	comp := r.sectionTable.LookupCompression(name)
+	var decErr error
+	data, decErr = DecompressBlock(data, comp)
+	if decErr != nil {
+		return nil, fmt.Errorf("decompress field %s block %d: %w", name, blockIdx, decErr)
 	}
 
 	enc := r.sectionTable.LookupEncoding(name)

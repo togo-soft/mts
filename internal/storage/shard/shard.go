@@ -71,8 +71,9 @@ type ShardConfig struct {
 	SchemaStore        SchemaStore
 	MemTableCfg        *memtable.MemTableConfig
 	CompactionCfg      *compaction.CompactionConfig
-	LevelCompactionCfg *compaction.LevelCompactionConfig
-	Logger             *slog.Logger
+	LevelCompactionCfg   *compaction.LevelCompactionConfig
+	CompressionAlgorithm sstable.CompressionAlgorithm
+	Logger               *slog.Logger
 }
 
 // SchemaStore 是 schema 的存储接口。
@@ -134,6 +135,7 @@ type Shard struct {
 	sstRefs         *sstRefs
 	compaction      *compaction.CompactionManager
 	levelCompaction *compaction.LevelCompactionManager
+	compressionAlgo sstable.CompressionAlgorithm
 }
 
 // NewShard 创建新的 Shard 实例。
@@ -194,6 +196,7 @@ func NewShard(cfg ShardConfig) *Shard {
 		seriesStore: cfg.SeriesStore,
 		schemaStore: cfg.SchemaStore,
 		sstRefs:     newSSTRefs(),
+		compressionAlgo: cfg.CompressionAlgorithm,
 	}
 
 	// 初始化 CompactionManager（如果配置了）
@@ -315,6 +318,11 @@ func (s *Shard) Measurement() string {
 // Dir 返回 Shard 的数据目录。
 func (s *Shard) Dir() string {
 	return s.dir
+}
+
+// CompressionAlgorithm 返回配置的 SSTable 块压缩算法。
+func (s *Shard) CompressionAlgorithm() sstable.CompressionAlgorithm {
+	return s.compressionAlgo
 }
 
 // GetSchema 返回 Shard 的 schema（sstable.Schema 格式）。

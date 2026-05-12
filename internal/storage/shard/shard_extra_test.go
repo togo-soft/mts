@@ -11,6 +11,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -173,7 +174,7 @@ func TestShard_NextSstRow(t *testing.T) {
 
 func TestShardManager_GetShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
+	sm := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
 
 	// 获取不存在的 shard（不应该创建新的）
 	shards := sm.GetShards("db1", "cpu", 0, time.Hour.Nanoseconds())
@@ -203,7 +204,7 @@ func TestShardManager_GetShards(t *testing.T) {
 
 func TestShardManager_FlushAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	sm := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir))
+	sm := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
 
 	// 创建 shard 并写入数据
 	s, err := sm.GetShard("db1", "cpu", time.Hour.Nanoseconds()/2)

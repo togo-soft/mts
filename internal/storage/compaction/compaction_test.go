@@ -21,6 +21,10 @@ type mockShardAccess struct {
 	unused map[string]bool
 }
 
+func (m *mockShardAccess) CompressionAlgorithm() sstable.CompressionAlgorithm {
+	return sstable.CompressionNone
+}
+
 func (m *mockShardAccess) Dir() string { return m.dir }
 
 func (m *mockShardAccess) DataDir() string { return filepath.Join(m.dir, "data") }
@@ -200,7 +204,7 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 创建第一个 SSTable（单文件 .bin 格式）
-	w1, err := sstable.NewWriter(tmpDir, 0, 0)
+	w1, err := sstable.NewWriter(tmpDir, 0, 0, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -217,7 +221,7 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 	}
 
 	// 创建第二个 SSTable（单文件 .bin 格式）
-	w2, err := sstable.NewWriter(tmpDir, 1, 0)
+	w2, err := sstable.NewWriter(tmpDir, 1, 0, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -291,7 +295,7 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 第一个 SSTable：只有 1 个点（迭代器会最先变空）
-	w1, err := sstable.NewWriter(tmpDir, 0, 0)
+	w1, err := sstable.NewWriter(tmpDir, 0, 0, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -307,7 +311,7 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 	}
 
 	// 第二个 SSTable：2 个点
-	w2, err := sstable.NewWriter(tmpDir, 1, 0)
+	w2, err := sstable.NewWriter(tmpDir, 1, 0, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -453,7 +457,7 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 创建 SSTable .bin 文件（包含数据，确保 Merge 进入循环）
-	w, err := sstable.NewWriter(tmpDir, 0, 0)
+	w, err := sstable.NewWriter(tmpDir, 0, 0, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}

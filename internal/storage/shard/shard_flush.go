@@ -49,7 +49,7 @@ func (s *Shard) flushLocked() error {
 		}
 	}
 
-	w, err := sstable.NewWriter(s.dir, sstSeq, 0)
+	w, err := sstable.NewWriter(s.dir, sstSeq, 0, s.compressionAlgo)
 	if err != nil {
 		// 清理 .writing 标记
 		if s.compaction != nil && !s.levelCompactionEnabled() {
@@ -159,7 +159,7 @@ func (s *Shard) triggerBackgroundCompaction() {
 			if s.closed.Load() {
 				return
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), s.levelCompaction.Timeout())
+			ctx, cancel := context.WithTimeout(s.levelCompaction.Context(), s.levelCompaction.Timeout())
 			defer cancel()
 			if _, _, err := s.levelCompaction.Compact(ctx); err != nil {
 				if !s.closed.Load() {
@@ -174,7 +174,7 @@ func (s *Shard) triggerBackgroundCompaction() {
 			if s.closed.Load() {
 				return
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), s.compaction.Timeout())
+			ctx, cancel := context.WithTimeout(s.compaction.Context(), s.compaction.Timeout())
 			defer cancel()
 			if _, _, err := s.compaction.Compact(ctx); err != nil {
 				if !s.closed.Load() {

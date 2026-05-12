@@ -23,7 +23,7 @@ func pointsToInternalWithSids(points []*types.Point, sids []uint64) []types.Inte
 func TestWriter_WritePoints(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestWriter_WritePoints(t *testing.T) {
 func TestWriter_WritePointsWithSids(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 1, 0)
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}

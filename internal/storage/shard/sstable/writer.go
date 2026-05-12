@@ -54,11 +54,13 @@ type Writer struct {
 	sidBuf     []uint64
 	fieldBufs  map[string][]byte
 	fieldSizes map[string]int
+
+	compressAlgo CompressionAlgorithm
 }
 
 // NewWriter 创建 SSTable Writer。
 // 在 shardDir/data/ 下创建 sst_{seq}.bin 单文件。
-func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
+func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo CompressionAlgorithm) (*Writer, error) {
 	if blockSize <= 0 {
 		blockSize = BlockSize
 	}
@@ -101,7 +103,8 @@ func NewWriter(shardDir string, seq uint64, blockSize int) (*Writer, error) {
 		bufPos:     0,
 		rowCount:   0,
 		fieldBufs:  make(map[string][]byte),
-		fieldSizes: make(map[string]int),
+		fieldSizes:  make(map[string]int),
+		compressAlgo: compressAlgo,
 	}
 
 	return w, nil

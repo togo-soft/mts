@@ -11,6 +11,7 @@ type ShardAccess interface {
 	NextSSTSeq() uint64
 	IsSSTUnused(path string) bool
 	GetSchema() (sstable.Schema, error)
+	CompressionAlgorithm() sstable.CompressionAlgorithm
 	// AcquireSSTRef 获取 SSTable 引用，防止在 Merge 期间被删除
 	AcquireSSTRef(path string) bool
 	ReleaseSSTRef(path string)

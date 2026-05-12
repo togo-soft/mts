@@ -39,111 +39,110 @@ func (s *Shard) Close() error {
 			s.flushWg.Wait()
 		}
 
-		s.mu.Lock()
-		defer s.mu.Unlock()
+		// 2-5. 在 s.mu 保护下完成刷盘和 WAL 清理
+		err = s.closeWithLock()
 
-		slog.Info("Shard.Close: starting", "db", s.db, "measurement", s.measurement, "dir", s.dir)
-
-		flushed := false
-
-		// 2. 先刷写 MemTable 到 SSTable
-		// 如果使用 Level Compaction，调用 flushLocked 以保持一致的处理逻辑
-		if s.levelCompaction != nil {
-			slog.Info("Shard.Close: using level compaction flush", "memTableCount", s.memTable.Count())
-			if flushErr := s.flushLocked(); flushErr != nil {
-				// 即使失败也要继续关闭 WAL
-				if s.wal != nil {
-					if closeErr := s.wal.Close(); closeErr != nil {
-						slog.Warn("wal close failed after memtable flush error",
-							"flushErr", flushErr, "walCloseErr", closeErr)
-					}
-				}
-				err = fmt.Errorf("flush memtable: %w", flushErr)
-				return
-			}
-			flushed = true
-			slog.Info("Shard.Close: level compaction flush completed")
-		} else {
-			// 平坦 Compaction 的刷盘逻辑
-			points := s.memTable.Flush()
-			slog.Info("Shard.Close: flat compaction flush", "pointsCount", len(points))
-			if len(points) > 0 {
-				w, wErr := sstable.NewWriter(s.dir, s.sstSeq, 0)
-				if wErr != nil {
-					// 即使 writer 创建失败，也要继续关闭 WAL
-					if s.wal != nil {
-						if closeErr := s.wal.Close(); closeErr != nil {
-							slog.Warn("wal close failed after writer create error",
-								"writerErr", wErr, "walCloseErr", closeErr)
-						}
-					}
-					err = fmt.Errorf("create sstable writer: %w", wErr)
-					return
-				}
-				s.sstSeq++
-
-				if writeErr := w.WritePoints(points); writeErr != nil {
-					_ = w.Close()
-					if s.wal != nil {
-						if closeErr := s.wal.Close(); closeErr != nil {
-							slog.Warn("wal close failed after write error",
-								"writeErr", writeErr, "walCloseErr", closeErr)
-						}
-					}
-					err = fmt.Errorf("write points to sstable: %w", writeErr)
-					return
-				}
-
-				if closeErr := w.Close(); closeErr != nil {
-					if s.wal != nil {
-						if walCloseErr := s.wal.Close(); walCloseErr != nil {
-							slog.Warn("wal close failed after writer close error",
-								"writerCloseErr", closeErr, "walCloseErr", walCloseErr)
-						}
-					}
-					err = fmt.Errorf("close sstable writer: %w", closeErr)
-					return
-				}
-				flushed = true
-			} else {
-				flushed = true
-			}
-		}
-
-		// 4. WAL 清理（仅当 flush 成功时）
-		// 先调用 WAL.Close() 确保 periodic sync goroutine 退出并关闭 segment，
-		// 然后调用 WAL.Purge() 删除 segment 文件。
-		// WAL.Purge() 会正确处理 WAL 已关闭的情况。
-		slog.Info("Shard.Close: flushed, about to close and purge WAL", "flushed", flushed, "wal", s.wal != nil)
-		if flushed && s.wal != nil {
-			if closeErr := s.wal.Close(); closeErr != nil {
-				slog.Warn("failed to close WAL", "error", closeErr)
-			}
-			if purgeErr := s.wal.Purge(); purgeErr != nil {
-				slog.Warn("failed to purge WAL", "error", purgeErr)
-			}
-			slog.Info("Shard.Close: WAL closed and purged")
-		}
-
-		// 6. 标记关闭，阻止新的后台 compaction 触发
-		s.closed.Store(true)
-
-		// 7. 停止 Compaction Manager（阻止新的周期性触发）
+		// 6-9. 停止 compaction managers 并等待后台 goroutine，不持有 s.mu
+		// 必须在 s.mu 之外调用，因为后台 compaction goroutine 可能通过
+		// NextSSTSeq() -> s.mu.Lock() 获取 s.mu，若 Close 持有 s.mu
+		// 会导致死锁。
 		if s.compaction != nil {
 			s.compaction.Stop()
 		}
-
-		// 8. 停止 Level Compaction Manager
 		if s.levelCompaction != nil {
 			s.levelCompaction.Stop()
 		}
-
-		// 9. 等待所有后台 compaction goroutine 完成
 		s.compactionWg.Wait()
 
 		slog.Info("Shard.Close: completed")
 	})
 	return err
+}
+
+// closeWithLock 在持有 s.mu 的情况下执行刷盘和 WAL 清理。
+func (s *Shard) closeWithLock() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	slog.Info("Shard.Close: starting", "db", s.db, "measurement", s.measurement, "dir", s.dir)
+
+	flushed := false
+
+	// 2. 先刷写 MemTable 到 SSTable
+	// 如果使用 Level Compaction，调用 flushLocked 以保持一致的处理逻辑
+	if s.levelCompaction != nil {
+		slog.Info("Shard.Close: using level compaction flush", "memTableCount", s.memTable.Count())
+		if flushErr := s.flushLocked(); flushErr != nil {
+			// 即使失败也要继续关闭 WAL
+			if s.wal != nil {
+				if closeErr := s.wal.Close(); closeErr != nil {
+					slog.Warn("wal close failed after memtable flush error",
+						"flushErr", flushErr, "walCloseErr", closeErr)
+				}
+			}
+			return fmt.Errorf("flush memtable: %w", flushErr)
+		}
+		flushed = true
+		slog.Info("Shard.Close: level compaction flush completed")
+	} else {
+		// 平坦 Compaction 的刷盘逻辑
+		points := s.memTable.Flush()
+		slog.Info("Shard.Close: flat compaction flush", "pointsCount", len(points))
+		if len(points) > 0 {
+			w, wErr := sstable.NewWriter(s.dir, s.sstSeq, 0, s.compressionAlgo)
+			if wErr != nil {
+				if s.wal != nil {
+					if closeErr := s.wal.Close(); closeErr != nil {
+						slog.Warn("wal close failed after writer create error",
+							"writerErr", wErr, "walCloseErr", closeErr)
+					}
+				}
+				return fmt.Errorf("create sstable writer: %w", wErr)
+			}
+			s.sstSeq++
+
+			if writeErr := w.WritePoints(points); writeErr != nil {
+				_ = w.Close()
+				if s.wal != nil {
+					if closeErr := s.wal.Close(); closeErr != nil {
+						slog.Warn("wal close failed after write error",
+							"writeErr", writeErr, "walCloseErr", closeErr)
+					}
+				}
+				return fmt.Errorf("write points to sstable: %w", writeErr)
+			}
+
+			if closeErr := w.Close(); closeErr != nil {
+				if s.wal != nil {
+					if walCloseErr := s.wal.Close(); walCloseErr != nil {
+						slog.Warn("wal close failed after writer close error",
+							"writerCloseErr", closeErr, "walCloseErr", walCloseErr)
+					}
+				}
+				return fmt.Errorf("close sstable writer: %w", closeErr)
+			}
+			flushed = true
+		} else {
+			flushed = true
+		}
+	}
+
+	// 4. WAL 清理（仅当 flush 成功时）
+	slog.Info("Shard.Close: flushed, about to close and purge WAL", "flushed", flushed, "wal", s.wal != nil)
+	if flushed && s.wal != nil {
+		if closeErr := s.wal.Close(); closeErr != nil {
+			slog.Warn("failed to close WAL", "error", closeErr)
+		}
+		if purgeErr := s.wal.Purge(); purgeErr != nil {
+			slog.Warn("failed to purge WAL", "error", purgeErr)
+		}
+		slog.Info("Shard.Close: WAL closed and purged")
+	}
+
+	// 5. 标记关闭，阻止新的后台 compaction 触发
+	s.closed.Store(true)
+
+	return nil
 }
 
 // DataDir 返回 Shard 的数据目录。

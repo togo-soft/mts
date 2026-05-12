@@ -177,16 +177,16 @@ func (w *Writer) Close() error {
 	// 6. 构建 Section Table
 	sectionTable := SectionTable{
 		Entries: []SectionEntry{
-			{Type: SectionTimestamps, Name: "_timestamps", Offset: timestampsOffset, Size: timestampsSize, Encoding: tsEncoding},
-			{Type: SectionSids, Name: "_sids", Offset: sidsOffset, Size: sidsSize, Encoding: EncodingVarint},
-			{Type: SectionIndex, Name: "_index", Offset: blockIndexOffset, Size: uint64(len(indexData)), Encoding: EncodingRaw},
-			{Type: SectionIndex, Name: "_block_map", Offset: blockMapOffset, Size: uint64(len(blockMapData)), Encoding: EncodingRaw},
+			{Type: SectionTimestamps, Name: "_timestamps", Offset: timestampsOffset, Size: timestampsSize, Encoding: tsEncoding, Compression: w.compressAlgo},
+			{Type: SectionSids, Name: "_sids", Offset: sidsOffset, Size: sidsSize, Encoding: EncodingVarint, Compression: w.compressAlgo},
+			{Type: SectionIndex, Name: "_index", Offset: blockIndexOffset, Size: uint64(len(indexData)), Encoding: EncodingRaw, Compression: CompressionNone},
+			{Type: SectionIndex, Name: "_block_map", Offset: blockMapOffset, Size: uint64(len(blockMapData)), Encoding: EncodingRaw, Compression: CompressionNone},
 		},
 	}
 	for _, name := range fieldNames {
 		fi := fieldInfoMap[name]
 		sectionTable.Entries = append(sectionTable.Entries, SectionEntry{
-			Type: SectionField, Name: name, Offset: fi.offset, Size: fi.size, Encoding: fi.encoding,
+			Type: SectionField, Name: name, Offset: fi.offset, Size: fi.size, Encoding: fi.encoding, Compression: w.compressAlgo,
 		})
 	}
 
@@ -307,8 +307,9 @@ func encodePerBlock[T any](w *Writer, values []T, encodeFn func([]T) []byte) ([]
 		start := int(entry.Offset)
 		end := start + int(entry.RowCount)
 		blockData := encodeFn(values[start:end])
-		encoded = append(encoded, blockData...)
-		offset += uint64(len(blockData))
+		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		encoded = append(encoded, compressed...)
+		offset += uint64(len(compressed))
 		offsets = append(offsets, offset)
 	}
 	return encoded, offsets
@@ -330,8 +331,9 @@ func encodePerBlockRaw(w *Writer, raw []byte, rowCount int) ([]byte, []uint64) {
 		start := int(entry.Offset) * bytesPerRow
 		end := start + int(entry.RowCount)*bytesPerRow
 		blockData := raw[start:end]
-		encoded = append(encoded, blockData...)
-		offset += uint64(len(blockData))
+		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		encoded = append(encoded, compressed...)
+		offset += uint64(len(compressed))
 		offsets = append(offsets, offset)
 	}
 	return encoded, offsets

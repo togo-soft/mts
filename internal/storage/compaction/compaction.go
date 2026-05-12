@@ -80,6 +80,9 @@ type CompactionManager struct {
 	compactMu         sync.Mutex
 	compactInProgress int32
 	CurrentTask       *CompactionProgress
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewCompactionManager 创建 CompactionManager。
@@ -87,16 +90,25 @@ func NewCompactionManager(shard ShardAccess, config *CompactionConfig) *Compacti
 	if config == nil {
 		config = DefaultCompactionConfig()
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &CompactionManager{
 		ShardAccess: shard,
 		Config:      config,
 		stopCh:      make(chan struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
 
 // Timeout 返回 compaction 超时配置。
 func (cm *CompactionManager) Timeout() time.Duration {
 	return cm.Config.Timeout
+}
+
+// Context 返回 manager 的可取消 context，Stop() 时会取消。
+// 调用方应使用此 context 创建子 context，以便 Stop() 能打断运行中的 compaction。
+func (cm *CompactionManager) Context() context.Context {
+	return cm.ctx
 }
 
 // Compact 执行 compaction 合并。
@@ -453,9 +465,12 @@ func (cm *CompactionManager) StartPeriodicCheck() {
 }
 
 // Stop 停止定期检查。
+// 先 close(stopCh) + cancel context 让运行中的 compaction 感知退出，
+// 再等待 goroutine 退出。
 func (cm *CompactionManager) Stop() {
 	cm.stopOnce.Do(func() {
 		close(cm.stopCh)
+		cm.cancel()
 	})
 	cm.wg.Wait()
 }
@@ -466,7 +481,7 @@ func (cm *CompactionManager) DoPeriodicCompaction() {
 	}
 	defer cm.ReleaseCompactLock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), cm.Config.Timeout)
+	ctx, cancel := context.WithTimeout(cm.ctx, cm.Config.Timeout)
 	defer cancel()
 
 	if !cm.ShouldCompactLocked() {

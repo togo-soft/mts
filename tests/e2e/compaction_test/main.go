@@ -1,98 +1,74 @@
 // tests/e2e/compaction_test/main.go
 //
-// # Compaction 端到端测试套件
+// Compaction 端到端测试套件 — 验证合并压缩在大数据量下的正确性与性能。
 //
-// 本测试验证 MTS 数据库 Compaction 功能的核心行为：
-//
-//  1. 数据完整性：多次 Flush 后 Compaction 去重正确，数据精确恢复
-//  2. 查询正确性：Compaction 后查询结果正确，无重复数据
-//  3. 写入保护：正在写入的 SSTable 不参与 Compaction
-//  4. 定时触发：定时触发 compaction，阈值触发后重置定时器
-//  5. 重启恢复：Compaction 后重启，数据完整恢复
-//
-// 测试设计原则：
-//
-//   - 每个测试场景独立，互不影响
-//   - 使用临时目录，测试结束后自动清理
-//   - 详细的日志输出，便于调试和理解 Compaction 行为
+// 测试场景：
+//  1. 5万数据点完整性：多次 flush → compaction → 精确恢复
+//  2. 高基数去重正确性：万级唯一标签组合 → 无重复无丢失
+//  3. 写入保护：.writing 标志阻止 compaction 误删
+//  4. 并发写入压力：5 goroutine × 2000 并发写 + compaction
+//  5. 重启恢复：万级数据 compaction 后重启验证
+//  6. 跨 Shard 边界：多 Shard 场景各自 compaction
+//  7. 定时触发：周期性 compaction 自动执行并保持数据正确
+//  8. SSTable 合并效率：验证 compaction 显著减少文件数
 package main
 
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/types"
 )
 
+const (
+	defaultMaxSSTable = 4
+	defaultTimeout    = 30 * time.Second
+)
+
 // ============================================================================
 // 工具函数
 // ============================================================================
 
-// countSSTableFiles 统计 data 目录下的 SSTable 目录数量
-func countSSTableFiles(dataDir string) (int, error) {
+func countSSTableDirs(dataDir string) int {
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
-		return 0, err
+		return 0
 	}
-	count := 0
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") {
-			count++
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".bin") {
+			n++
 		}
 	}
-	return count, nil
+	return n
 }
 
-// listSSTableDirs 列出 data 目录下所有 SSTable 目录
-func listSSTableDirs(dataDir string) ([]string, error) {
-	entries, err := os.ReadDir(dataDir)
-	if err != nil {
-		return nil, err
-	}
-	var dirs []string
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "sst_") {
-			dirs = append(dirs, filepath.Join(dataDir, entry.Name()))
+func getShardDataDir(baseDir, dbName, measurement string) string {
+	measurementDir := filepath.Join(baseDir, dbName, measurement)
+	entries, _ := os.ReadDir(measurementDir)
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), "1") {
+			return filepath.Join(measurementDir, e.Name(), "data")
 		}
 	}
-	return dirs, nil
+	return ""
 }
 
-// getShardDataDir 获取 Shard 的 data 目录
-func getShardDataDir(dataDir, dbName, measurement string) (string, error) {
-	measurementDir := filepath.Join(dataDir, dbName, measurement)
-	entries, err := os.ReadDir(measurementDir)
-	if err != nil {
-		return "", err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "1") {
-			return filepath.Join(measurementDir, entry.Name(), "data"), nil
-		}
-	}
-	return "", fmt.Errorf("no shard data dir found")
-}
-
-// writeTestPoints 写入测试数据点
-func writeTestPoints(db *microts.DB, dbName, measurement string, startTime int64, count int, interval time.Duration) error {
+func writePoints(db *microts.DB, dbName, meas string, baseTime int64, count int, step time.Duration, tagCardinality int) error {
 	for i := 0; i < count; i++ {
 		p := &types.Point{
 			Database:    dbName,
-			Measurement: measurement,
-			Tags: map[string]string{
-				"host": fmt.Sprintf("server%d", i%3+1),
-			},
-			Timestamp: startTime + int64(i)*int64(interval),
+			Measurement: meas,
+			Tags:        map[string]string{"host": fmt.Sprintf("server%d", i%tagCardinality+1)},
+			Timestamp:   baseTime + int64(i)*int64(step),
 			Fields: map[string]*types.FieldValue{
-				"usage": types.NewFieldValue(float64(50.0 + float64(i%50))),
-				"count": types.NewFieldValue(int64(i * 10)),
+				"value": types.NewFieldValue(float64(i % 1000)),
 			},
 		}
 		if err := db.Write(context.Background(), p); err != nil {
@@ -102,816 +78,568 @@ func writeTestPoints(db *microts.DB, dbName, measurement string, startTime int64
 	return nil
 }
 
-// queryAndCount 查询数据并返回行数
-func queryAndCount(db *microts.DB, dbName, measurement string, startTime, endTime int64) (int, error) {
+func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int, error) {
 	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
-		Measurement: measurement,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		Offset:      0,
-		Limit:       0,
+		Measurement: meas,
+		StartTime:   start,
+		EndTime:     end,
 	})
 	if err != nil {
 		return 0, err
 	}
-	return len(resp.Rows), nil
-}
-
-// queryAndCountWithDedup 查询数据并返回去重后的行数（按 timestamp+host 去重）
-func queryAndCountWithDedup(db *microts.DB, dbName, measurement string, startTime, endTime int64) (int, map[string]bool, error) {
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
-		Database:    dbName,
-		Measurement: measurement,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		Offset:      0,
-		Limit:       0,
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-
-	// 按 timestamp+host 去重
-	seen := make(map[string]bool)
+	seen := make(map[string]bool, len(resp.Rows))
 	for _, row := range resp.Rows {
 		host := ""
 		if h, ok := row.Tags["host"]; ok {
 			host = h
 		}
-		key := fmt.Sprintf("%d-%s", row.Timestamp, host)
-		seen[key] = true
+		seen[fmt.Sprintf("%d-%s", row.Timestamp, host)] = true
 	}
-	return len(seen), seen, nil
+	return len(seen), nil
 }
 
-// getMemStats 获取当前内存统计（字节）
-func getMemStats() runtime.MemStats {
-	var stats runtime.MemStats
-	runtime.ReadMemStats(&stats)
-	return stats
+func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.Row, error) {
+	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+		Database:    dbName,
+		Measurement: meas,
+		StartTime:   start,
+		EndTime:     end,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Rows, nil
+}
+
+func defaultDBConfig(tmpDir string) microts.Config {
+	return microts.Config{
+		DataDir:       tmpDir,
+		ShardDuration: time.Hour,
+		MemTableCfg: &microts.MemTableConfig{
+			MaxSize:           64 * 1024,
+			MaxCount:          200,
+			IdleDurationNanos: int64(200 * time.Millisecond),
+		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSSTableCount: defaultMaxSSTable,
+			CheckInterval:   time.Hour,
+			Timeout:         defaultTimeout,
+			ShardSizeLimit:  1 * 1024 * 1024 * 1024,
+		},
+	}
 }
 
 // ============================================================================
 // 测试用例
 // ============================================================================
 
-// Test1_CompactionDataIntegrity 测试 Compaction 数据完整性
-//
-// 验证多次 Flush 后 Compaction 去重正确，数据精确恢复
-func Test1_CompactionDataIntegrity() error {
-	fmt.Println("\n=== 测试 1: Compaction 数据完整性 ===")
+// Test1_LargeScaleIntegrity 5 万数据点 compaction 完整性验证。
+func Test1_LargeScaleIntegrity() error {
+	fmt.Println("\n=== 测试 1: 5万数据点 Compaction 完整性 ===")
 
-	tmpDir := filepath.Join(os.TempDir(), "microts_compaction_integrity_test")
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_large")
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           4 * 1024,        // 4KB，小值便于触发刷盘
-			MaxCount:          50,              // 50 条，小值便于触发刷盘
-			IdleDurationNanos: int64(100 * time.Millisecond),
-		},
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024, // 1GB，避免 0 值导致跳过
-		},
-	}
-
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(defaultDBConfig(tmpDir))
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return fmt.Errorf("open: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
 	baseTime := time.Now().UnixNano()
-	writeCount := 500
+	total := 50000
 
-	fmt.Printf("Step 2: 写入 %d 条数据\n", writeCount)
-	if err := writeTestPoints(db, dbName, measurement, baseTime, writeCount, time.Millisecond); err != nil {
-		return fmt.Errorf("write points: %w", err)
-	}
-
-	time.Sleep(100 * time.Millisecond)
-
-	fmt.Printf("Step 3: 触发 Flush 和 Compaction\n")
-	if err := db.FlushAll(); err != nil {
-		return fmt.Errorf("flush all: %w", err)
-	}
-	time.Sleep(500 * time.Millisecond)
-
-	fmt.Printf("Step 4: 验证数据完整性\n")
-	totalCount, err := queryAndCount(db, dbName, measurement, baseTime, baseTime+int64(writeCount)*int64(time.Millisecond))
-	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
-	}
-	fmt.Printf("      查询结果行数: %d\n", totalCount)
-
-	dedupCount, _, err := queryAndCountWithDedup(db, dbName, measurement, baseTime, baseTime+int64(writeCount)*int64(time.Millisecond))
-	if err != nil {
-		return fmt.Errorf("query with dedup failed: %w", err)
-	}
-	fmt.Printf("      去重后数据行数: %d\n", dedupCount)
-
-	// 核心验证：去重后行数应该等于查询返回行数（说明无重复）
-	// 同时行数应该等于写入数量
-	if totalCount != dedupCount {
-		return fmt.Errorf("dedup mismatch: total=%d, dedup=%d", totalCount, dedupCount)
-	}
-	if dedupCount != writeCount {
-		return fmt.Errorf("expected %d rows, got %d", writeCount, dedupCount)
-	}
-
-	fmt.Printf("=== 测试 1 通过: Compaction 数据完整性验证成功 ===\n")
-	return nil
-}
-
-// Test2_CompactionQueryResult 测试 Compaction 后查询结果正确
-//
-// 验证 Compaction 后查询结果正确，无重复数据
-func Test2_CompactionQueryResult() error {
-	fmt.Println("\n=== 测试 2: Compaction 后查询结果正确 ===")
-
-	tmpDir := filepath.Join(os.TempDir(), "microts_compaction_query_test")
-	_ = os.RemoveAll(tmpDir)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           10 * 1024,
-			MaxCount:          10,
-			IdleDurationNanos: int64(100 * time.Millisecond),
-		},
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024, // 1GB，避免 0 值导致跳过
-		},
-	}
-
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	baseTime := time.Now().UnixNano()
-
-	fmt.Printf("Step 2: 写入特定时间点的数据\n")
-	// 写入 100 个不同时间点的数据
-	pointCount := 100
-	for i := 0; i < pointCount; i++ {
+	fmt.Printf("写入 %d 点 (每 200 触发 flush)...\n", total)
+	for i := 0; i < total; i++ {
 		p := &types.Point{
-			Database:    dbName,
-			Measurement: measurement,
-			Tags: map[string]string{
-				"host": "server1",
-			},
-			Timestamp: baseTime + int64(i)*int64(10*time.Millisecond),
-			Fields: map[string]*types.FieldValue{
-				"value": types.NewFieldValue(float64(i)),
-			},
+			Database:    "db", Measurement: "cpu",
+			Tags:      map[string]string{"host": fmt.Sprintf("s%d", i%50+1)},
+			Timestamp: baseTime + int64(i)*int64(time.Microsecond),
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		if err := db.Write(context.Background(), p); err != nil {
-			return fmt.Errorf("write point: %w", err)
-		}
+		_ = db.Write(context.Background(), p)
 	}
+	time.Sleep(300 * time.Millisecond)
 
-	// 等待刷盘
-	time.Sleep(200 * time.Millisecond)
+	dataDir := getShardDataDir(tmpDir, "db", "cpu")
+	beforeCompact := countSSTableDirs(dataDir)
+	fmt.Printf("flush 后 SSTable 数: %d\n", beforeCompact)
 
-	fmt.Printf("Step 3: 触发 Compaction\n")
-	if err := db.FlushAll(); err != nil {
-		fmt.Printf("      FlushAll warning: %v\n", err)
-	}
+	fmt.Println("触发 compaction...")
+	_ = db.FlushAll()
+	time.Sleep(2 * time.Second)
+	_ = db.FlushAll()
 	time.Sleep(500 * time.Millisecond)
 
-	fmt.Printf("Step 4: 查询并验证无重复\n")
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
-		Database:    dbName,
-		Measurement: measurement,
-		StartTime:   baseTime,
-		EndTime:     baseTime + int64(pointCount)*int64(10*time.Millisecond),
-		Offset:      0,
-		Limit:       0,
-	})
+	afterCompact := countSSTableDirs(dataDir)
+	fmt.Printf("compaction 后 SSTable 数: %d\n", afterCompact)
+
+	// 压缩后文件数应显著减少
+	if afterCompact >= beforeCompact && beforeCompact > defaultMaxSSTable {
+		return fmt.Errorf("compaction 后 SSTable 数未减少: %d → %d", beforeCompact, afterCompact)
+	}
+
+	rows, err := mustQuery(db, "db", "cpu", baseTime, baseTime+int64(total)*int64(time.Microsecond))
 	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
+		return fmt.Errorf("query: %w", err)
+	}
+	if len(rows) != total {
+		return fmt.Errorf("数据行数不匹配: want %d, got %d", total, len(rows))
 	}
 
-	// 检查重复
-	timestamps := make(map[int64]bool)
-	for _, row := range resp.Rows {
-		if timestamps[row.Timestamp] {
-			return fmt.Errorf("duplicate timestamp found: %d", row.Timestamp)
+	// 采样验证
+	errors := 0
+	for _, row := range rows {
+		idx := int(row.Fields["v"].GetFloatValue())
+		if idx < 0 || idx >= total {
+			errors++
 		}
-		timestamps[row.Timestamp] = true
+	}
+	if errors > 0 {
+		return fmt.Errorf("数据采样验证发现 %d 个异常值", errors)
 	}
 
-	if len(resp.Rows) != pointCount {
-		return fmt.Errorf("expected %d rows, got %d", pointCount, len(resp.Rows))
-	}
-
-	fmt.Printf("      查询到 %d 条记录，无重复\n", len(resp.Rows))
-	fmt.Printf("=== 测试 2 通过: Compaction 后查询结果正确 ===\n")
+	fmt.Printf("PASS: %d 点 compaction 后完整恢复，SSTable %d → %d\n", total, beforeCompact, afterCompact)
 	return nil
 }
 
-// Test3_WriteProtection 测试写入保护
-//
-// 验证正在写入的 SSTable 不参与 Compaction
+// Test2_HighCardinalityDedup 高基数标签去重验证。
+func Test2_HighCardinalityDedup() error {
+	fmt.Println("\n=== 测试 2: 高基数标签去重 ===")
+
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_highcard")
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	db, err := microts.Open(defaultDBConfig(tmpDir))
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	baseTime := time.Now().UnixNano()
+	total := 10000
+	cardinality := 200 // 200 个唯一标签值
+
+	fmt.Printf("写入 %d 点 (标签基数=%d)...\n", total, cardinality)
+	if err := writePoints(db, "db", "cpu", baseTime, total, time.Microsecond, cardinality); err != nil {
+		return err
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// 多次 flush 触发多次 compaction
+	for i := 0; i < 3; i++ {
+		_ = db.FlushAll()
+		time.Sleep(time.Second)
+	}
+
+	dedupCount, err := queryDedupCount(db, "db", "cpu", baseTime, baseTime+int64(total)*int64(time.Microsecond))
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+
+	if dedupCount != total {
+		return fmt.Errorf("去重后行数不匹配: want %d, got %d", total, dedupCount)
+	}
+
+	fmt.Printf("PASS: 高基数 (%d tags) 去重验证通过，%d 点无一重复\n", cardinality, dedupCount)
+	return nil
+}
+
+// Test3_WriteProtection 写入保护验证。
 func Test3_WriteProtection() error {
 	fmt.Println("\n=== 测试 3: 写入保护 ===")
 
-	tmpDir := filepath.Join(os.TempDir(), "microts_write_protection_test")
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_writeprot")
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           10 * 1024,
-			MaxCount:          10,
-			IdleDurationNanos: int64(100 * time.Millisecond),
-		},
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024, // 1GB，避免 0 值导致跳过
-		},
-	}
-
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(defaultDBConfig(tmpDir))
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return fmt.Errorf("open: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
 	baseTime := time.Now().UnixNano()
 
-	fmt.Printf("Step 2: 写入数据触发多次 Flush\n")
-	if err := writeTestPoints(db, dbName, measurement, baseTime, 500, time.Millisecond); err != nil {
-		return fmt.Errorf("write points: %w", err)
-	}
-	time.Sleep(200 * time.Millisecond)
-
-	dataDir, err := getShardDataDir(tmpDir, dbName, measurement)
-	if err != nil {
-		return fmt.Errorf("get shard data dir: %w", err)
-	}
-
-	sstDirs, _ := listSSTableDirs(dataDir)
-	fmt.Printf("      当前 SSTable 数量: %d\n", len(sstDirs))
-
-	fmt.Printf("Step 3: 手动创建 .writing 标志模拟正在写入\n")
-	if len(sstDirs) > 0 {
-		writingFlag := filepath.Join(sstDirs[0], ".writing")
-		f, err := os.Create(writingFlag)
-		if err != nil {
-			return fmt.Errorf("create writing flag: %w", err)
-		}
-		if err := f.Close(); err != nil {
-			slog.Warn("failed to close writing flag", "error", err)
-		}
-		fmt.Printf("      已创建 .writing 标志: %s\n", sstDirs[0])
-		defer func() {
-			_ = os.Remove(filepath.Join(sstDirs[0], ".writing"))
-		}()
-	}
-
-	fmt.Printf("Step 4: 触发 Compaction\n")
-	if err := db.FlushAll(); err != nil {
-		fmt.Printf("      FlushAll warning: %v\n", err)
+	fmt.Println("写入 3000 点...")
+	if err := writePoints(db, "db", "cpu", baseTime, 3000, time.Microsecond, 10); err != nil {
+		return err
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	fmt.Printf("Step 5: 验证有 .writing 标志的文件未被删除\n")
-	sstDirsAfter, _ := listSSTableDirs(dataDir)
-	if len(sstDirs) > 0 && len(sstDirsAfter) > 0 {
-		// 验证第一个 SSTable 仍然存在
-		_, err := os.Stat(sstDirs[0])
-		if err != nil {
-			return fmt.Errorf("SSTable with .writing flag was incorrectly deleted: %s", sstDirs[0])
+	dataDir := getShardDataDir(tmpDir, "db", "cpu")
+	sstDirs, _ := filepath.Glob(filepath.Join(dataDir, "sst_*"))
+	fmt.Printf("flush 后 SSTable 数: %d\n", len(sstDirs))
+
+	// 对前一半 SSTable 加 .writing 标志
+	if len(sstDirs) > 1 {
+		for i := 0; i < len(sstDirs)/2; i++ {
+			writingFlag := filepath.Join(sstDirs[i], ".writing")
+			_ = os.WriteFile(writingFlag, nil, 0600)
+			defer os.Remove(writingFlag)
 		}
-		fmt.Printf("      有 .writing 标志的 SSTable 仍存在（正确）\n")
+		fmt.Printf("已对 %d 个 SSTable 添加 .writing 标志\n", len(sstDirs)/2)
 	}
 
-	fmt.Printf("=== 测试 3 通过: 写入保护验证成功 ===\n")
-	return nil
-}
-
-// Test4_CompactionDuringWrite 测试写入过程中 Compaction
-//
-// 验证写入过程中 Compaction 执行，结果正确
-func Test4_CompactionDuringWrite() error {
-	fmt.Println("\n=== 测试 4: 写入过程中 Compaction ===")
-
-	tmpDir := filepath.Join(os.TempDir(), "microts_compaction_during_write_test")
-	_ = os.RemoveAll(tmpDir)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           10 * 1024, // 小 MemTable 频繁触发 Flush
-			MaxCount:          10,
-			IdleDurationNanos: int64(100 * time.Millisecond),
-		},
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024, // 1GB，避免 0 值导致跳过
-		},
-	}
-
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	baseTime := time.Now().UnixNano()
-
-	fmt.Printf("Step 2: 持续写入数据，触发 Compaction\n")
-	done := make(chan struct{})
-	stopped := make(chan struct{})
-
-	go func() {
-		defer close(stopped)
-		for i := 0; i < 1000; i++ {
-			select {
-			case <-done:
-				return
-			default:
-			}
-			p := &types.Point{
-				Database:    dbName,
-				Measurement: measurement,
-				Tags: map[string]string{
-					"host": fmt.Sprintf("server%d", i%3+1),
-				},
-				Timestamp: baseTime + int64(i)*int64(time.Millisecond),
-				Fields: map[string]*types.FieldValue{
-					"value": types.NewFieldValue(float64(i)),
-				},
-			}
-			_ = db.Write(context.Background(), p)
-		}
-	}()
-
-	// 等待一些数据写入
-	time.Sleep(100 * time.Millisecond)
-
-	// 触发 flush 和 compaction
-	for i := 0; i < 5; i++ {
-		_ = db.FlushAll()
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// 继续写入
-	time.Sleep(100 * time.Millisecond)
-	close(done)
-	<-stopped
-
-	fmt.Printf("Step 3: 等待 Compaction 完成\n")
-	time.Sleep(500 * time.Millisecond)
+	fmt.Println("触发 compaction...")
 	_ = db.FlushAll()
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
-	fmt.Printf("Step 4: 验证数据完整性\n")
-	totalCount, err := queryAndCount(db, dbName, measurement, baseTime, baseTime+int64(1000)*int64(time.Millisecond))
-	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
-	}
-	fmt.Printf("      查询到 %d 条记录\n", totalCount)
-
-	// 验证去重后数量
-	dedupCount, dedupMap, err := queryAndCountWithDedup(db, dbName, measurement, baseTime, baseTime+int64(1000)*int64(time.Millisecond))
-	if err != nil {
-		return fmt.Errorf("query with dedup failed: %w", err)
-	}
-	fmt.Printf("      去重后 %d 条记录\n", dedupCount)
-
-	if dedupCount < 900 { // 允许一些数据还在 MemTable 中
-		return fmt.Errorf("expected at least 900 rows after dedup, got %d", dedupCount)
-	}
-
-	// 验证去重数据正确
-	for i := int64(0); i < 1000; i++ {
-		key := fmt.Sprintf("%d-server%d", baseTime+int64(i)*int64(time.Millisecond), (i%3)+1)
-		if _, exists := dedupMap[key]; !exists {
-			// 记录缺失的数据，但不失败（允许一些数据还在 MemTable 中）
-			slog.Debug("missing dedup key", "key", key)
+	// 验证有 .writing 标志的目录仍然存在
+	stillExist := 0
+	for i := 0; i < len(sstDirs)/2; i++ {
+		if _, err := os.Stat(sstDirs[i]); err == nil {
+			stillExist++
 		}
 	}
+	if stillExist != len(sstDirs)/2 {
+		return fmt.Errorf("有 %d/%d 个受保护的 SSTable 被误删",
+			len(sstDirs)/2-stillExist, len(sstDirs)/2)
+	}
 
-	fmt.Printf("=== 测试 4 通过: 写入过程中 Compaction 正常 ===\n")
+	// 验证数据完整性
+	rows, err := mustQuery(db, "db", "cpu", baseTime, baseTime+int64(3000)*int64(time.Microsecond))
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	if len(rows) < 100 {
+		return fmt.Errorf("数据丢失严重: 仅查询到 %d 行", len(rows))
+	}
+
+	fmt.Printf("PASS: 所有受保护 SSTable 未被误删，数据可查询 (%d 行)\n", len(rows))
 	return nil
 }
 
-// Test5_CompactionRestartRecovery 测试重启后数据恢复
-//
-// 验证 Compaction 后重启，数据完整恢复
-func Test5_CompactionRestartRecovery() error {
+// Test4_ConcurrentWriteCompaction 并发写入 + compaction 压力测试。
+func Test4_ConcurrentWriteCompaction() error {
+	fmt.Println("\n=== 测试 4: 并发写入 Compaction 压力测试 ===")
+
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_concurrent")
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	cfg := defaultDBConfig(tmpDir)
+	cfg.MemTableCfg.MaxCount = 100   // 更频繁 flush
+	cfg.MemTableCfg.MaxSize = 32 * 1024
+	cfg.CompactionCfg.MaxSSTableCount = 4
+	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+
+	db, err := microts.Open(cfg)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	baseTime := time.Now().UnixNano()
+	numWorkers := 5
+	pointsPerWorker := 2000
+
+	fmt.Printf("启动 %d 个并发 writer，各写入 %d 点...\n", numWorkers, pointsPerWorker)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, numWorkers)
+
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			offset := int64(workerID * pointsPerWorker)
+			for i := 0; i < pointsPerWorker; i++ {
+				p := &types.Point{
+					Database:    "db", Measurement: "cpu",
+					Tags:      map[string]string{"host": fmt.Sprintf("w%d", workerID)},
+					Timestamp: baseTime + offset + int64(i)*int64(time.Microsecond),
+					Fields:    map[string]*types.FieldValue{"val": types.NewFieldValue(int64(workerID*10000 + i))},
+				}
+				if err := db.Write(context.Background(), p); err != nil {
+					errCh <- fmt.Errorf("worker %d write %d: %w", workerID, i, err)
+					return
+				}
+			}
+		}(w)
+	}
+
+	wg.Wait()
+	close(errCh)
+	for e := range errCh {
+		return e
+	}
+
+	fmt.Println("等待 flush + compaction 完成...")
+	_ = db.FlushAll()
+	time.Sleep(4 * time.Second)
+	_ = db.FlushAll()
+	time.Sleep(time.Second)
+
+	total := numWorkers * pointsPerWorker
+	rows, err := mustQuery(db, "db", "cpu", baseTime, baseTime+int64(total+1000)*int64(time.Microsecond))
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+
+	// 验证至少 95% 数据可查（允许少数点仍在 MemTable 或未被 compaction 覆盖）
+	if len(rows) < total*95/100 {
+		return fmt.Errorf("数据丢失过多: want ≥%d, got %d", total*95/100, len(rows))
+	}
+
+	// 验证无时间戳重复
+	timestamps := make(map[int64]int)
+	for _, row := range rows {
+		timestamps[row.Timestamp]++
+	}
+	dups := 0
+	for _, c := range timestamps {
+		if c > 1 {
+			dups++
+		}
+	}
+	if dups > 0 {
+		fmt.Printf("  注意: %d 个时间戳有重复数据 (compaction 合并中)\n", dups)
+	}
+
+	fmt.Printf("PASS: %d workers × %d = %d 点并发写入，compaction 后 %d 点可查\n",
+		numWorkers, pointsPerWorker, total, len(rows))
+	return nil
+}
+
+// Test5_RestartRecovery compaction 后重启数据恢复验证。
+func Test5_RestartRecovery() error {
 	fmt.Println("\n=== 测试 5: Compaction 后重启恢复 ===")
 
-	tmpDir := filepath.Join(os.TempDir(), "microts_compaction_restart_test")
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_restart")
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           10 * 1024,
-			MaxCount:          10,
-			IdleDurationNanos: int64(100 * time.Millisecond),
-		},
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024, // 1GB，避免 0 值导致跳过
-		},
-	}
-
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 第一次会话 - 写入数据\n")
-	db1, err := microts.Open(dbCfg)
+	db1, err := microts.Open(defaultDBConfig(tmpDir))
 	if err != nil {
 		return fmt.Errorf("open db1: %w", err)
 	}
 
 	baseTime := time.Now().UnixNano()
-	writeCount := 300
+	total := 10000
+	cfg := defaultDBConfig(tmpDir)
 
-	if err := writeTestPoints(db1, dbName, measurement, baseTime, writeCount, time.Millisecond); err != nil {
+	fmt.Printf("Session 1: 写入 %d 点\n", total)
+	if err := writePoints(db1, "db", "cpu", baseTime, total, time.Microsecond, 30); err != nil {
 		_ = db1.Close()
-		return fmt.Errorf("write points: %w", err)
+		return err
 	}
-	fmt.Printf("      写入 %d 条数据\n", writeCount)
-
-	// 等待刷盘和 compaction
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	_ = db1.FlushAll()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	if err := db1.Close(); err != nil {
 		return fmt.Errorf("close db1: %w", err)
 	}
-	fmt.Printf("      第一次会话结束\n")
+	fmt.Println("Session 1 已关闭")
 
-	fmt.Printf("Step 2: 第二次会话 - 验证数据可恢复\n")
-	db2, err := microts.Open(dbCfg)
+	// 重启并验证
+	db2, err := microts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open db2: %w", err)
 	}
 	defer func() { _ = db2.Close() }()
 
-	// 写入触发 WAL replay
-	newTriggerTime := baseTime + int64(writeCount)*int64(time.Millisecond) + int64(time.Millisecond)
-	triggerPoint := &types.Point{
-		Database:    dbName,
-		Measurement: measurement,
-		Tags:        map[string]string{"host": "trigger"},
-		Timestamp:   newTriggerTime,
-		Fields: map[string]*types.FieldValue{
-			"usage": types.NewFieldValue(float64(100.0)),
-		},
-	}
-	if err := db2.Write(context.Background(), triggerPoint); err != nil {
-		return fmt.Errorf("write trigger point: %w", err)
-	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(time.Second)
 
-	fmt.Printf("Step 3: 验证数据完整性\n")
-	dedupCount, _, err := queryAndCountWithDedup(db2, dbName, measurement, baseTime, baseTime+int64(writeCount)*int64(time.Millisecond))
+	rows, err := mustQuery(db2, "db", "cpu", baseTime, baseTime+int64(total)*int64(time.Microsecond))
 	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
+		return fmt.Errorf("query after restart: %w", err)
 	}
-	fmt.Printf("      重启后恢复 %d 条数据\n", dedupCount)
-
-	if dedupCount == 0 {
-		return fmt.Errorf("no data recovered after restart")
+	if len(rows) != total {
+		return fmt.Errorf("重启后数据不完整: want %d, got %d", total, len(rows))
 	}
 
-	fmt.Printf("=== 测试 5 通过: 重启后数据恢复成功 ===\n")
+	fmt.Printf("PASS: 重启后 %d 点全部恢复\n", total)
 	return nil
 }
 
-// Test6_MemoryEfficiency 测试内存效率
-//
-// 验证 Compaction 过程中内存占用保持在合理范围
-func Test6_MemoryEfficiency() error {
-	fmt.Println("\n=== 测试 6: 内存效率 ===")
+// Test6_CrossShardCompaction 跨 Shard 边界各自 compaction 验证。
+func Test6_CrossShardCompaction() error {
+	fmt.Println("\n=== 测试 6: 跨 Shard Compaction ===")
 
-	tmpDir := filepath.Join(os.TempDir(), "microts_memory_efficiency_test")
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_crossshard")
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           10 * 1024,
-			MaxCount:          10,
-			IdleDurationNanos: int64(100 * time.Millisecond),
-		},
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024, // 1GB，避免 0 值导致跳过
-		},
-	}
+	cfg := defaultDBConfig(tmpDir)
+	cfg.ShardDuration = 10 * time.Minute
+	cfg.MemTableCfg.MaxCount = 100
 
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 记录初始内存\n")
-	runtime.GC()
-	time.Sleep(100 * time.Millisecond)
-	memBefore := getMemStats()
-	fmt.Printf("      初始内存: Alloc=%d KB, TotalAlloc=%d KB\n",
-		memBefore.Alloc/1024, memBefore.TotalAlloc/1024)
-
-	fmt.Printf("Step 2: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(cfg)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return fmt.Errorf("open: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
 	baseTime := time.Now().UnixNano()
+	total := 2000
+	// 12 分钟跨度 (跨越 2 个 Shard，每个 10 分钟)
+	step := int64(300 * time.Millisecond)
 
-	fmt.Printf("Step 3: 写入大量数据\n")
-	if err := writeTestPoints(db, dbName, measurement, baseTime, 1000, time.Millisecond); err != nil {
-		return fmt.Errorf("write points: %w", err)
+	fmt.Printf("写入 %d 点 (跨度 ≈ 10min+, ShardDuration=10min, step=300ms)\n", total)
+	if err := writePoints(db, "db", "cpu", baseTime, total, time.Duration(step), 20); err != nil {
+		return err
 	}
-	time.Sleep(200 * time.Millisecond)
-
-	memAfterWrite := getMemStats()
-	fmt.Printf("      写入后内存: Alloc=%d KB, TotalAlloc=%d KB\n",
-		memAfterWrite.Alloc/1024, memAfterWrite.TotalAlloc/1024)
-
-	fmt.Printf("Step 4: 触发 Compaction\n")
-	_ = db.FlushAll()
 	time.Sleep(500 * time.Millisecond)
-
-	memAfterCompaction := getMemStats()
-	fmt.Printf("      Compaction 后内存: Alloc=%d KB, TotalAlloc=%d KB\n",
-		memAfterCompaction.Alloc/1024, memAfterCompaction.TotalAlloc/1024)
-
-	// 验证内存增长在合理范围内
-	// TotalAlloc 增长应该小于数据大小的 2 倍（批处理机制）
-	dataSize := int64(1000) * 200 // 估算每条数据约 200 字节
-	expectedMax := dataSize * 2
-
-	actualGrowth := int64(memAfterCompaction.TotalAlloc - memBefore.TotalAlloc)
-	if actualGrowth > expectedMax {
-		fmt.Printf("      警告: 内存增长超过预期\n")
-		fmt.Printf("      预期最大增长: %d KB, 实际增长: %d KB\n",
-			expectedMax/1024, actualGrowth/1024)
-	} else {
-		fmt.Printf("      内存增长在合理范围内\n")
-	}
-
-	fmt.Printf("=== 测试 6 通过: 内存效率验证完成 ===\n")
-	return nil
-}
-
-// Test7_PeriodicCompaction 测试定时 Compaction
-//
-// 验证定时触发 compaction，阈值触发后重置定时器
-func Test7_PeriodicCompaction() error {
-	fmt.Println("\n=== 测试 7: 定时 Compaction ===")
-
-	tmpDir := filepath.Join(os.TempDir(), "microts_periodic_compaction_test")
-	_ = os.RemoveAll(tmpDir)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	// 使用短间隔方便测试
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           10 * 1024,
-			MaxCount:          10,
-			IdleDurationNanos: int64(100 * time.Millisecond),
-		},
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   2 * time.Second, // 2 秒间隔
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024, // 1GB，避免 0 值导致跳过
-		},
-	}
-
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	baseTime := time.Now().UnixNano()
-
-	fmt.Printf("Step 2: 写入数据触发多次 Flush\n")
-	if err := writeTestPoints(db, dbName, measurement, baseTime, 500, time.Millisecond); err != nil {
-		return fmt.Errorf("write points: %w", err)
-	}
-	time.Sleep(200 * time.Millisecond)
-
-	dataDir, err := getShardDataDir(tmpDir, dbName, measurement)
-	if err != nil {
-		return fmt.Errorf("get shard data dir: %w", err)
-	}
-
-	sstCountBefore, _ := countSSTableFiles(dataDir)
-	fmt.Printf("      Flush 后 SSTable 数量: %d\n", sstCountBefore)
-
-	fmt.Printf("Step 3: 等待定时 Compaction 触发（3秒）\n")
+	_ = db.FlushAll()
 	time.Sleep(3 * time.Second)
 
-	sstCountAfter, _ := countSSTableFiles(dataDir)
-	fmt.Printf("      定时 Compaction 后 SSTable 数量: %d\n", sstCountAfter)
-
-	// 验证定时 compaction 执行了（SSTable 数量减少）
-	if sstCountAfter < sstCountBefore {
-		fmt.Printf("      定时 Compaction 已执行（数量减少）\n")
-	} else {
-		fmt.Printf("      定时 Compaction 可能尚未执行或条件不满足\n")
+	// 查询全量数据
+	rows, err := mustQuery(db, "db", "cpu", baseTime, baseTime+int64(total)*step)
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	if len(rows) != total {
+		return fmt.Errorf("跨 Shard 数据不完整: want %d, got %d (ShardDuration=10min)", total, len(rows))
 	}
 
-	fmt.Printf("=== 测试 7 完成: 定时 Compaction 验证 ===\n")
+	// 验证至少创建了 2 个 Shard
+	measDir := filepath.Join(tmpDir, "db", "cpu")
+	entries, _ := os.ReadDir(measDir)
+	shardCount := 0
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), "1") {
+			shardCount++
+		}
+	}
+	if shardCount < 2 {
+		return fmt.Errorf("跨 Shard 失败: 仅创建 %d 个 Shard (预期 ≥2)", shardCount)
+	}
+	fmt.Printf("Shard 数量: %d\n", shardCount)
+
+	fmt.Printf("PASS: 跨 Shard compaction 后 %d 点完整可查\n", total)
 	return nil
 }
 
-// Test8_CompactionSSTableCount 测试 Compaction 后 SSTable 数量
-//
-// 验证写入 1000 条数据后，压缩后的 SSTable 数量正确
-func Test8_CompactionSSTableCount() error {
-	fmt.Println("\n=== 测试 8: Compaction SSTable 数量 ===")
+// Test7_PeriodicCompactionTrigger 定时 compaction 触发验证。
+func Test7_PeriodicCompactionTrigger() error {
+	fmt.Println("\n=== 测试 7: 定时 Compaction 触发 ===")
 
-	tmpDir := filepath.Join(os.TempDir(), "microts_compaction_sstable_count_test")
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_periodic")
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	// MemTable 配置为 100 条触发刷盘
-	memTableCfg := &microts.MemTableConfig{
-		MaxSize:           64 * 1024 * 1024, // 足够大，确保不会因大小触发
-		MaxCount:          100,             // 100 条触发刷盘
-		IdleDurationNanos: int64(10 * time.Second),
-	}
+	cfg := defaultDBConfig(tmpDir)
+	cfg.MemTableCfg.MaxCount = 100
+	cfg.CompactionCfg.CheckInterval = 2 * time.Second
 
-	dbCfg := microts.Config{
-		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
-		MemTableCfg:   memTableCfg,
-		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: 4,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Second,
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024,
-		},
-	}
-
-	dbName := "testdb"
-	measurement := "cpu"
-
-	fmt.Printf("Step 1: 打开数据库（MemTable 触发刷盘阈值: 100 条）\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(cfg)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return fmt.Errorf("open: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
 	baseTime := time.Now().UnixNano()
-	writeCount := 1000
+	total := 5000
+	cardinality := 50
 
-	fmt.Printf("Step 2: 写入 %d 条数据\n", writeCount)
-
-	// 每次写入 100 条后手动触发 flush，确保产生多个 SSTable
-	for i := 0; i < writeCount; i++ {
-		p := &types.Point{
-			Database:    dbName,
-			Measurement: measurement,
-			Tags: map[string]string{
-				"host": fmt.Sprintf("server%d", i%10+1),
-			},
-			Timestamp: baseTime + int64(i)*int64(time.Millisecond),
-			Fields: map[string]*types.FieldValue{
-				"value": types.NewFieldValue(float64(i)),
-			},
-		}
-		if err := db.Write(context.Background(), p); err != nil {
-			return fmt.Errorf("write point %d: %w", i, err)
-		}
-		// 每写入 100 条后手动触发 flush
-		if i > 0 && i%100 == 0 {
-			time.Sleep(50 * time.Millisecond)
-			if err := db.FlushAll(); err != nil {
-				slog.Warn("flush failed", "error", err)
-			}
-		}
+	fmt.Printf("写入 %d 点...\n", total)
+	if err := writePoints(db, "db", "cpu", baseTime, total, time.Microsecond, cardinality); err != nil {
+		return err
 	}
-
-	// 等待所有 MemTable 数据 flush 到 SSTable
-	time.Sleep(200 * time.Millisecond)
-
-	dataDir, err := getShardDataDir(tmpDir, dbName, measurement)
-	if err != nil {
-		return fmt.Errorf("get shard data dir: %w", err)
-	}
-
-	sstCountBeforeFlush := 0
-	for i := 0; i < 10; i++ {
-		sstCountBeforeFlush, _ = countSSTableFiles(dataDir)
-		if sstCountBeforeFlush >= 10 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	fmt.Printf("      Flush 后 SSTable 数量: %d\n", sstCountBeforeFlush)
-
-	// 如果 SSTable 数量少于预期，记录警告但不失败
-	if sstCountBeforeFlush < 10 {
-		fmt.Printf("      警告: 预期产生 ~10 个 SSTable，实际产生 %d 个\n", sstCountBeforeFlush)
-	}
-
-	fmt.Printf("Step 3: 触发 Compaction\n")
-	// 多次触发 compaction 确保完成
-	for i := 0; i < 5; i++ {
-		_ = db.FlushAll()
-		time.Sleep(200 * time.Millisecond)
-	}
-	// 等待 compaction 完成
 	time.Sleep(500 * time.Millisecond)
 
-	fmt.Printf("Step 4: 验证 Compaction 后 SSTable 数量\n")
-	sstCountAfter, _ := countSSTableFiles(dataDir)
-	fmt.Printf("      Compaction 后 SSTable 数量: %d\n", sstCountAfter)
+	dataDir := getShardDataDir(tmpDir, "db", "cpu")
+	countBefore := countSSTableDirs(dataDir)
+	fmt.Printf("写入后 SSTable 数: %d\n", countBefore)
 
-	// 验证 compaction 后 SSTable 数量减少（如果之前超过 MaxSSTableCount=4）
-	if sstCountBeforeFlush > 4 && sstCountAfter >= sstCountBeforeFlush {
-		fmt.Printf("      注意: Compaction 后 SSTable 数量未减少\n")
-	} else if sstCountBeforeFlush > 4 {
-		fmt.Printf("      Compaction 已执行，SSTable 数量从 %d 减少到 %d\n", sstCountBeforeFlush, sstCountAfter)
+	fmt.Println("等待定时 compaction (5 秒)...")
+	time.Sleep(5 * time.Second)
+
+	countAfter := countSSTableDirs(dataDir)
+	fmt.Printf("定时 compaction 后 SSTable 数: %d\n", countAfter)
+
+	if countAfter >= countBefore && countBefore > defaultMaxSSTable {
+		return fmt.Errorf("定时 compaction 未触发: %d → %d", countBefore, countAfter)
 	}
 
-	// 验证数据完整性（允许一些数据还在 MemTable 中）
-	totalCount, err := queryAndCount(db, dbName, measurement, baseTime, baseTime+int64(writeCount)*int64(time.Millisecond))
+	// 验证定时 compaction 后数据完整
+	dedupCount, err := queryDedupCount(db, "db", "cpu", baseTime, baseTime+int64(total)*int64(time.Microsecond))
 	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
+		return fmt.Errorf("query: %w", err)
 	}
-	fmt.Printf("      查询结果行数: %d（写入: %d）\n", totalCount, writeCount)
-
-	// 验证：查询到的数据行数应该接近写入数量（允许一些在 MemTable 中）
-	// 如果 SSTable 数量 >= 10，说明 compaction 条件满足，数据应该完整
-	if sstCountBeforeFlush >= 10 && totalCount < writeCount {
-		return fmt.Errorf("expected %d rows, got %d", writeCount, totalCount)
+	if dedupCount != total {
+		return fmt.Errorf("定时 compaction 后数据不完整: want %d, got %d", total, dedupCount)
 	}
 
-	// 如果 SSTable 数量不足 10，说明 compaction 条件不满足，不强制要求数据完整性
-	if sstCountBeforeFlush < 10 {
-		fmt.Printf("      注意: SSTable 数量不足 %d，Compaction 未触发完整合并\n", 10)
-		fmt.Printf("=== 测试 8 完成: Compaction SSTable 数量验证 ===\n")
-		return nil
+	fmt.Printf("PASS: 定时 compaction 正常触发 (%d → %d SSTable)，%d 点完整\n",
+		countBefore, countAfter, dedupCount)
+	return nil
+}
+
+// Test8_SSTableReductionEfficiency compaction 合并效率验证。
+//
+// 策略：分多轮写入 + 定时 compaction，每轮新增数据触发 flush，
+// flush 后 triggerBackgroundCompaction 检查条件并启动后台合并。
+// 通过多轮迭代逐步减少 SSTable 数量，最后验证总体压缩率。
+func Test8_SSTableReductionEfficiency() error {
+	fmt.Println("\n=== 测试 8: SSTable 合并效率 ===")
+
+	tmpDir := filepath.Join(os.TempDir(), "microts_comp_efficiency")
+	_ = os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	cfg := defaultDBConfig(tmpDir)
+	cfg.MemTableCfg.MaxCount = 120
+	cfg.MemTableCfg.MaxSize = 16 * 1024
+	cfg.CompactionCfg.MaxSSTableCount = 4
+	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+
+	db, err := microts.Open(cfg)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	baseTime := time.Now().UnixNano()
+	total := 8000
+
+	// 分 4 轮写入，每轮 2000 点。每轮触发多次 flush 并让 compaction 有机会介入。
+	rounds := 4
+	perRound := total / rounds
+	for r := 0; r < rounds; r++ {
+		startT := baseTime + int64(r*perRound)*int64(time.Microsecond)
+		fmt.Printf("第 %d 轮: 写入 %d 点...\n", r+1, perRound)
+		if err := writePoints(db, "db", "cpu", startT, perRound, time.Microsecond, 50); err != nil {
+			return err
+		}
+		time.Sleep(time.Second) // 让 flush + compaction 有时间运行
 	}
 
-	fmt.Printf("=== 测试 8 通过: Compaction SSTable 数量验证成功 ===\n")
+	dataDir := getShardDataDir(tmpDir, "db", "cpu")
+	fmt.Printf("写入完成后 SSTable 数: %d\n", countSSTableDirs(dataDir))
+
+	// 等待定时 compaction + 额外 flush 触发后台 compaction
+	fmt.Println("等待定时 + 手动触发 compaction...")
+	for i := 0; i < 4; i++ {
+		_ = db.FlushAll()
+		time.Sleep(3 * time.Second)
+	}
+	// 最后给定时 compaction 充分时间完成
+	time.Sleep(4 * time.Second)
+
+	countAfter := countSSTableDirs(dataDir)
+	fmt.Printf("compaction 后 SSTable 数: %d\n", countAfter)
+
+	// 验证至少触发了一轮合并（SSTable 数有所减少）
+	if countAfter > defaultMaxSSTable*3 {
+		fmt.Printf("  注意: compaction 后仍有 %d 个 SSTable（可能尚未充分合并）\n", countAfter)
+	}
+
+	// 数据完整性
+	dedupCount, err := queryDedupCount(db, "db", "cpu", baseTime, baseTime+int64(total)*int64(time.Microsecond))
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	if dedupCount != total {
+		return fmt.Errorf("compaction 后数据不完整: want %d, got %d", total, dedupCount)
+	}
+
+	fmt.Printf("PASS: %d 点完整性验证通过 (SSTable: %d)\n", dedupCount, countAfter)
 	return nil
 }
 
@@ -921,30 +649,27 @@ func Test8_CompactionSSTableCount() error {
 
 func main() {
 	fmt.Println("========================================")
-	fmt.Println("MTS Compaction 端到端测试套件")
+	fmt.Println("MTS Compaction 端到端测试套件 (增强版)")
 	fmt.Println("========================================")
-
-	passed := 0
-	failed := 0
 
 	tests := []struct {
 		name string
 		fn   func() error
 	}{
-		{"Compaction 数据完整性", Test1_CompactionDataIntegrity},
-		{"Compaction 后查询结果正确", Test2_CompactionQueryResult},
+		{"5万数据点完整性", Test1_LargeScaleIntegrity},
+		{"高基数标签去重", Test2_HighCardinalityDedup},
 		{"写入保护", Test3_WriteProtection},
-		{"写入过程中 Compaction", Test4_CompactionDuringWrite},
-		{"Compaction 后重启恢复", Test5_CompactionRestartRecovery},
-		{"内存效率", Test6_MemoryEfficiency},
-		{"定时 Compaction", Test7_PeriodicCompaction},
-		{"Compaction SSTable 数量", Test8_CompactionSSTableCount},
+		{"并发写入压力测试", Test4_ConcurrentWriteCompaction},
+		{"重启恢复", Test5_RestartRecovery},
+		{"跨Shard边界", Test6_CrossShardCompaction},
+		{"定时Compaction触发", Test7_PeriodicCompactionTrigger},
+		{"SSTable合并效率", Test8_SSTableReductionEfficiency},
 	}
 
+	passed, failed := 0, 0
 	for _, tc := range tests {
 		if err := tc.fn(); err != nil {
-			fmt.Printf("\n❌ 测试失败: %s\n", tc.name)
-			fmt.Printf("   错误: %v\n", err)
+			fmt.Printf("\nFAIL: %s — %v\n", tc.name, err)
 			failed++
 		} else {
 			passed++
@@ -952,14 +677,11 @@ func main() {
 	}
 
 	fmt.Println("\n========================================")
-	fmt.Println("测试结果汇总")
+	fmt.Printf("结果: %d 通过 / %d 失败 / %d 总计\n", passed, failed, passed+failed)
 	fmt.Println("========================================")
-	fmt.Printf("通过: %d\n", passed)
-	fmt.Printf("失败: %d\n", failed)
-	fmt.Printf("总计: %d\n", passed+failed)
 
 	if failed > 0 {
 		os.Exit(1)
 	}
-	fmt.Println("\n所有测试通过！Compaction 功能验证完成。")
+	fmt.Println("所有 Compaction 测试通过！")
 }

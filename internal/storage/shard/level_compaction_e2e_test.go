@@ -23,7 +23,7 @@ func sstDirName(seq uint64) string {
 // createTestSSTableInLevel creates a test SSTable file in the specified level directory.
 func createTestSSTableInLevel(t *testing.T, shardDir string, level int, seq uint64, points []*types.Point) string {
 	// 创建 SSTable Writer（会在 shardDir/data/sst_{seq}.bin 创建文件）
-	w, err := sstable.NewWriter(shardDir, seq, 0)
+	w, err := sstable.NewWriter(shardDir, seq, 0, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("failed to create SSTable writer: %v", err)
 	}

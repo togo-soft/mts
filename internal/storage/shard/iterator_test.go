@@ -66,7 +66,7 @@ func TestShardIterator_SSTableOnly(t *testing.T) {
 	dir := t.TempDir()
 
 	// 使用 Writer API 创建单文件 .bin SSTable
-	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("failed to create sstable writer: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestShardIterator_BothMemTableAndSSTable(t *testing.T) {
 	dir := t.TempDir()
 
 	// 使用 Writer API 创建单文件 .bin SSTable
-	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("failed to create sstable writer: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestShardIterator_EqualTimestamps(t *testing.T) {
 	dir := t.TempDir()
 
 	// 使用 Writer API 创建单文件 .bin SSTable
-	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("failed to create sstable writer: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestShardIterator_Current_BothMemAndSST(t *testing.T) {
 	dir := t.TempDir()
 
 	// 使用 Writer API 创建单文件 .bin SSTable
-	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("failed to create sstable writer: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestShardIterator_Current_MemTimestampGreater(t *testing.T) {
 	dir := t.TempDir()
 
 	// 使用 Writer API 创建单文件 .bin SSTable
-	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize)
+	writer, err := sstable.NewWriter(dir, 0, sstable.BlockSize, sstable.CompressionNone)
 	if err != nil {
 		t.Fatalf("failed to create sstable writer: %v", err)
 	}
