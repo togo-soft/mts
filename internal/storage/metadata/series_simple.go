@@ -82,8 +82,12 @@ func encodeUint64(v uint64) []byte {
 }
 
 // decodeUint64 从 varint 字节解码 uint64。
+// 如果数据损坏导致解码失败，返回 0。
 func decodeUint64(data []byte) uint64 {
-	v, _ := binary.Uvarint(data)
+	v, n := binary.Uvarint(data)
+	if n <= 0 {
+		return 0
+	}
 	return v
 }
 
@@ -106,7 +110,7 @@ func unmarshalTags(data []byte) (map[string]string, error) {
 type SimpleSeriesStore struct {
 	mu      sync.RWMutex
 	series  map[uint64]map[string]string
-	hashIdx map[uint64]uint64
+	hashIdx map[uint64][]uint64 // hash → SID 列表（链地址法解决哈希冲突）
 	tagIdx  map[string][]uint64
 	nextSID uint64
 }
@@ -115,7 +119,7 @@ type SimpleSeriesStore struct {
 func NewSimpleSeriesStore() *SimpleSeriesStore {
 	return &SimpleSeriesStore{
 		series:  make(map[uint64]map[string]string),
-		hashIdx: make(map[uint64]uint64),
+		hashIdx: make(map[uint64][]uint64),
 		tagIdx:  make(map[string][]uint64),
 	}
 }
@@ -126,16 +130,18 @@ func (s *SimpleSeriesStore) AllocateSID(tags map[string]string) (uint64, error) 
 	defer s.mu.Unlock()
 
 	h := tagsHash(tags)
-	if sid, ok := s.hashIdx[h]; ok {
-		if tagsEqual(s.series[sid], tags) {
-			return sid, nil
+	if sids, ok := s.hashIdx[h]; ok {
+		for _, sid := range sids {
+			if tagsEqual(s.series[sid], tags) {
+				return sid, nil
+			}
 		}
 	}
 
 	sid := s.nextSID
 	s.nextSID++
 	s.series[sid] = copyTags(tags)
-	s.hashIdx[h] = sid
+	s.hashIdx[h] = append(s.hashIdx[h], sid)
 
 	for k, v := range tags {
 		key := k + "\x00" + v

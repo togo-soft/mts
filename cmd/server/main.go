@@ -2,6 +2,7 @@
 package main
 
 import (
+	"flag"
 	"log/slog"
 	"net"
 	"os"
@@ -17,11 +18,22 @@ import (
 )
 
 func main() {
+	dataDir := flag.String("data-dir", "", "数据目录路径（默认从 MICROTS_DATA_DIR 环境变量读取，回退到 /var/lib/microts）")
+	flag.Parse()
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	dir := *dataDir
+	if dir == "" {
+		dir = os.Getenv("MICROTS_DATA_DIR")
+	}
+	if dir == "" {
+		dir = "/var/lib/microts"
+	}
 
 	// 初始化存储引擎
 	eng, err := engine.New(&engine.Config{
-		DataDir:       "/var/lib/microts",
+		DataDir:       dir,
 		ShardDuration: 7 * 24 * time.Hour,
 	})
 	if err != nil {

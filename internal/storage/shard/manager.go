@@ -63,6 +63,11 @@ func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memta
 
 // GetShard 获取或创建指定时间戳对应的 Shard。
 func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*Shard, error) {
+	// 防止路径遍历注入
+	if !isNameSafe(db) || !isNameSafe(measurementName) {
+		return nil, fmt.Errorf("invalid database or measurement name")
+	}
+
 	// 等待 discovery 完成，避免在 discovery 完成前创建重复的 Shard
 	m.discoveryWg.Wait()
 
@@ -122,6 +127,9 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 
 // GetShards 获取与指定时间范围相交的所有 Shard。
 func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime int64) []*Shard {
+	if !isNameSafe(db) || !isNameSafe(measurementName) {
+		return nil
+	}
 	m.mu.RLock()
 	alreadyDiscovered := m.discoveredMeasurements[db+"/"+measurementName]
 	m.mu.RUnlock()
@@ -149,6 +157,9 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 }
 
 func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
+	if !isNameSafe(db) || !isNameSafe(measurementName) {
+		return
+	}
 	metaKey := db + "/" + measurementName
 
 	m.mu.Lock()
@@ -222,16 +233,20 @@ func (m *ShardManager) discoverAndReplayWAL() error {
 			// 3. 查询 shardIndex 获取已注册 shard
 			shards := m.manager.Shards().ListShards(db, meas)
 			for _, info := range shards {
-				// 4. 创建 Shard 实例并回放 WAL
+				// 4. 创建 Shard 实例（WAL 重放延后到锁内执行）
 				s := m.loadShardFromIndex(db, meas, info)
 				if s != nil {
-					// 5. 双检查确保并发安全
+					// 5. 持锁双检查 + WAL 重放，防止并发双重重放
+					key := m.makeKey(db, meas, info.StartTime)
 					m.mu.Lock()
-					if _, ok := m.shards[m.makeKey(db, meas, info.StartTime)]; ok {
+					if _, ok := m.shards[key]; ok {
 						m.mu.Unlock()
 						continue
 					}
-					m.shards[m.makeKey(db, meas, info.StartTime)] = s
+					if err := s.ReplayWAL(); err != nil {
+						slog.Warn("failed to replay WAL for discovered shard", "key", info.ID, "error", err)
+					}
+					m.shards[key] = s
 					m.mu.Unlock()
 				}
 			}
@@ -246,7 +261,7 @@ func (m *ShardManager) discoverAndReplayWAL() error {
 
 func (m *ShardManager) loadShardFromIndex(db, measurement string, info metadata.ShardInfo) *Shard {
 	seriesStore := m.manager.GetOrCreateSeriesStore(db, measurement)
-	s := NewShard(ShardConfig{
+	return NewShard(ShardConfig{
 		DB:                   db,
 		Measurement:          measurement,
 		StartTime:            info.StartTime,
@@ -258,10 +273,6 @@ func (m *ShardManager) loadShardFromIndex(db, measurement string, info metadata.
 		CompactionCfg:        m.compactionCfg,
 		CompressionAlgorithm: m.compressionAlgo,
 	})
-	if err := s.ReplayWAL(); err != nil {
-		slog.Warn("failed to replay WAL for discovered shard", "key", info.ID, "error", err)
-	}
-	return s
 }
 
 func (m *ShardManager) WaitForDiscovery() {
@@ -286,6 +297,21 @@ func formatTimeRange(start, end int64) string {
 
 func formatInt64(n int64) string {
 	return strconv.FormatInt(n, 10)
+}
+
+// isNameSafe 检查数据库名/measurement 名不包含路径遍历字符。
+func isNameSafe(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	cleaned := filepath.Clean(name)
+	if cleaned == "." || cleaned == ".." {
+		return false
+	}
+	if strings.Contains(cleaned, string(os.PathSeparator)) {
+		return false
+	}
+	return true
 }
 
 // FlushAll 刷新所有 Shard 的 MemTable 到 SSTable。

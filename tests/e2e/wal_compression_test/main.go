@@ -24,16 +24,6 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// countWALFiles 统计 WAL 目录下的 .wal 文件数量
-func countWALFiles(walDir string) (int, error) {
-	pattern := filepath.Join(walDir, "*.wal")
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return 0, err
-	}
-	return len(matches), nil
-}
-
 // listWALFiles 列出 WAL 目录下所有 .wal 文件
 func listWALFiles(walDir string) ([]string, error) {
 	pattern := filepath.Join(walDir, "*.wal")
@@ -242,7 +232,6 @@ func Test2_WALCompressionReplay() error {
 
 	// 写入新数据触发 Shard 发现和 WAL replay
 	session2BaseTime := time.Now().UnixNano()
-	const session2Count = 1000
 	newPoint := &types.Point{
 		Database:    dbName,
 		Measurement: measurement,

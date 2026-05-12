@@ -104,6 +104,8 @@ func fieldValueToAny(fv *types.FieldValue) (any, error) {
 // anyToFieldValue 将 interface{} 转换为 types.FieldValue。
 func anyToFieldValue(v any) (*types.FieldValue, error) {
 	switch val := v.(type) {
+	case *types.FieldValue:
+		return val, nil
 	case int64:
 		return &types.FieldValue{Value: &types.FieldValue_IntValue{IntValue: val}}, nil
 	case float64:
@@ -369,7 +371,7 @@ func (s *MicroTSService) Health(ctx context.Context, req *types.HealthRequest) (
 //
 //	如果输入为 nil，返回 nil。
 //	当前实现仅转换时间戳和标签，字段转换待完善。
-func ToProtoPointRow(row *types.PointRow) *types.Row {
+func toProtoPointRow(row *types.PointRow) *types.Row {
 	if row == nil {
 		return nil
 	}

@@ -427,6 +427,7 @@ func (cm *CompactionManager) ShouldCompact() bool {
 func (cm *CompactionManager) ShouldCompactLocked() bool {
 	files, err := cm.collectSSTablesWithoutRefs()
 	if err != nil {
+		slog.Warn("failed to collect sstables for compaction check", "error", err)
 		return false
 	}
 
@@ -436,6 +437,7 @@ func (cm *CompactionManager) ShouldCompactLocked() bool {
 
 	shardSize, err := cm.CalculateShardSize()
 	if err != nil {
+		slog.Warn("failed to calculate shard size for compaction check", "error", err)
 		return false
 	}
 

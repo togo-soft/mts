@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -34,10 +35,14 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 
 	cat := e.manager.Catalog()
 	if !cat.DatabaseExists(point.Database) {
-		_ = cat.CreateDatabase(point.Database)
+		if err := cat.CreateDatabase(point.Database); err != nil {
+			slog.Warn("auto-create database failed", "database", point.Database, "error", err)
+		}
 	}
 	if !cat.MeasurementExists(point.Database, point.Measurement) {
-		_ = cat.CreateMeasurement(point.Database, point.Measurement)
+		if err := cat.CreateMeasurement(point.Database, point.Measurement); err != nil {
+			slog.Warn("auto-create measurement failed", "database", point.Database, "measurement", point.Measurement, "error", err)
+		}
 	}
 
 	s, err := e.shardManager.GetShard(point.Database, point.Measurement, point.Timestamp)

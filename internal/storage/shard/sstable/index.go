@@ -21,7 +21,7 @@ const IndexVersion = 1
 type BlockIndexEntry struct {
 	FirstTimestamp int64  // block 内第一个时间戳
 	LastTimestamp  int64  // block 内最后一个时间戳
-	Offset         uint32 // block 在 timestamps.bin 文件中的偏移
+	Offset         uint32 // 累计行号（非字节偏移），用于定位 block 在已排序数据中的起始行
 	RowCount       uint32 // 该 block 的行数
 }
 
@@ -33,7 +33,7 @@ type BlockIndexEntry struct {
 //
 //	FirstTimestamp:  Block 中第一个时间戳
 //	LastTimestamp:   Block 中最后一个时间戳
-//	Offset:          在 timestamps.bin 中的偏移量
+//	Offset:          累计行号，Block 起始行在已排序数据中的偏移（非字节偏移）
 //	RowCount:        Block 中的行数
 //
 // 查询优化：

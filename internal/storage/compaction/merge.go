@@ -239,6 +239,7 @@ func collectInputTombstones(inputPaths []string) *TombstoneSet {
 	for _, path := range inputPaths {
 		ts, err := LoadTombstones(path)
 		if err != nil {
+			slog.Warn("failed to load tombstones, skipping", "path", path, "error", err)
 			continue
 		}
 		if ts.HasTombstones() {

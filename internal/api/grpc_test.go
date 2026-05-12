@@ -443,14 +443,14 @@ func TestWriteRequestToPoint(t *testing.T) {
 	}
 }
 
-func TestToProtoPointRow(t *testing.T) {
+func TestConversionToProtoPointRow(t *testing.T) {
 	row := &types.PointRow{
 		Timestamp: 1234567890,
 		Tags:      map[string]string{"tag1": "value1"},
 		Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(float64(1.0))},
 	}
 
-	protoRow := ToProtoPointRow(row)
+	protoRow := toProtoPointRow(row)
 
 	if protoRow == nil {
 		t.Fatal("expected non-nil proto row")
@@ -466,7 +466,7 @@ func TestToProtoPointRow(t *testing.T) {
 }
 
 func TestToProtoPointRow_Nil(t *testing.T) {
-	protoRow := ToProtoPointRow(nil)
+	protoRow := toProtoPointRow(nil)
 
 	if protoRow != nil {
 		t.Error("expected nil for nil input")

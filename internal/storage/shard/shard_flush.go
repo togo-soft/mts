@@ -27,6 +27,8 @@ func (s *Shard) flushLocked() error {
 		return nil
 	}
 
+	useFlatCompaction := s.compaction != nil && !s.levelCompactionEnabled()
+
 	var sstSeq uint64
 	var sstPath string
 
@@ -42,33 +44,28 @@ func (s *Shard) flushLocked() error {
 		sstPath = filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))
 	}
 
-	// 在 NewWriter 之前标记写入状态，防止 CollectSSTables 收集到不完整的 SSTable
-	if s.compaction != nil && !s.levelCompactionEnabled() {
+	// 标记写入状态，使用 defer 统一清理
+	flushSucceeded := false
+	if useFlatCompaction {
 		if err := s.compaction.MarkWriting(sstPath); err != nil {
 			slog.Warn("failed to mark sstable in write", "path", sstPath, "error", err)
 		}
 	}
+	defer func() {
+		if useFlatCompaction && !flushSucceeded {
+			if unmarkErr := s.compaction.UnmarkWriting(sstPath); unmarkErr != nil {
+				slog.Warn("failed to unmark sstable write", "path", sstPath, "error", unmarkErr)
+			}
+		}
+	}()
 
 	w, err := sstable.NewWriter(s.dir, sstSeq, 0, s.compressionAlgo)
 	if err != nil {
-		// 清理 .writing 标记
-		if s.compaction != nil && !s.levelCompactionEnabled() {
-			if unmarkErr := s.compaction.UnmarkWriting(sstPath); unmarkErr != nil {
-				slog.Warn("failed to unmark sstable after writer error", "path", sstPath, "error", unmarkErr)
-			}
-		}
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
 
 	if err := w.WritePoints(points); err != nil {
-		if closeErr := w.Close(); closeErr != nil {
-			slog.Warn("failed to close sstable writer after write error", "error", closeErr)
-		}
-		if s.compaction != nil && !s.levelCompactionEnabled() {
-			if unmarkErr := s.compaction.UnmarkWriting(sstPath); unmarkErr != nil {
-				slog.Warn("failed to unmark sstable after write error", "error", unmarkErr)
-			}
-		}
+		_ = w.Close()
 		return fmt.Errorf("write points to sstable: %w", err)
 	}
 
@@ -83,19 +80,15 @@ func (s *Shard) flushLocked() error {
 	}
 
 	if err := w.Close(); err != nil {
-		if s.compaction != nil && !s.levelCompactionEnabled() {
-			if unmarkErr := s.compaction.UnmarkWriting(sstPath); unmarkErr != nil {
-				slog.Warn("failed to unmark sstable after close error", "error", unmarkErr)
-			}
-		}
 		return fmt.Errorf("close sstable writer: %w", err)
 	}
 
-	if s.compaction != nil && !s.levelCompactionEnabled() {
+	if useFlatCompaction {
 		if err := s.compaction.UnmarkWriting(sstPath); err != nil {
 			slog.Warn("failed to unmark sstable write", "path", sstPath, "error", err)
 		}
 	}
+	flushSucceeded = true
 
 	if s.levelCompaction != nil {
 		srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))

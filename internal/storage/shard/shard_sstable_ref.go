@@ -57,6 +57,7 @@ func (sr *sstRefs) release(path string) {
 }
 
 // AcquireSSTRef 增加对指定 SSTable 的引用（Shard 公开方法）。
+// 始终返回 true（内存操作不会失败），保留 bool 返回值是为了与调用方接口兼容。
 func (s *Shard) AcquireSSTRef(path string) bool {
 	return s.sstRefs.acquire(path)
 }

@@ -30,6 +30,7 @@ package microts
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -288,7 +289,8 @@ func (db *DB) Write(ctx context.Context, point *types.Point) error {
 // WriteBatch 批量写入多个数据点。
 //
 // 相比多次调用 Write，批量写入可以减少系统调用开销，提高吞吐量。
-// 批量写入是原子失败的：如果任何一个点写入失败，不会回滚已写入的点。
+// 注意：WriteBatch 不保证原子性。如果某个点写入失败，已成功写入的点不会回滚，
+// 调用方需要自行处理部分写入的情况（通过重试或丢弃受影响的数据）。
 //
 // 参数：
 //   - ctx: 上下文
@@ -544,6 +546,8 @@ func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
 //	}
 func (db *DB) CreateDatabase(ctx context.Context, database string) error {
 	_ = ctx // 保留参数以符合接口约定
+	// CreateDatabase 返回 false 表示已存在或底层存储失败，
+	// 因为引擎当前不区分这两种情况，所以统一返回 nil。
 	_ = db.engine.CreateDatabase(database)
 	return nil
 }
@@ -600,7 +604,9 @@ func (db *DB) Close() error {
 	}
 
 	// 先刷盘，确保所有内存数据持久化
-	_ = db.engine.Flush()
+	if err := db.engine.Flush(); err != nil {
+		slog.Error("flush failed during close", "error", err)
+	}
 
 	return db.engine.Close()
 }

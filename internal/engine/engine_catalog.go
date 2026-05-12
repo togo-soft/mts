@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"log/slog"
 )
 
 // ListDatabases 列出所有数据库名称。
@@ -23,7 +24,10 @@ func (e *Engine) CreateDatabase(database string) bool {
 	if e.manager.Catalog().DatabaseExists(database) {
 		return false
 	}
-	_ = e.manager.Catalog().CreateDatabase(database)
+	if err := e.manager.Catalog().CreateDatabase(database); err != nil {
+		slog.Warn("failed to create database", "database", database, "error", err)
+		return false
+	}
 	return true
 }
 
