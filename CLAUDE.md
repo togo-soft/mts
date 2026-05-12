@@ -29,6 +29,11 @@
 - 只读分析任务可不进入完整实现流程，但结论必须清晰、可追溯。
 - 若用户明确要求 `continue nonstop`，默认持续推进，直到满足验收标准或出现真实阻塞。
 
+## 检视任务
+
+1. 当触发需要检视某模块或者某功能时，需要输出详细的检视报告，并写入到 ./docs/review/code-review-年-月-日-时分.md 文档中。
+2. 当对检视任务中的问题进行修复后，要及时更新检视报告中问题的处理状态。
+
 ## 任务执行顺序
 1. 先理解用户问题的本质
    - 仔细阅读用户的所有消息（包括历史上下文、提供的代码、错误现象）。
@@ -43,16 +48,14 @@
 3. 规格驱动开发
     > 你是严格的规格驱动开发工程师。永远不要在没有明确规格文件的情况下开始实现新功能开发。
 4. 工作顺序
-   1. **需求**：若无 `specs/{feature}/requirements.md`，先创建并完善它（用 EARS 句式）。
-   2. **设计**：然后创建 `specs/{feature}/design.md`，需在互联网上充分调研，确保设计合理（架构、数据流、技术决策）。
-   3. **任务**：然后创建 `specs/{feature}/tasks.md`（按依赖排序的小任务清单，每条带验收标准）。
+   1. **需求**：在进行`brainstorming`时，编写设计文档保存到`docs/superpowers/{feature}/requirements.md`，创建并完善它（用 EARS 句式）。
+   2. **设计**：在进行`writing-plans`时，编写计划保存目录是`docs/superpowers/{feature}/design.md`，需在互联网上充分调研，确保设计合理（架构、数据流、技术决策）。
+   3. **任务**：然后创建 `docs/superpowers/{feature}/tasks.md`（按依赖排序的小任务清单，每条带验收标准）。
    4. **实现**：只有用户明确说「进入实现阶段」或「implement tasks」后，才开始写代码。
    5. **进度**：每完成一个 task，必须在 `tasks.md` 中打勾并写实现备注。
-   6. 所有新功能都放在 `specs/` 目录下，按功能名建子文件夹（如 `specs/foo/`）。
+   6. 所有新功能都放在 `docs/superpowers/` 目录下，按功能名建子文件夹（如 `docs/superpowers/impl-http-server`）。
 5. 文档维护
    - 计划、目标、约束、关键决策、经验教训、步骤或进度变化时，应同步更新相关文档。
-   - 默认文档根目录：`./specs`。
-   - 默认按“当前仓库所在文件夹层级”在该根目录下建立子目录后再落文档；例如仓库 `D:\Documents\Code\stock\trading_system` 的默认文档目录为 `D:\Documents\Code\stock\trading_system\specs`。
    - 对反复证明有价值的经验，应沉淀到项目级 `CLAUDE.md`。
    - 经验模板最小包含：标题、触发信号、根因 / 约束、正确做法、验证方式、适用范围。
 
@@ -69,7 +72,7 @@
 ### 轻量任务默认策略（Claude / Superpowers）
 
 - 轻量任务：单文件或小范围修改、明确 bug 修复、配置 / 文案调整、小测试补充、局部文档修改。
-- 默认可跳过完整 `brainstorming`、`writing-plans`、`using-git-worktrees` 与重 review 链，直接实现并做定向验证；仅在关键不确定且无法从当前对话、项目上下文、`CLAUDE.md`、现有代码回答时才提问。
+- 默认可跳过完整 `brainstorming`、`writing-plans`、`using-git-worktrees` 与重 review 链，直接实现并做定向验证；仅在关键不确定且无法从当前对话、项目上下文、`CLAUDE.md`、现有代码回答时才提问；明确要求需要详细设计的任务，不能进行任务跳过。
 - 提问：轻量任务首次最多问 1 个关键问题；中任务优先一次性给出 2 到 3 个方案与推荐；已有上下文可回答的信息不重复提问；若未获回复且风险可控，应说明假设后继续推进。
 - 默认授权边界：当前分支内可默认修改与任务直接相关的应用代码、测试、局部文档，并新增少量配套文件。
 - 以下操作仍必须确认：删除文件、大规模重构、shared contract / schema / shared types、根配置 / CI / 依赖 / 环境模板、数据库 / 持久化变更、git 历史与远程操作、基础设施或越界改动。
@@ -297,12 +300,4 @@ cd tests/e2e/{test_dir} && go build && ./{test_binary}
     - review：`requesting-code-review` / `receiving-code-review`
     - 完成前：`verification-before-completion`
     - 高风险行为变更：`test-driven-development`
-    - 前端设计：`ui-ux-pro-max`
-- 本地个人工作流 skill 可保留私人默认路径、私人笔记目录与本机脚本入口；若对外发布，必须基于单独副本做脱敏，不直接公开 `~/.claude/skills/` 源文件。
-- 调研总结 / 输出笔记：`research-note-wrap`
-- 会话收尾：`session-wrap`
-- 提交总结 / 日报：`commit-daily-summary`
-- 项目级日报：`project-daily-summary`
-- worktree / branch / parallel 收口：`worktree-closeout`
-- 并行开发规划 / 多 worktree 协作：`codex-parallel-collab`
 - 在回复中声明本次使用了哪些技能。
