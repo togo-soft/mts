@@ -30,6 +30,7 @@ type Config struct {
 	MaxSegments  int   // 0 = 无限制
 	SyncMode     SyncMode
 	SyncInterval time.Duration // SyncPeriodic 的间隔，默认 1 秒
+	Compressed   bool          // 是否启用 LZ4 压缩，默认 true
 	Logger       *slog.Logger
 }
 
@@ -42,6 +43,10 @@ func (c *Config) normalize() {
 	}
 	if c.SyncInterval <= 0 {
 		c.SyncInterval = time.Second
+	}
+	// 默认启用压缩
+	if !c.Compressed {
+		c.Compressed = true
 	}
 }
 
@@ -60,6 +65,7 @@ type WAL struct {
 	syncDone       chan struct{} // 停止周期性同步
 	syncDoneClosed atomic.Bool   // syncDone 是否已关闭
 	replayedSegs   int           // replay 过程中发现的 segment 数量
+	compressed     bool          // 是否启用压缩
 }
 
 // Open 打开或创建 WAL。
@@ -71,10 +77,11 @@ func Open(cfg Config) (*WAL, error) {
 	}
 
 	w := &WAL{
-		dir:      cfg.Dir,
-		buf:      make([]byte, 64*1024), // 64KB 写缓冲
-		cfg:      cfg,
-		syncDone: make(chan struct{}),
+		dir:        cfg.Dir,
+		buf:        make([]byte, 64*1024), // 64KB 写缓冲
+		cfg:        cfg,
+		syncDone:   make(chan struct{}),
+		compressed: cfg.Compressed,
 	}
 
 	// 发现现有 segment，确定 generation 和 segment 号
@@ -92,7 +99,7 @@ func Open(cfg Config) (*WAL, error) {
 		w.segNum = 1
 	}
 
-	seg, err := openSegment(cfg.Dir, w.gen, w.segNum)
+	seg, err := openSegment(cfg.Dir, w.gen, w.segNum, w.compressed)
 	if err != nil {
 		return nil, err
 	}
@@ -115,9 +122,22 @@ func (w *WAL) Write(data []byte) (int, error) {
 		return 0, ErrWALClosed
 	}
 
-	recordSize := RecordSize(len(data))
+	// 压缩 payload
+	var payload []byte
+	if w.compressed {
+		var err error
+		payload, err = CompressPayload(data)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if payload == nil {
+		payload = data
+	}
+
+	recordSize := RecordSize(len(payload))
 	record := make([]byte, recordSize)
-	record = EncodeRecord(record, TypePointData, data)
+	record = EncodeRecord(record, TypePointData, payload)
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -168,9 +188,22 @@ func (w *WAL) WriteBatch(data [][]byte) (int, error) {
 
 	var total int
 	for _, d := range data {
-		recordSize := RecordSize(len(d))
+		// 压缩 payload
+		var payload []byte
+		if w.compressed {
+			var err error
+			payload, err = CompressPayload(d)
+			if err != nil {
+				return total, err
+			}
+		}
+		if payload == nil {
+			payload = d
+		}
+
+		recordSize := RecordSize(len(payload))
 		record := make([]byte, recordSize)
-		record = EncodeRecord(record, TypePointData, d)
+		record = EncodeRecord(record, TypePointData, payload)
 
 		if w.seg.size+int64(w.bufPos)+int64(len(record)) > w.cfg.SegmentSize {
 			if err := w.rotateLocked(); err != nil {
@@ -386,13 +419,14 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 			_ = file.Close()
 			return err
 		}
-		if _, _, err := readSegmentHeader(file); err != nil {
+		_, _, compressed, err := readSegmentHeader(file)
+		if err != nil {
 			_ = file.Close()
 			w.cfg.Logger.Warn("failed to read WAL segment header", "path", e.Path, "error", err)
 			continue
 		}
 
-		_, err = readRecords(file, int64(segmentHeaderSize), fn)
+		_, err = readRecords(file, int64(segmentHeaderSize), fn, compressed)
 		_ = file.Close()
 		if err != nil {
 			w.cfg.Logger.Warn("WAL replay encountered error", "path", e.Path, "error", err)
@@ -414,7 +448,7 @@ func (w *WAL) rotateLocked() error {
 	}
 
 	w.segNum++
-	seg, err := openSegment(w.dir, w.gen, w.segNum)
+	seg, err := openSegment(w.dir, w.gen, w.segNum, w.compressed)
 	if err != nil {
 		return err
 	}

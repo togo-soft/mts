@@ -9,7 +9,7 @@ import (
 func TestOpenSegment_CreatesFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	seg, err := openSegment(tmpDir, 0x1234, 1)
+	seg, err := openSegment(tmpDir, 0x1234, 1, false)
 	if err != nil {
 		t.Fatalf("openSegment: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestOpenSegment_CreatesFile(t *testing.T) {
 func TestOpenSegment_ReopensExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	seg1, err := openSegment(tmpDir, 0xABCD, 2)
+	seg1, err := openSegment(tmpDir, 0xABCD, 2, false)
 	if err != nil {
 		t.Fatalf("openSegment: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestOpenSegment_ReopensExisting(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 
-	seg2, err := openSegment(tmpDir, 0xABCD, 2)
+	seg2, err := openSegment(tmpDir, 0xABCD, 2, false)
 	if err != nil {
 		t.Fatalf("openSegment: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestOpenSegment_ReopensExisting(t *testing.T) {
 func TestSegment_Write(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	seg, err := openSegment(tmpDir, 1, 1)
+	seg, err := openSegment(tmpDir, 1, 1, false)
 	if err != nil {
 		t.Fatalf("openSegment: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSegment_Write(t *testing.T) {
 func TestSegment_Truncate(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	seg, err := openSegment(tmpDir, 1, 1)
+	seg, err := openSegment(tmpDir, 1, 1, false)
 	if err != nil {
 		t.Fatalf("openSegment: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestListSegments(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	for i := uint64(1); i <= 3; i++ {
-		seg, err := openSegment(tmpDir, 1, i)
+		seg, err := openSegment(tmpDir, 1, i, false)
 		if err != nil {
 			t.Fatalf("openSegment %d: %v", i, err)
 		}
@@ -122,7 +122,7 @@ func TestListSegments_Sorted(t *testing.T) {
 
 	// Create segments out of order
 	for _, num := range []uint64{3, 1, 2} {
-		seg, err := openSegment(tmpDir, 1, num)
+		seg, err := openSegment(tmpDir, 1, num, false)
 		if err != nil {
 			t.Fatalf("openSegment %d: %v", num, err)
 		}

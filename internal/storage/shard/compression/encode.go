@@ -115,6 +115,57 @@ func DecodeSids(data []byte, count int) ([]uint64, error) {
 	return values, nil
 }
 
+// EncodeSidsDelta 对 SID 序列进行 First-Delta 编码。
+// 第一个 SID 存储原始值，后续存储与前一个 SID 的差值。
+func EncodeSidsDelta(values []uint64) []byte {
+	if len(values) == 0 {
+		return nil
+	}
+	buf := make([]byte, 0, len(values)*4)
+	var tmp [10]byte
+
+	// 第一个 SID 原始值
+	n := PutVarint(tmp[:], values[0])
+	buf = append(buf, tmp[:n]...)
+
+	// 后续 SID 的差值
+	for i := 1; i < len(values); i++ {
+		delta := values[i] - values[i-1]
+		n = PutVarint(tmp[:], delta)
+		buf = append(buf, tmp[:n]...)
+	}
+	return buf
+}
+
+// DecodeSidsDelta 解码 First-Delta 编码的 SID。
+func DecodeSidsDelta(data []byte, count int) ([]uint64, error) {
+	if count == 0 {
+		return nil, nil
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("decode sids delta: empty data")
+	}
+
+	values := make([]uint64, count)
+	pos := 0
+
+	// 第一个 SID
+	v, n := Varint(data[pos:])
+	pos += n
+	values[0] = v
+
+	// 后续 SID 通过差值计算
+	for i := 1; i < count; i++ {
+		if pos >= len(data) {
+			return nil, fmt.Errorf("decode sids delta: truncated at %d", i)
+		}
+		delta, n := Varint(data[pos:])
+		pos += n
+		values[i] = values[i-1] + delta
+	}
+	return values, nil
+}
+
 // EncodeInt64Values 对 int64 序列进行 ZigZag + Varint 编码。
 func EncodeInt64Values(values []int64) []byte {
 	if len(values) == 0 {

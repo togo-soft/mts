@@ -6,9 +6,9 @@ import (
 
 func TestEncodeDecodeSegmentHeader(t *testing.T) {
 	var buf [segmentHeaderSize]byte
-	encodeSegmentHeader(buf[:], 42)
+	encodeSegmentHeader(buf[:], 42, 0)
 
-	version, segNum, err := decodeSegmentHeader(buf[:])
+	version, segNum, _, err := decodeSegmentHeader(buf[:])
 	if err != nil {
 		t.Fatalf("decodeSegmentHeader: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestEncodeDecodeSegmentHeader(t *testing.T) {
 
 func TestDecodeSegmentHeader_InvalidMagic(t *testing.T) {
 	var buf [segmentHeaderSize]byte
-	_, _, err := decodeSegmentHeader(buf[:])
+	_, _, _, err := decodeSegmentHeader(buf[:])
 	if err == nil {
 		t.Error("expected error for invalid magic")
 	}

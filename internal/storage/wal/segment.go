@@ -17,10 +17,11 @@ type segment struct {
 	num           uint64 // segment 序号
 	size          int64  // 当前文件大小
 	headerWritten bool
+	compressed    bool // 是否使用压缩
 }
 
 // openSegment 打开或创建指定世代和序号的 WAL segment。
-func openSegment(dir string, gen uint64, num uint64) (*segment, error) {
+func openSegment(dir string, gen uint64, num uint64, compressed bool) (*segment, error) {
 	filename := segmentPath(dir, gen, num)
 	f, err := storage.SafeOpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 	if err != nil {
@@ -39,6 +40,7 @@ func openSegment(dir string, gen uint64, num uint64) (*segment, error) {
 		num:           num,
 		size:          info.Size(),
 		headerWritten: info.Size() >= segmentHeaderSize,
+		compressed:    compressed,
 	}
 
 	if !seg.headerWritten {
@@ -72,7 +74,11 @@ func formatHex8(n uint64) string {
 // writeHeader 写入文件头。
 func (s *segment) writeHeader() error {
 	var buf [segmentHeaderSize]byte
-	encodeSegmentHeader(buf[:], uint32(s.num))
+	flags := uint16(0)
+	if s.compressed {
+		flags = FlagCompressed
+	}
+	encodeSegmentHeader(buf[:], uint32(s.num), flags)
 	n, err := s.file.Write(buf[:])
 	if err != nil {
 		return err

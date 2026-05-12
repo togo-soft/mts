@@ -23,6 +23,12 @@ const magicNumber uint32 = 0xD0C0A1FE
 // 当前格式版本。
 const currentVersion uint16 = 1
 
+// Segment Header Flags。
+const (
+	FlagNone       uint16 = 0x0000 // 无压缩
+	FlagCompressed uint16 = 0x0001 // LZ4 压缩
+)
+
 // 记录类型。
 const (
 	TypePointData byte = 0x01 // Point 数据记录
@@ -55,22 +61,26 @@ func pad8(length int) int {
 }
 
 // encodeSegmentHeader 编码 segment 文件头到 dst（14 字节）。
-func encodeSegmentHeader(dst []byte, segmentNum uint32) {
+// flags: 压缩标志位，如 FlagCompressed。
+func encodeSegmentHeader(dst []byte, segmentNum uint32, flags uint16) {
 	binary.BigEndian.PutUint32(dst[0:4], magicNumber)
 	binary.BigEndian.PutUint16(dst[4:6], currentVersion)
-	binary.BigEndian.PutUint16(dst[6:8], 0) // flags
+	binary.BigEndian.PutUint16(dst[6:8], flags)
 	binary.BigEndian.PutUint32(dst[8:12], segmentNum)
 	binary.BigEndian.PutUint16(dst[12:14], 0) // reserved
 }
 
 // decodeSegmentHeader 解码 segment 文件头。
-// 返回 (version, segmentNum, error)。
-func decodeSegmentHeader(data []byte) (version uint16, segmentNum uint32, err error) {
+// 返回 (version, segmentNum, flags, error)。
+func decodeSegmentHeader(data []byte) (version uint16, segmentNum uint32, flags uint16, err error) {
 	magic := binary.BigEndian.Uint32(data[0:4])
 	if magic != magicNumber {
-		return 0, 0, &FormatError{Reason: "invalid magic number"}
+		return 0, 0, 0, &FormatError{Reason: "invalid magic number"}
 	}
-	return binary.BigEndian.Uint16(data[4:6]), binary.BigEndian.Uint32(data[8:12]), nil
+	version = binary.BigEndian.Uint16(data[4:6])
+	flags = binary.BigEndian.Uint16(data[6:8])
+	segmentNum = binary.BigEndian.Uint32(data[8:12])
+	return version, segmentNum, flags, nil
 }
 
 // FormatError 表示格式错误。

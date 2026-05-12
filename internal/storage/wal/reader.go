@@ -12,20 +12,25 @@ import (
 var ErrCorruptRecord = &FormatError{Reason: "CRC mismatch"}
 
 // readSegmentHeader 读取并验证 segment 文件头。
-func readSegmentHeader(file *os.File) (version uint16, segmentNum uint32, err error) {
+func readSegmentHeader(file *os.File) (version uint16, segmentNum uint32, compressed bool, err error) {
 	var buf [segmentHeaderSize]byte
 	n, err := io.ReadFull(file, buf[:])
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, false, err
 	}
 	_ = n
-	return decodeSegmentHeader(buf[:])
+	ver, segNum, flags, err := decodeSegmentHeader(buf[:])
+	if err != nil {
+		return 0, 0, false, err
+	}
+	return ver, segNum, flags&FlagCompressed != 0, nil
 }
 
 // readRecords 从文件指定偏移开始流式读取 WAL 记录。
 // 对每条有效记录调用 fn(payload)，遇到 CRC 错误跳过并告警。
+// compressed 表示 payload 是否为 LZ4 压缩格式。
 // 返回最终文件偏移。
-func readRecords(file *os.File, startPos int64, fn func(payload []byte) error) (int64, error) {
+func readRecords(file *os.File, startPos int64, fn func(payload []byte) error, compressed bool) (int64, error) {
 	if _, err := file.Seek(startPos, 0); err != nil {
 		return startPos, err
 	}
@@ -83,6 +88,17 @@ func readRecords(file *os.File, startPos int64, fn func(payload []byte) error) (
 				"expected", expectedCRC,
 				"actual", actualCRC)
 			continue
+		}
+
+		// 如果是压缩格式，先解压
+		if compressed && len(payload) > 0 {
+			decompressed, err := DecompressPayload(payload)
+			if err != nil {
+				slog.Warn("WAL decompression failed, skipping record",
+					"offset", pos-recordBodySize, "error", err)
+				continue
+			}
+			payload = decompressed
 		}
 
 		if recType == TypePointData || recType == TypeMeta {

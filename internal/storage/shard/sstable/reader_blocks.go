@@ -81,13 +81,7 @@ func (r *Reader) readSids(expectedCount int) ([]uint64, error) {
 		return nil, err
 	}
 
-	enc := r.sectionTable.LookupEncoding("_sids")
-	switch enc {
-	case EncodingVarint:
-		return compression.DecodeSids(data, expectedCount)
-	default:
-		return decodeSidBatch(data), nil
-	}
+	return compression.DecodeSidsDelta(data, expectedCount)
 }
 
 // readSidsV2 逐 block 独立解码 sids（v2 格式）。
@@ -321,13 +315,7 @@ func (r *Reader) readSidsBlock(blockIdx int) ([]uint64, error) {
 		return nil, err
 	}
 
-	enc := r.sectionTable.LookupEncoding("_sids")
-	switch enc {
-	case EncodingVarint:
-		return compression.DecodeSids(data, rowCount)
-	default:
-		return decodeSidBatch(data), nil
-	}
+	return compression.DecodeSidsDelta(data, rowCount)
 }
 
 // decodeFieldSectionBlock 只解码指定块（按字节范围）的字段数据。
@@ -397,13 +385,4 @@ func decodeTimestampBatch(data []byte) []int64 {
 		timestamps = append(timestamps, ts)
 	}
 	return timestamps
-}
-
-func decodeSidBatch(data []byte) []uint64 {
-	sids := make([]uint64, 0, len(data)/8)
-	for i := 0; i+8 <= len(data); i += 8 {
-		sid := binary.BigEndian.Uint64(data[i : i+8])
-		sids = append(sids, sid)
-	}
-	return sids
 }

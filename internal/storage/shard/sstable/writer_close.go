@@ -123,7 +123,7 @@ func (w *Writer) Close() error {
 
 	// 2. 编码并写入 sids（per-block V2）
 	sidsOffset = currentOffset
-	sidsEncoded, sidOffsets, err := w.encodeSidsSectionV2(rowCount)
+	sidsEncoded, sidOffsets, err := w.encodeSidsSection(rowCount)
 	if err != nil {
 		return cleanupErr()
 	}
@@ -242,7 +242,7 @@ func (w *Writer) encodeTimestampsSectionV2(rowCount int) ([]byte, []uint64, Enco
 }
 
 // encodeSidsSectionV2 按 block 独立编码 SID，返回编码数据和 per-block 字节偏移。
-func (w *Writer) encodeSidsSectionV2(rowCount int) ([]byte, []uint64, error) {
+func (w *Writer) encodeSidsSection(rowCount int) ([]byte, []uint64, error) {
 	rawPath := filepath.Join(w.tmpDir, "_sids.bin")
 	raw, err := os.ReadFile(rawPath)
 	if err != nil {
@@ -250,7 +250,7 @@ func (w *Writer) encodeSidsSectionV2(rowCount int) ([]byte, []uint64, error) {
 	}
 	values := compression.ExtractUint64Data(raw, rowCount)
 	data, offsets := encodePerBlock(w, values, func(vals []uint64) []byte {
-		return compression.EncodeSids(vals)
+		return compression.EncodeSidsDelta(vals)
 	})
 	return data, offsets, nil
 }

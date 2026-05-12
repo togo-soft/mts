@@ -218,3 +218,67 @@ func boolRepeat(v bool, count int) []bool {
 	}
 	return values
 }
+
+func TestEncodeSidsDelta_RoundTrip(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []uint64
+	}{
+		{"empty", nil},
+		{"single", []uint64{42}},
+		{"two", []uint64{1000, 1001}},
+		{"smallSeq", []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
+		{"largeDelta", []uint64{1000000, 1000100, 1000200, 1000300}},
+		{"mixedDelta", []uint64{1, 100, 105, 110, 200}},
+		{"repeating", []uint64{100, 100, 100, 100, 100}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := EncodeSidsDelta(tt.values)
+			decoded, err := DecodeSidsDelta(data, len(tt.values))
+			if err != nil {
+				t.Fatalf("decode error: %v", err)
+			}
+			if len(decoded) != len(tt.values) {
+				t.Fatalf("len: want %d, got %d", len(tt.values), len(decoded))
+			}
+			for i, v := range tt.values {
+				if decoded[i] != v {
+					t.Errorf("idx %d: want %d, got %d", i, v, decoded[i])
+				}
+			}
+		})
+	}
+}
+
+func TestEncodeSidsDelta_Compression(t *testing.T) {
+	// 递增 SID：Delta 编码应该比直接 Varint 小很多
+	values := make([]uint64, 1000)
+	for i := range values {
+		values[i] = uint64(1000000 + i)
+	}
+
+	deltaData := EncodeSidsDelta(values)
+	varintData := EncodeSids(values)
+
+	t.Logf("1000 递增 SID: Delta=%d bytes, Varint=%d bytes, 节省=%.1f%%",
+		len(deltaData), len(varintData),
+		float64(len(varintData)-len(deltaData))/float64(len(varintData))*100)
+
+	if len(deltaData) >= len(varintData) {
+		t.Errorf("Delta 编码应该更小")
+	}
+}
+
+func TestEncodeSidsDelta_TruncatedData(t *testing.T) {
+	// 测试截断数据返回错误
+	values := []uint64{1, 2, 3, 4, 5}
+	data := EncodeSidsDelta(values)
+
+	// 截断到 2 字节，应该解码失败
+	_, err := DecodeSidsDelta(data[:2], len(values))
+	if err == nil {
+		t.Error("expected error for truncated data")
+	}
+}
