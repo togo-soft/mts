@@ -3,6 +3,7 @@ module codeberg.org/micro-ts/mts
 go 1.26
 
 require (
+	github.com/golang/snappy v1.0.0
 	github.com/pierrec/lz4/v4 v4.1.26
 	go.etcd.io/bbolt v1.4.3
 	google.golang.org/grpc v1.80.0
@@ -10,7 +11,6 @@ require (
 )
 
 require (
-	github.com/golang/snappy v1.0.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
