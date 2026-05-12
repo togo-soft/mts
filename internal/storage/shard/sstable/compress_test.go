@@ -134,8 +134,8 @@ func TestCompressBlock_SameAsDecompress(t *testing.T) {
 			t.Fatalf("CompressBlock failed: %v", err)
 		}
 
-		// 压缩后应包含 4 字节 header
-		if len(compressed) < 4 {
+		// 压缩后应包含 4 字节 header + 4 字节 CRC
+		if len(compressed) < 8 {
 			t.Errorf("compressed data too short for %s: %d bytes", algo.String(), len(compressed))
 		}
 
@@ -177,7 +177,55 @@ func TestCompressBlock_NoneReturnsSameSlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompressBlock failed: %v", err)
 	}
-	if len(compressed) != len(data) {
-		t.Errorf("expected same length for none, got %d vs %d", len(compressed), len(data))
+	// None 压缩只是追加 4 字节 CRC32C
+	if len(compressed) != len(data)+4 {
+		t.Errorf("expected len(data)+4 for none, got %d vs %d", len(compressed), len(data)+4)
+	}
+}
+
+func TestDecompressBlock_CRC32CMismatch_None(t *testing.T) {
+	data := []byte("important data")
+	compressed, err := CompressBlock(data, CompressionNone)
+	if err != nil {
+		t.Fatalf("CompressBlock failed: %v", err)
+	}
+	// 篡改 CRC
+	compressed[len(compressed)-1] ^= 0xFF
+	_, err = DecompressBlock(compressed, CompressionNone)
+	if err == nil {
+		t.Error("expected CRC mismatch error for None")
+	}
+}
+
+func TestDecompressBlock_CRC32CMismatch_Snappy(t *testing.T) {
+	data := []byte("important data for snappy compression test")
+	compressed, err := CompressBlock(data, CompressionSnappy)
+	if err != nil {
+		t.Fatalf("CompressBlock failed: %v", err)
+	}
+	compressed[len(compressed)-1] ^= 0xFF
+	_, err = DecompressBlock(compressed, CompressionSnappy)
+	if err == nil {
+		t.Error("expected CRC mismatch error for Snappy")
+	}
+}
+
+func TestDecompressBlock_CRC32CMismatch_LZ4(t *testing.T) {
+	data := []byte("important data for lz4 compression test")
+	compressed, err := CompressBlock(data, CompressionLZ4)
+	if err != nil {
+		t.Fatalf("CompressBlock failed: %v", err)
+	}
+	compressed[len(compressed)-1] ^= 0xFF
+	_, err = DecompressBlock(compressed, CompressionLZ4)
+	if err == nil {
+		t.Error("expected CRC mismatch error for LZ4")
+	}
+}
+
+func TestDecompressBlock_TooShort_None(t *testing.T) {
+	_, err := DecompressBlock([]byte{0, 0, 0}, CompressionNone)
+	if err == nil {
+		t.Error("expected error for short uncompressed data")
 	}
 }

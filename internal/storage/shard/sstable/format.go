@@ -9,7 +9,8 @@ import (
 var Magic = [8]byte{0x54, 0x53, 0x45, 0x52, 0x53, 0x54, 0x42, 0x4C}
 
 // FileVersion 单文件 SSTable 格式版本。
-const FileVersion uint32 = 2
+// v3: 所有 block 追加 4B CRC32C 校验和。
+const FileVersion uint32 = 3
 
 // HeaderSize 文件头固定大小 (64 字节)。
 const HeaderSize = 64

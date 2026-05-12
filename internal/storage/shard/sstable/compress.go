@@ -3,10 +3,14 @@ package sstable
 import (
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 
 	"github.com/golang/snappy"
 	lz4 "github.com/pierrec/lz4/v4"
 )
+
+// crcTable 是 CRC32C (Castagnoli) 查找表，硬件加速友好。
+var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
 // CompressionAlgorithm 通用块压缩算法。
 type CompressionAlgorithm uint8
@@ -31,18 +35,32 @@ func (c CompressionAlgorithm) String() string {
 	}
 }
 
-// CompressBlock 压缩已编码的 block 数据。
-// 压缩后格式: [uncompressedLen:4B BigEndian][compressed_data]
-// 对于 CompressionNone，直接返回原始数据（无 header）。
+// CompressBlock 压缩已编码的 block 数据并追加 CRC32C 校验和。
+//
+// 输出格式：
+//   - CompressionNone: [raw_data][crc32:4B BigEndian]
+//   - CompressionSnappy/LZ4: [uncompressedLen:4B BigEndian][compressed_data][crc32:4B BigEndian]
+//
+// CRC32C 覆盖整个 payload（不含末尾 4B CRC 自身）：
+//   - 压缩块：CRC([uncompressedLen:4B] + [compressed_data])
+//   - 无压缩：CRC([raw_data])
 func CompressBlock(data []byte, algo CompressionAlgorithm) ([]byte, error) {
 	switch algo {
 	case CompressionNone:
-		return data, nil
+		crc := crc32.Checksum(data, crcTable)
+		result := make([]byte, len(data)+4)
+		copy(result, data)
+		binary.BigEndian.PutUint32(result[len(result)-4:], crc)
+		return result, nil
 	case CompressionSnappy:
 		encoded := snappy.Encode(nil, data)
-		result := make([]byte, 4+len(encoded))
-		binary.BigEndian.PutUint32(result[:4], uint32(len(data)))
-		copy(result[4:], encoded)
+		payload := make([]byte, 4+len(encoded))
+		binary.BigEndian.PutUint32(payload[:4], uint32(len(data)))
+		copy(payload[4:], encoded)
+		crc := crc32.Checksum(payload, crcTable)
+		result := make([]byte, len(payload)+4)
+		copy(result, payload)
+		binary.BigEndian.PutUint32(result[len(result)-4:], crc)
 		return result, nil
 	case CompressionLZ4:
 		buf := make([]byte, lz4.CompressBlockBound(len(data)))
@@ -50,39 +68,62 @@ func CompressBlock(data []byte, algo CompressionAlgorithm) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("lz4 compress: %w", err)
 		}
-		result := make([]byte, 4+n)
-		binary.BigEndian.PutUint32(result[:4], uint32(len(data)))
-		copy(result[4:], buf[:n])
+		payload := make([]byte, 4+n)
+		binary.BigEndian.PutUint32(payload[:4], uint32(len(data)))
+		copy(payload[4:], buf[:n])
+		crc := crc32.Checksum(payload, crcTable)
+		result := make([]byte, len(payload)+4)
+		copy(result, payload)
+		binary.BigEndian.PutUint32(result[len(result)-4:], crc)
 		return result, nil
 	default:
 		return nil, fmt.Errorf("unknown compression algorithm: %d", algo)
 	}
 }
 
-// DecompressBlock 解压 CompressBlock 压缩的数据。
-// algo=CompressionNone 时直接返回原始数据。
+// DecompressBlock 解压 CompressBlock 压缩的数据，并验证 CRC32C 校验和。
+//
+// 返回解压后的原始数据；CRC 不匹配时返回错误。
 func DecompressBlock(data []byte, algo CompressionAlgorithm) ([]byte, error) {
 	switch algo {
 	case CompressionNone:
-		return data, nil
-	case CompressionSnappy:
 		if len(data) < 4 {
+			return nil, fmt.Errorf("uncompressed data too short for crc: %d bytes", len(data))
+		}
+		payload := data[:len(data)-4]
+		expectedCRC := binary.BigEndian.Uint32(data[len(data)-4:])
+		if actual := crc32.Checksum(payload, crcTable); actual != expectedCRC {
+			return nil, fmt.Errorf("crc32c mismatch: expected %08x, got %08x", expectedCRC, actual)
+		}
+		return payload, nil
+	case CompressionSnappy:
+		if len(data) < 8 {
 			return nil, fmt.Errorf("snappy data too short: %d bytes", len(data))
 		}
-		origLen := binary.BigEndian.Uint32(data[:4])
-		decoded, err := snappy.Decode(nil, data[4:])
+		payload := data[:len(data)-4]
+		expectedCRC := binary.BigEndian.Uint32(data[len(data)-4:])
+		if actual := crc32.Checksum(payload, crcTable); actual != expectedCRC {
+			return nil, fmt.Errorf("snappy crc32c mismatch: expected %08x, got %08x", expectedCRC, actual)
+		}
+		origLen := binary.BigEndian.Uint32(payload[:4])
+		decoded, err := snappy.Decode(nil, payload[4:])
 		if err != nil {
 			return nil, fmt.Errorf("snappy decode: %w", err)
 		}
 		_ = origLen // snappy 自带长度验证
 		return decoded, nil
 	case CompressionLZ4:
-		if len(data) < 4 {
+		if len(data) < 8 {
 			return nil, fmt.Errorf("lz4 data too short: %d bytes", len(data))
 		}
-		origLen := binary.BigEndian.Uint32(data[:4])
+		payload := data[:len(data)-4]
+		expectedCRC := binary.BigEndian.Uint32(data[len(data)-4:])
+		if actual := crc32.Checksum(payload, crcTable); actual != expectedCRC {
+			return nil, fmt.Errorf("lz4 crc32c mismatch: expected %08x, got %08x", expectedCRC, actual)
+		}
+		origLen := binary.BigEndian.Uint32(payload[:4])
 		decoded := make([]byte, origLen)
-		n, err := lz4.UncompressBlock(data[4:], decoded)
+		n, err := lz4.UncompressBlock(payload[4:], decoded)
 		if err != nil {
 			return nil, fmt.Errorf("lz4 decode: %w", err)
 		}
