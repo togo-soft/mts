@@ -15,17 +15,21 @@ type Iterator struct {
 
 	blockTimestamps  []int64
 	blockSids        []uint64
-	blockFieldValues map[string][]*types.FieldValue
+	blockFieldData   map[string][]byte              // 解压后原始字节（惰性解码源）
+	blockFieldValues map[string][]*types.FieldValue // 解码后缓存
 	blockRowCount    int
 	pos              int
+
+	projectedFields []string // nil=全部字段
 }
 
-// NewIterator 创建新的流式迭代器。
-func (r *Reader) NewIterator() (*Iterator, error) {
+// NewIterator 创建新的流式迭代器，fields 指定需要投影的字段（nil=全部字段）。
+func (r *Reader) NewIterator(fields []string) (*Iterator, error) {
 	it := &Iterator{
-		reader:       r,
-		currentBlock: -1,
-		pos:          -1,
+		reader:          r,
+		currentBlock:    -1,
+		pos:             -1,
+		projectedFields: fields,
 	}
 
 	if r.blockIndex != nil {

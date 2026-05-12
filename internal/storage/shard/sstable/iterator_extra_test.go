@@ -41,7 +41,7 @@ func TestIterator_DecodeString(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestIterator_DecodeFieldValueFromData(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestIterator_LoadBlock_InvalidIndex(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestIterator_DecodeFieldValueFromData_String(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestIterator_Point_InvalidPositions(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestIterator_CurrentBlockTimestamps_NoIndex(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -456,7 +456,7 @@ func TestIterator_SeekToTime_BeyondAll(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -508,7 +508,7 @@ func TestIterator_Done_EdgeCases(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestIterator_Next_ErrorHandling(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -587,7 +587,7 @@ func TestIterator_DecodeFieldValueFromData_Int64(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -631,7 +631,7 @@ func TestIterator_DecodeFieldValueFromData_Bool(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestIterator_DecodeFieldValueFromData_Float64(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -993,7 +993,7 @@ func TestIterator_LoadBlock_ReadDirError(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}

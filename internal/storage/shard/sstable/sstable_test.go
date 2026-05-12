@@ -39,7 +39,7 @@ func TestIterator_SeekToTime(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestIterator_SeekToTime_BeforeFirst(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestIterator_CurrentBlockTimestamps(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestIterator_Done(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -600,7 +600,7 @@ func TestIterator_MultipleBlocks(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -1048,7 +1048,7 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}

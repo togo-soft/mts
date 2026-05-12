@@ -311,7 +311,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 
 	iterators := make([]*sstable.Iterator, 0, len(readers))
 	for _, r := range readers {
-		it, err := r.NewIterator()
+		it, err := r.NewIterator(nil)
 		if err != nil {
 			return err
 		}

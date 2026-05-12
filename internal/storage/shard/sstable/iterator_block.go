@@ -1,9 +1,5 @@
 package sstable
 
-import (
-	"codeberg.org/micro-ts/mts/types"
-)
-
 // loadBlock 按 block 独立解码指定块的数据。
 func (it *Iterator) loadBlock(blockIdx int) error {
 	if blockIdx < 0 || blockIdx >= len(it.blockIndex) {
@@ -26,14 +22,24 @@ func (it *Iterator) loadBlock(blockIdx int) error {
 	}
 	it.blockSids = sids
 
-	fieldNames := it.reader.sectionTable.FieldNames()
-	it.blockFieldValues = make(map[string][]*types.FieldValue, len(fieldNames))
+	// 清除上一 block 的字段缓存
+	it.blockFieldData = nil
+	it.blockFieldValues = nil
+
+	// 确定需要解压的字段
+	fieldNames := it.projectedFields
+	if fieldNames == nil {
+		fieldNames = it.reader.sectionTable.FieldNames()
+	}
+
+	// 仅解压原始字节，不解码
+	it.blockFieldData = make(map[string][]byte, len(fieldNames))
 	for _, name := range fieldNames {
-		vals, err := it.reader.decodeFieldSectionBlock(name, blockIdx)
+		data, err := it.reader.readFieldBlockRaw(name, blockIdx)
 		if err != nil {
 			return err
 		}
-		it.blockFieldValues[name] = vals
+		it.blockFieldData[name] = data
 	}
 
 	return nil

@@ -92,7 +92,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 
 	iterators := make([]*sstable.Iterator, 0, len(readers))
 	for _, r := range readers {
-		it, err := r.NewIterator()
+		it, err := r.NewIterator(nil)
 		if err != nil {
 			return err
 		}

@@ -47,8 +47,20 @@ func (it *Iterator) Point() *types.PointRow {
 		row.Sid = it.blockSids[it.pos]
 	}
 
-	for name, vals := range it.blockFieldValues {
-		if it.pos < len(vals) {
+	// 惰性解码：首次访问字段时解码全部行并缓存
+	if it.blockFieldValues == nil {
+		it.blockFieldValues = make(map[string][]*types.FieldValue)
+	}
+	for name, rawData := range it.blockFieldData {
+		if _, ok := it.blockFieldValues[name]; !ok {
+			vals, err := it.reader.decodeFieldSectionBlockFromData(name, rawData, it.blockRowCount)
+			if err != nil {
+				it.blockFieldValues[name] = nil
+				continue
+			}
+			it.blockFieldValues[name] = vals
+		}
+		if vals := it.blockFieldValues[name]; vals != nil && it.pos < len(vals) {
 			row.Fields[name] = vals[it.pos]
 		}
 	}

@@ -30,7 +30,7 @@ func TestIterator_Empty(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestIterator_SingleRecord(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestIterator_MultipleRecords(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestIterator_NextBeyondRange(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator()
+	it, err := r.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}

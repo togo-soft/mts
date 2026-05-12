@@ -263,3 +263,64 @@ func decodeTimestampBatch(data []byte) []int64 {
 	}
 	return timestamps
 }
+
+// readFieldBlockRaw 读取并解压指定 block 的字段数据，但不解码。
+func (r *Reader) readFieldBlockRaw(name string, blockIdx int) ([]byte, error) {
+	bso := r.blockSectionMap.Lookup(name)
+	if bso == nil {
+		return nil, nil
+	}
+	offset, size := bso.BlockRange(blockIdx)
+	if size == 0 {
+		return nil, nil
+	}
+
+	secOffset, _ := r.sectionTable.Lookup(name)
+	data := make([]byte, size)
+	if _, err := r.file.ReadAt(data, int64(secOffset+offset)); err != nil {
+		return nil, err
+	}
+
+	comp := r.sectionTable.LookupCompression(name)
+	return DecompressBlock(data, comp)
+}
+
+// decodeFieldSectionBlockFromData 从已解压的原始字节解码字段值。
+func (r *Reader) decodeFieldSectionBlockFromData(name string, data []byte, rowCount int) ([]*types.FieldValue, error) {
+	if data == nil {
+		ft := r.schema.Fields[name]
+		values := make([]*types.FieldValue, rowCount)
+		for i := 0; i < rowCount; i++ {
+			values[i] = zeroFieldValue(ft)
+		}
+		return values, nil
+	}
+
+	enc := r.sectionTable.LookupEncoding(name)
+
+	switch enc {
+	case EncodingXORFloat:
+		floatVals, err := compression.DecodeFloat64Values(data, rowCount)
+		if err != nil {
+			return nil, fmt.Errorf("decode xor float field %s: %w", name, err)
+		}
+		return float64ValuesToFieldValues(floatVals), nil
+	case EncodingZigZagVarint:
+		intVals, err := compression.DecodeInt64Values(data, rowCount)
+		if err != nil {
+			return nil, fmt.Errorf("decode zigzag int field %s: %w", name, err)
+		}
+		return int64ValuesToFieldValues(intVals), nil
+	case EncodingDictString:
+		strVals, err := compression.DecodeStringValues(data, rowCount, true)
+		if err != nil {
+			return nil, fmt.Errorf("decode dict string field %s: %w", name, err)
+		}
+		return stringValuesToFieldValues(strVals), nil
+	case EncodingBitmapBool:
+		boolVals := compression.DecodeBoolValues(data, rowCount)
+		return boolValuesToFieldValues(boolVals), nil
+	default:
+		return r.decodeRawFieldSection(data, rowCount, r.schema.Fields[name], name), nil
+	}
+}

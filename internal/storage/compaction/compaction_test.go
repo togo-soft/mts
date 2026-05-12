@@ -256,11 +256,11 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 	}
 	defer func() { _ = r2.Close() }()
 
-	it1, err := r1.NewIterator()
+	it1, err := r1.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
-	it2, err := r2.NewIterator()
+	it2, err := r2.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -346,11 +346,11 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 	}
 	defer func() { _ = r2.Close() }()
 
-	it1, err := r1.NewIterator()
+	it1, err := r1.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
-	it2, err := r2.NewIterator()
+	it2, err := r2.NewIterator(nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
