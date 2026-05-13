@@ -588,6 +588,9 @@ func (s *Shard) ReplayWAL() error {
 		return nil
 	})
 
+	// replay 完成后，确保 MemTable 数据有序
+	s.memTable.Sort()
+
 	// replay 完成后，如果 MemTable 还有数据，flush 到 SSTable
 	if s.memTable.Count() > 0 {
 		if err := s.flushLocked(); err != nil {
