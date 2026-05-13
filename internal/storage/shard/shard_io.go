@@ -32,8 +32,12 @@ import (
 //	如果 WAL 写入成功但 MemTable 写入失败，replay 时可能产生重复数据。
 //	这是可接受的设计权衡，因为这种情况非常罕见，且最终一致性可保证正确。
 func (s *Shard) Write(point *types.Point) error {
-	// 背压：如果 active 超过硬限制（2x 阈值），等待正在进行的 flush 完成
+	// 背压：如果 active 超过硬限制（2x 阈值），等待正在进行的 flush 完成。
+	// 若 flush 已完成但 active 仍超限（积压数据未清理），自行触发新 flush 清理。
 	for s.memTable.ActiveFull() {
+		if !s.memTable.IsFlushing() {
+			s.tryTriggerAsyncFlush()
+		}
 		time.Sleep(time.Millisecond)
 		if s.closed.Load() {
 			return fmt.Errorf("shard closed during backpressure wait")

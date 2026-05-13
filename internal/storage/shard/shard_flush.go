@@ -262,6 +262,11 @@ func (s *Shard) executeAsyncFlush() {
 	s.mu.Unlock()
 
 	s.triggerBackgroundCompaction()
+
+	// 链接触发：若 active 已积累足够数据，立即开始下一轮异步 flush
+	if s.memTable.ShouldSwap() {
+		s.tryTriggerAsyncFlush()
+	}
 }
 
 // writeSSTableAsync 异步写入 SSTable（不持锁）。
