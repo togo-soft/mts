@@ -1,8 +1,11 @@
 package data_gen
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
+
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestNewDataGenerator(t *testing.T) {
@@ -21,6 +24,41 @@ func TestNewDataGenerator(t *testing.T) {
 	}
 	if v := g.tags["host"]; v != "server1" {
 		t.Errorf("expected tags[host]=server1, got %s", v)
+	}
+	if len(g.fieldPools) != fieldPoolSize {
+		t.Errorf("expected fieldPools size %d, got %d", fieldPoolSize, len(g.fieldPools))
+	}
+}
+
+func TestFieldPool_AllMapsValid(t *testing.T) {
+	g := NewDataGenerator(42)
+	for i, fm := range g.fieldPools {
+		if len(fm) != 10 {
+			t.Errorf("pool[%d]: expected 10 fields, got %d", i, len(fm))
+		}
+		for _, name := range fieldNames {
+			if _, ok := fm[name]; !ok {
+				t.Errorf("pool[%d]: missing field %s", i, name)
+			}
+		}
+	}
+}
+
+func TestFieldPool_Deterministic(t *testing.T) {
+	g1 := NewDataGenerator(42)
+	g2 := NewDataGenerator(42)
+
+	// 相同 seed 生成相同的 pool
+	if len(g1.fieldPools) != len(g2.fieldPools) {
+		t.Fatal("pool sizes differ")
+	}
+	for i := range g1.fieldPools {
+		fv1 := g1.fieldPools[i]["field_float_1"].GetFloatValue()
+		fv2 := g2.fieldPools[i]["field_float_1"].GetFloatValue()
+		if fv1 != fv2 {
+			t.Errorf("pool[%d]: float values differ: %f vs %f", i, fv1, fv2)
+			return
+		}
 	}
 }
 
@@ -57,7 +95,6 @@ func TestGeneratePoint_TagsContent(t *testing.T) {
 	p1 := g.GeneratePoint("db", "m", 1000)
 	p2 := g.GeneratePoint("db", "m", 2000)
 
-	// 两者 tags 内容一致
 	if p1.Tags["host"] != "server1" {
 		t.Errorf("expected Tags[host]='server1', got '%s'", p1.Tags["host"])
 	}
@@ -73,49 +110,40 @@ func TestGeneratePoint_FieldNames(t *testing.T) {
 	g := NewDataGenerator(42)
 	p := g.GeneratePoint("db", "m", 1000)
 
-	expectedNames := []string{
-		"field_float_1", "field_float_2", "field_float_3", "field_float_4", "field_float_5",
-		"field_int_1", "field_int_2", "field_int_3",
-		"field_string_1",
-		"field_bool_1",
-	}
-
-	for _, name := range expectedNames {
+	for _, name := range fieldNames {
 		if _, ok := p.Fields[name]; !ok {
 			t.Errorf("expected field %s to exist", name)
 		}
 	}
 }
 
-func TestGeneratePoint_Deterministic(t *testing.T) {
-	g1 := NewDataGenerator(42)
-	g2 := NewDataGenerator(42)
+func TestGeneratePoint_FieldsReused(t *testing.T) {
+	g := NewDataGenerator(42)
 
-	p1 := g1.GeneratePoint("db", "m", 1000)
-	p2 := g2.GeneratePoint("db", "m", 1000)
+	// 收集 pool 中所有 field_float_1 的 FieldValue 指针
+	poolRefs := make(map[*types.FieldValue]bool)
+	for _, fm := range g.fieldPools {
+		poolRefs[fm["field_float_1"]] = true
+	}
 
-	for name := range p1.Fields {
-		v1 := p1.Fields[name]
-		v2 := p2.Fields[name]
-		if v1 == nil || v2 == nil {
-			t.Fatalf("field %s is nil", name)
-		}
-		// 相同 seed 应生成相同值
-		if v1.GetFloatValue() != v2.GetFloatValue() && v1.GetIntValue() != v2.GetIntValue() {
-			continue // 布尔或字符串字段
+	// 多次调用 GeneratePoint，验证返回的 Fields 都来自预生成的 pool
+	for i := 0; i < 100; i++ {
+		p := g.GeneratePoint("db", "m", int64(i))
+		fv := p.Fields["field_float_1"]
+		if !poolRefs[fv] {
+			t.Errorf("point %d: field_float_1 value not from pool (allocated outside pool)", i)
+			return
 		}
 	}
 }
 
 func TestRandomString(t *testing.T) {
-	g := NewDataGenerator(42)
-
-	s1 := g.randomString(10)
+	rng := rand.New(rand.NewSource(42))
+	s1 := randomString(rng, 10)
 	if len(s1) != 10 {
 		t.Errorf("expected length 10, got %d", len(s1))
 	}
 
-	// 检查只包含合法字符
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	for _, c := range s1 {
 		if !strings.ContainsRune(chars, c) {
@@ -123,7 +151,7 @@ func TestRandomString(t *testing.T) {
 		}
 	}
 
-	s2 := g.randomString(8)
+	s2 := randomString(rng, 8)
 	if len(s2) != 8 {
 		t.Errorf("expected length 8, got %d", len(s2))
 	}
@@ -141,7 +169,7 @@ func TestGeneratePoint_AllFieldTypes(t *testing.T) {
 			t.Errorf("field %s should not be nil", name)
 			continue
 		}
-		_ = fv.GetFloatValue() // 验证可读取
+		_ = fv.GetFloatValue()
 	}
 
 	// 整数字段
@@ -152,11 +180,11 @@ func TestGeneratePoint_AllFieldTypes(t *testing.T) {
 			t.Errorf("field %s should not be nil", name)
 			continue
 		}
-		_ = fv.GetIntValue() // 验证可读取
+		_ = fv.GetIntValue()
 	}
 
 	// 字符串字段
-	fv := p.Fields["field_string_1"]
+	fv := p.Fields[fieldNames[8]]
 	if fv == nil {
 		t.Error("field_string_1 should not be nil")
 	} else {
@@ -164,7 +192,7 @@ func TestGeneratePoint_AllFieldTypes(t *testing.T) {
 	}
 
 	// 布尔字段
-	fv = p.Fields["field_bool_1"]
+	fv = p.Fields[fieldNames[9]]
 	if fv == nil {
 		t.Error("field_bool_1 should not be nil")
 	} else {
