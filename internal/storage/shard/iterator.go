@@ -1,9 +1,11 @@
 package shard
 
 import (
+	"fmt"
 	"sync"
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -11,7 +13,7 @@ import (
 //
 // 功能：
 //
-//   - 合并 MemTable 和 SSTable 的数据源
+//   - 合并 MemTable 和 SSTable 的数据源（流式读取，不预加载）
 //   - 按时间戳升序返回数据
 //   - 支持时间范围过滤
 //
@@ -20,31 +22,14 @@ import (
 //	ShardIterator 是线程安全的。
 //	可以在多个 goroutine 之间共享同一个 ShardIterator。
 //	内部使用读写锁保护所有状态操作，允许多个并发读。
-//
-// 字段说明：
-//
-//   - shard:     所属的 Shard
-//   - startTime: 查询起始时间（包含）
-//   - endTime:   查询结束时间（不包含）
-//   - memIter:   MemTable 迭代器
-//   - rows:      SSTable 预加载的数据
-//   - rowIdx:    当前在 rows 中的位置
-//   - produced:  已输出的行数
-//   - maxRows:   最大输出行数（0 表示无限制）
-//
-// 性能考虑：
-//
-// SSTable 数据在创建时一次性加载。对于大数据集，应考虑流式读取优化。
-// 当前实现适合 SSTable 较小的场景。
 type ShardIterator struct {
 	shard     *Shard
 	startTime int64 // 查询起始时间（包含）
 	endTime   int64 // 查询结束时间（不包含）
 
-	memIter *memtable.MemTableIterator // MemTable 迭代器
-	rows    []*types.PointRow          // SSTable 预读取的数据
-	rowIdx  int                        // 当前在 rows 中的位置
-	err     error                      // 迭代过程中的错误
+	memIter *memtable.MemTableIterator  // MemTable 迭代器
+	sstIter *sstable.MergeIterator      // SSTable 流式归并迭代器
+	err     error                       // 迭代过程中的错误
 
 	// 当前 peek
 	memRow *types.PointRow
@@ -63,7 +48,7 @@ type ShardIterator struct {
 //   - shard:     目标 Shard
 //   - startTime: 查询起始时间（包含）
 //   - endTime:   查询截止时间（不包含），<=0 表示无限制
-//   - maxRows:   最大输出行数（0 表示无限制），用于限制 SSTable 预加载数据量
+//   - maxRows:   最大输出行数（0 表示无限制）
 //
 // 返回：
 //   - *ShardIterator: 初始化后的迭代器
@@ -71,12 +56,8 @@ type ShardIterator struct {
 // 初始化过程：
 //
 //  1. 创建 MemTable 迭代器并定位到第一条记录
-//  2. 预加载 SSTable 中时间范围内的数据（受 maxRows 限制）
+//  2. 创建 SSTable MergeIterator 流式归并（块级按需读取）
 //  3. 记录当前位置用于归并排序
-//
-// 注意：
-//
-//	SSTable 数据在创建时一次性加载，对于大数据集可能消耗较多内存。
 func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *ShardIterator {
 	si := &ShardIterator{
 		shard:     shard,
@@ -92,16 +73,23 @@ func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *Shar
 		si.memRow = si.pointToRow(ip)
 	}
 
-	// 从 SSTable 预读取数据（受 maxRows 限制）
-	rows, err := shard.readFromSSTable(startTime, endTime, maxRows)
-	if err != nil {
-		si.err = err
-		return si
-	}
-	if len(rows) > 0 {
-		si.rows = rows
-		si.rowIdx = 0
-		si.sstRow = si.rows[0]
+	// 创建流式 SSTable MergeIterator
+	sstFiles := shard.listSSTableFiles()
+	if len(sstFiles) > 0 {
+		schema, err := shard.GetSchema()
+		if err != nil {
+			si.err = fmt.Errorf("get schema: %w", err)
+			return si
+		}
+		sstIter, err := sstable.NewMergeIterator(sstFiles, startTime, endTime, schema, shard, nil)
+		if err != nil {
+			si.err = fmt.Errorf("create SSTable merge iterator: %w", err)
+			return si
+		}
+		si.sstIter = sstIter
+		if sstIter.Next() {
+			si.sstRow = sstIter.Point()
+		}
 	}
 
 	return si
@@ -205,9 +193,11 @@ func (si *ShardIterator) nextMemRowLocked() *types.PointRow {
 
 // nextSstRow 获取下一个 SSTable row（已持有锁）
 func (si *ShardIterator) nextSstRowLocked() *types.PointRow {
-	si.rowIdx++
-	if si.rowIdx < len(si.rows) {
-		return si.rows[si.rowIdx]
+	if si.sstIter == nil {
+		return nil
+	}
+	if si.sstIter.Next() {
+		return si.sstIter.Point()
 	}
 	return nil
 }
@@ -240,6 +230,16 @@ func (si *ShardIterator) Current() *types.PointRow {
 		return si.memRow
 	}
 	return si.sstRow
+}
+
+// Close 释放 SSTable MergeIterator 持有的资源。
+func (si *ShardIterator) Close() {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	if si.sstIter != nil {
+		_ = si.sstIter.Close()
+		si.sstIter = nil
+	}
 }
 
 // Err 返回迭代过程中发生的错误。
