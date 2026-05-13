@@ -27,9 +27,9 @@ type ShardIterator struct {
 	startTime int64 // 查询起始时间（包含）
 	endTime   int64 // 查询结束时间（不包含）
 
-	memIter *memtable.MemTableIterator  // MemTable 迭代器
-	sstIter *sstable.MergeIterator      // SSTable 流式归并迭代器
-	err     error                       // 迭代过程中的错误
+	memIter *memtable.MemTableIterator // MemTable 迭代器
+	sstIter *sstable.MergeIterator     // SSTable 流式归并迭代器
+	err     error                      // 迭代过程中的错误
 
 	// 当前 peek
 	memRow *types.PointRow
