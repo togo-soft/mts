@@ -66,9 +66,7 @@ func (m *MemTable) Write(ip types.InternalPoint) error {
 	m.lastWrite = time.Now()
 
 	if !m.sorted || (m.activeCount > 1 && m.active[m.activeCount-1].Timestamp < m.active[m.activeCount-2].Timestamp) {
-		sort.Slice(m.active, func(i, j int) bool {
-			return m.active[i].Timestamp < m.active[j].Timestamp
-		})
+		m.sortActive()
 	}
 	m.sorted = true
 
@@ -139,10 +137,7 @@ func (m *MemTable) Swap() []types.InternalPoint {
 		m.active = append(m.passive, m.active...)
 		m.passive = nil
 		m.activeCount = len(m.active)
-		sort.Slice(m.active, func(i, j int) bool {
-			return m.active[i].Timestamp < m.active[j].Timestamp
-		})
-		m.sorted = true
+		m.sortActive()
 	}
 
 	if len(m.active) == 0 {
@@ -181,10 +176,7 @@ func (m *MemTable) MergePassiveBack() {
 	m.active = append(m.passive, m.active...)
 	m.passive = nil
 	m.activeCount = len(m.active)
-	sort.Slice(m.active, func(i, j int) bool {
-		return m.active[i].Timestamp < m.active[j].Timestamp
-	})
-	m.sorted = true
+	m.sortActive()
 	m.flushing.Store(false)
 }
 
@@ -217,11 +209,10 @@ func (m *MemTable) Sort() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.activeCount > 1 {
-		sort.Slice(m.active, func(i, j int) bool {
-			return m.active[i].Timestamp < m.active[j].Timestamp
-		})
+		m.sortActive()
+	} else {
+		m.sorted = true
 	}
-	m.sorted = true
 }
 
 // Iterator 返回合并 active 和 passive 的迭代器。
@@ -235,6 +226,14 @@ func (m *MemTable) Iterator() *MemTableIterator {
 		active:  active,
 		passive: passive,
 	}
+}
+
+// sortActive 对 active 切片按 Timestamp 升序排序。
+func (m *MemTable) sortActive() {
+	sort.Slice(m.active, func(i, j int) bool {
+		return m.active[i].Timestamp < m.active[j].Timestamp
+	})
+	m.sorted = true
 }
 
 // IdleTimeout 返回空闲超时配置。
