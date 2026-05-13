@@ -1739,3 +1739,67 @@ func TestRecoverSSTSeq_NonNumericSuffix(t *testing.T) {
 		t.Errorf("expected 1, got %d", seq)
 	}
 }
+
+func TestShardIterator_Streaming(t *testing.T) {
+	dir := t.TempDir()
+	cfg := ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         dir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: &memtable.MemTableConfig{
+			MaxSize:           64 * 1024 * 1024,
+			MaxCount:          50,
+			IdleDurationNanos: int64(time.Minute),
+		},
+	}
+	schemaStore := metadata.NewSimpleSchemaStore()
+	cfg.SchemaStore = schemaStore
+	s := NewShard(cfg)
+	defer func() { _ = s.Close() }()
+
+	baseTime := time.Now().UnixNano()
+	const totalPoints = 200
+
+	// 写入 200 个数据点，MaxCount=50 触发多次 auto-flush 生成 SSTable
+	for i := 0; i < totalPoints; i++ {
+		ts := baseTime + int64(i)*int64(time.Second)
+		p := &types.Point{
+			Database:    "db1",
+			Measurement: "cpu",
+			Tags:        map[string]string{"host": "s1"},
+			Timestamp:   ts,
+			Fields: map[string]*types.FieldValue{
+				"value": types.NewFieldValue(float64(i)),
+			},
+		}
+		if err := s.Write(p); err != nil {
+			t.Fatalf("Write %d: %v", i, err)
+		}
+	}
+
+	// 等待后台 flush 完成
+	time.Sleep(200 * time.Millisecond)
+
+	// 通过 ShardIterator 流式查询
+	iter := NewShardIterator(s, baseTime, baseTime+int64(500)*int64(time.Second), 0)
+	defer iter.Close()
+
+	count := 0
+	var prev int64
+	for row := iter.Next(); row != nil; row = iter.Next() {
+		if row.Timestamp < prev {
+			t.Errorf("not sorted: %d < %d at pos %d", row.Timestamp, prev, count)
+		}
+		prev = row.Timestamp
+		count++
+	}
+	if err := iter.Err(); err != nil {
+		t.Fatalf("iterator error: %v", err)
+	}
+	if count != totalPoints {
+		t.Errorf("expected %d rows, got %d", totalPoints, count)
+	}
+}
