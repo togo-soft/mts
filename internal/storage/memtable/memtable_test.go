@@ -642,6 +642,160 @@ func TestMemTable_Iterator_PointWithoutCurrent(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// sorted 标志与有序性加固测试
+// =============================================================================
+
+func TestMemTable_SortMethod(t *testing.T) {
+	m := NewMemTable(DefaultMemTableConfig())
+
+	now := time.Now().UnixNano()
+
+	// 乱序写入：t=5, t=1, t=3, t=2, t=4
+	for _, ts := range []int64{5, 1, 3, 2, 4} {
+		p := &types.Point{
+			Timestamp: now + ts*1e9,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
+		}
+		_ = m.Write(types.PointToInternal(p, 0))
+	}
+
+	// Write 内部应已排序，但显式调用 Sort 应幂等
+	m.Sort()
+
+	iter := m.Iterator()
+	var timestamps []int64
+	for iter.Next() {
+		timestamps = append(timestamps, iter.Point().Timestamp)
+	}
+	if len(timestamps) != 5 {
+		t.Fatalf("expected 5 points, got %d", len(timestamps))
+	}
+	for i := 1; i < len(timestamps); i++ {
+		if timestamps[i] < timestamps[i-1] {
+			t.Errorf("timestamps not sorted at position %d: %d < %d", i, timestamps[i], timestamps[i-1])
+		}
+	}
+}
+
+func TestMemTable_SortMethod_Empty(t *testing.T) {
+	m := NewMemTable(DefaultMemTableConfig())
+
+	// 空 MemTable 调用 Sort 不应 panic
+	m.Sort()
+
+	if m.Count() != 0 {
+		t.Errorf("expected count 0 after Sort on empty, got %d", m.Count())
+	}
+}
+
+func TestMemTable_SortMethod_SingleElement(t *testing.T) {
+	m := NewMemTable(DefaultMemTableConfig())
+
+	now := time.Now().UnixNano()
+	p := &types.Point{
+		Timestamp: now,
+		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)},
+	}
+	_ = m.Write(types.PointToInternal(p, 0))
+
+	// 单元素 Sort 不应 panic
+	m.Sort()
+
+	if m.Count() != 1 {
+		t.Errorf("expected count 1, got %d", m.Count())
+	}
+}
+
+func TestMemTable_SortAfterSwap(t *testing.T) {
+	m := NewMemTable(DefaultMemTableConfig())
+
+	now := time.Now().UnixNano()
+
+	// 写入第一批数据并 Swap + ClearPassive
+	for i := 0; i < 3; i++ {
+		p := &types.Point{
+			Timestamp: now + int64(i)*1e9,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		}
+		_ = m.Write(types.PointToInternal(p, 0))
+	}
+	_ = m.Swap()
+	m.ClearPassive()
+
+	// Swap 后 sorted=false，写入乱序数据应触发排序
+	for _, ts := range []int64{5, 2, 8} {
+		p := &types.Point{
+			Timestamp: now + ts*1e9,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
+		}
+		_ = m.Write(types.PointToInternal(p, 0))
+	}
+
+	// 验证 active 有序（passive 已清空，仅 active 有数据）
+	iter := m.Iterator()
+	var timestamps []int64
+	for iter.Next() {
+		timestamps = append(timestamps, iter.Point().Timestamp)
+	}
+	if len(timestamps) != 3 {
+		t.Fatalf("expected 3 points, got %d", len(timestamps))
+	}
+	for i := 1; i < len(timestamps); i++ {
+		if timestamps[i] < timestamps[i-1] {
+			t.Errorf("timestamps not sorted at position %d: %d < %d", i, timestamps[i], timestamps[i-1])
+		}
+	}
+}
+
+func TestMemTable_WriteUnsortedActive(t *testing.T) {
+	m := NewMemTable(DefaultMemTableConfig())
+
+	now := time.Now().UnixNano()
+
+	// 正常写入后 Swap + ClearPassive，sorted 被重置为 false
+	for i := 0; i < 3; i++ {
+		p := &types.Point{
+			Timestamp: now + int64(i)*1e9,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		}
+		_ = m.Write(types.PointToInternal(p, 0))
+	}
+	_ = m.Swap()
+	m.ClearPassive()
+
+	// 此时 sorted=false，写入有序数据也应触发 !m.sorted 分支并排序
+	p := &types.Point{
+		Timestamp: now + 100*1e9,
+		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(100.0)},
+	}
+	_ = m.Write(types.PointToInternal(p, 0))
+
+	// sorted 应已被 Write 设置为 true（sortActive 内部设置）
+	if !m.sorted {
+		t.Error("expected sorted=true after Write when previously unsorted")
+	}
+
+	// 再写入一个更早时间戳的数据，应触发 last-two 检查并排序
+	p2 := &types.Point{
+		Timestamp: now + 50*1e9,
+		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(50.0)},
+	}
+	_ = m.Write(types.PointToInternal(p2, 0))
+
+	// 验证 active 有序
+	iter := m.Iterator()
+	var timestamps []int64
+	for iter.Next() {
+		timestamps = append(timestamps, iter.Point().Timestamp)
+	}
+	for i := 1; i < len(timestamps); i++ {
+		if timestamps[i] < timestamps[i-1] {
+			t.Errorf("timestamps not sorted at position %d: %d < %d", i, timestamps[i], timestamps[i-1])
+		}
+	}
+}
+
 func TestMemTable_ShouldSwap_IdleTimeout_ZeroMaxCount(t *testing.T) {
 	cfg := &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
