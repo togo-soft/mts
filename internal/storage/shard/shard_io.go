@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
@@ -16,12 +17,9 @@ import (
 //
 // 写入流程：
 //
-//  1. 锁定 Shard（写锁）
-//  2. 序列化数据点
-//  3. 写入 WAL（如果 WAL 可用）
-//  4. 分配 Series ID
-//  5. 写入 MemTable
-//  6. 检查是否需要刷盘，如需要则执行刷盘
+//  1. 背压检查（active 超限时等待）
+//  2. 持锁：分配 SID → 验证字段 → 写 WAL → 写 MemTable
+//  3. 释放锁后异步触发 flush（不阻塞写入）
 //
 // 参数：
 //   - point: 要写入的数据点
@@ -29,28 +27,31 @@ import (
 // 返回：
 //   - error: 写入失败时返回错误
 //
-// 错误情况：
-//
-//   - WAL 写入失败
-//   - MemTable 写入失败
-//   - 刷盘失败
-//
 // 注意：
 //
 //	如果 WAL 写入成功但 MemTable 写入失败，replay 时可能产生重复数据。
 //	这是可接受的设计权衡，因为这种情况非常罕见，且最终一致性可保证正确。
 func (s *Shard) Write(point *types.Point) error {
+	// 背压：如果 active 超过硬限制（2x 阈值），等待正在进行的 flush 完成
+	for s.memTable.ActiveFull() {
+		time.Sleep(time.Millisecond)
+		if s.closed.Load() {
+			return fmt.Errorf("shard closed during backpressure wait")
+		}
+	}
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// 1. 分配 SID（Tags→Sid 映射持久化到 boltDB，WAL 无需重复存储 Tags）
 	sid, err := s.seriesStore.AllocateSID(point.Tags)
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("allocate SID: %w", err)
 	}
 
 	// 2. 验证字段类型一致性
 	if err := s.ValidateFieldTypes(point); err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("validate field types: %w", err)
 	}
 
@@ -61,23 +62,27 @@ func (s *Shard) Write(point *types.Point) error {
 	if s.wal != nil {
 		data, err := serializeInternalPoint(ip)
 		if err != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("serialize point: %w", err)
 		}
 		if _, err := s.wal.Write(data); err != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("write to wal: %w", err)
 		}
 	}
 
 	// 5. 写入 MemTable
 	if err := s.memTable.Write(ip); err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("write to memtable: %w", err)
 	}
 
-	// 6. 检查是否需要 flush
-	if s.memTable.ShouldFlush() {
-		if err := s.flushLocked(); err != nil {
-			return fmt.Errorf("flush memtable: %w", err)
-		}
+	// 6. 检查是否需要异步 flush（释放锁后触发，避免阻塞写入）
+	shouldFlush := s.memTable.ShouldSwap()
+	s.mu.Unlock()
+
+	if shouldFlush {
+		s.tryTriggerAsyncFlush()
 	}
 
 	return nil

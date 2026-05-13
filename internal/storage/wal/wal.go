@@ -282,6 +282,43 @@ func (w *WAL) TruncateCurrent() error {
 	return nil
 }
 
+// TruncateAfterFlush 在 MemTable flush 到 SSTable 后清理 WAL segment。
+//
+// 安全性：flush 期间 Shard 持有写锁，保证无并发写入。
+// flush 后所有 WAL 数据已持久化到 SSTable，全部 segment 可安全删除。
+//
+// 操作：flush buffer → rotate（创建新空 segment）→ 删除所有旧 segment。
+// 调用后 WAL 保持打开状态，新写入进入全新的空 segment。
+func (w *WAL) TruncateAfterFlush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed.Load() {
+		return nil
+	}
+
+	// 先 rotate：flush buffer → sync → close 当前 → 创建新空 segment
+	if err := w.rotateLocked(); err != nil {
+		return err
+	}
+
+	// 删除所有旧 segment（仅保留 rotateLocked 刚创建的新空 segment）
+	entries, err := listSegments(w.dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Gen == w.gen && e.Num == w.segNum {
+			continue
+		}
+		if rmErr := os.Remove(e.Path); rmErr != nil {
+			w.cfg.Logger.Warn("failed to remove old WAL segment", "path", e.Path, "error", rmErr)
+		}
+	}
+
+	return nil
+}
+
 // Purge 删除当前 WAL 的所有 segment 文件。
 // 调用前应确保数据已 flush 到 SSTable。
 //

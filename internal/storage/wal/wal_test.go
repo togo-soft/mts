@@ -296,6 +296,177 @@ func TestWAL_Generation(t *testing.T) {
 	}
 }
 
+func TestWAL_TruncateAfterFlush_Basic(t *testing.T) {
+	tmpDir := t.TempDir()
+	w, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// 写入多条记录
+	for i := 0; i < 10; i++ {
+		data := make([]byte, 100)
+		data[0] = byte(i)
+		if _, err := w.Write(data); err != nil {
+			t.Fatalf("Write %d: %v", i, err)
+		}
+	}
+	_ = w.Sync()
+
+	// TruncateAfterFlush：rotate + 删除旧 segment，仅保留新空 segment
+	if err := w.TruncateAfterFlush(); err != nil {
+		t.Fatalf("TruncateAfterFlush: %v", err)
+	}
+
+	// 验证只剩 1 个 segment
+	entries, _ := listSegments(tmpDir)
+	if len(entries) != 1 {
+		t.Errorf("expected 1 segment after truncate, got %d", len(entries))
+	}
+
+	// 验证 truncate 后仍可继续写入
+	if _, err := w.Write([]byte("after-truncate")); err != nil {
+		t.Fatalf("Write after truncate: %v", err)
+	}
+	_ = w.Sync()
+
+	// replay 应只看到 truncate 后的数据
+	var count int
+	_ = w.Replay(func(data []byte) error {
+		count++
+		return nil
+	})
+	if count != 1 {
+		t.Errorf("expected 1 record after truncate, got %d", count)
+	}
+
+	_ = w.Close()
+}
+
+func TestWAL_TruncateAfterFlush_EmptyWAL(t *testing.T) {
+	tmpDir := t.TempDir()
+	w, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	// 空 WAL 调用也不应报错
+	if err := w.TruncateAfterFlush(); err != nil {
+		t.Fatalf("TruncateAfterFlush on empty WAL: %v", err)
+	}
+
+	entries, _ := listSegments(tmpDir)
+	if len(entries) != 1 {
+		t.Errorf("expected 1 segment, got %d", len(entries))
+	}
+}
+
+func TestWAL_TruncateAfterFlush_MultiSegment(t *testing.T) {
+	tmpDir := t.TempDir()
+	w, err := Open(Config{
+		Dir:         tmpDir,
+		SegmentSize: 1024,
+		SyncMode:    SyncNone,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// 写入足够数据触发多次 rotate（至少 3 个 segment）
+	largePayload := make([]byte, 500)
+	for i := range largePayload {
+		largePayload[i] = byte(i % 256)
+	}
+	for i := 0; i < 10; i++ {
+		if _, err := w.Write(largePayload); err != nil {
+			t.Fatalf("Write %d: %v", i, err)
+		}
+	}
+	_ = w.Sync()
+
+	// 验证有多个 segment
+	entriesBefore, _ := listSegments(tmpDir)
+	if len(entriesBefore) < 2 {
+		t.Fatalf("need at least 2 segments for multi-segment test, got %d", len(entriesBefore))
+	}
+
+	// TruncateAfterFlush 应清理所有旧 segment
+	if err := w.TruncateAfterFlush(); err != nil {
+		t.Fatalf("TruncateAfterFlush: %v", err)
+	}
+
+	// 验证只剩 1 个新 segment
+	entriesAfter, _ := listSegments(tmpDir)
+	if len(entriesAfter) != 1 {
+		t.Errorf("expected 1 segment after multi-segment truncate, got %d", len(entriesAfter))
+	}
+
+	// 验证 truncate 后能正常写入
+	if _, err := w.Write([]byte("post-truncate-data")); err != nil {
+		t.Fatalf("Write after truncate: %v", err)
+	}
+	_ = w.Sync()
+
+	_ = w.Close()
+}
+
+func TestWAL_TruncateAfterFlush_Closed(t *testing.T) {
+	tmpDir := t.TempDir()
+	w, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_ = w.Close()
+
+	// 已关闭的 WAL 调用 TruncateAfterFlush 不应报错
+	if err := w.TruncateAfterFlush(); err != nil {
+		t.Errorf("TruncateAfterFlush on closed WAL should not error, got %v", err)
+	}
+}
+
+func TestWAL_TruncateAfterFlush_RestartRecovery(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 第一阶段：写入数据 → truncate → 关闭
+	w1, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		_, _ = w1.Write([]byte("phase1-data"))
+	}
+	_ = w1.Sync()
+	if err := w1.TruncateAfterFlush(); err != nil {
+		t.Fatalf("TruncateAfterFlush: %v", err)
+	}
+	// truncate 后写入新数据
+	if _, err := w1.Write([]byte("phase1-after-truncate")); err != nil {
+		t.Fatalf("Write after truncate: %v", err)
+	}
+	_ = w1.Close()
+
+	// 第二阶段：重新打开，验证 replay 仅包含 truncate 后的数据
+	w2, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	defer func() { _ = w2.Close() }()
+
+	var replayed [][]byte
+	_ = w2.Replay(func(data []byte) error {
+		replayed = append(replayed, append([]byte(nil), data...))
+		return nil
+	})
+
+	if len(replayed) != 1 {
+		t.Errorf("expected 1 replayed record after truncate + restart, got %d", len(replayed))
+	}
+	if len(replayed) > 0 && string(replayed[0]) != "phase1-after-truncate" {
+		t.Errorf("expected 'phase1-after-truncate', got %q", replayed[0])
+	}
+}
+
 func TestWAL_WriteAfterClose(t *testing.T) {
 	tmpDir := t.TempDir()
 	w, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})

@@ -6,27 +6,57 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// Flush 将 MemTable 数据刷写到 SSTable。
+// Flush 将 MemTable 数据刷写到 SSTable（同步，用于手动调用和 Close）。
 func (s *Shard) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// 等待正在进行的异步 flush 完成，避免 Swap() 合并冲突导致数据重复
+	for s.memTable.IsFlushing() {
+		s.mu.Unlock()
+		time.Sleep(time.Millisecond)
+		s.mu.Lock()
+	}
+
 	return s.flushLocked()
 }
 
-// flushLocked 内部刷写方法（已持有锁）
+// flushLocked 内部同步刷写方法（已持有锁），用于 Close、手动 Flush、WAL replay。
 func (s *Shard) flushLocked() error {
-	points := s.memTable.Flush()
-	if len(points) == 0 {
+	passive := s.memTable.Swap()
+	if len(passive) == 0 {
 		return nil
 	}
 
+	if err := s.writeSSTableSync(passive); err != nil {
+		// 失败时数据合并回 active
+		s.memTable.MergePassiveBack()
+		return err
+	}
+
+	s.memTable.ClearPassive()
+
+	// WAL 清理（replay 期间跳过）
+	if !s.replaying && s.wal != nil {
+		if err := s.wal.TruncateAfterFlush(); err != nil {
+			slog.Warn("failed to truncate WAL after flush", "error", err)
+		}
+	}
+
+	s.triggerBackgroundCompaction()
+
+	return nil
+}
+
+// writeSSTableSync 同步写入 SSTable（持锁调用）。
+func (s *Shard) writeSSTableSync(points []types.InternalPoint) error {
 	useFlatCompaction := s.compaction != nil && !s.levelCompactionEnabled()
 
 	var sstSeq uint64
@@ -44,7 +74,6 @@ func (s *Shard) flushLocked() error {
 		sstPath = filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))
 	}
 
-	// 标记写入状态，使用 defer 统一清理
 	flushSucceeded := false
 	if useFlatCompaction {
 		if err := s.compaction.MarkWriting(sstPath); err != nil {
@@ -69,13 +98,11 @@ func (s *Shard) flushLocked() error {
 		return fmt.Errorf("write points to sstable: %w", err)
 	}
 
-	// 将检测到的 schema 写入 boltDB 并更新内存缓存
 	if s.schemaStore != nil {
 		metaSchema := SSTableSchemaToMetadataSchema(w.Schema())
 		if err := s.schemaStore.SetSchema(s.db, s.measurement, metaSchema); err != nil {
 			slog.Warn("failed to persist schema", "error", err)
 		}
-		// 同步更新内存 schema
 		s.UpdateSchemaInMemory(metaSchema)
 	}
 
@@ -116,12 +143,197 @@ func (s *Shard) flushLocked() error {
 		s.sstSeq++
 	}
 
-	// 不在 flush 时清理 WAL segment
-	// WAL segment 清理由 compaction 模块负责
+	return nil
+}
+
+// tryTriggerAsyncFlush 尝试触发异步 flush。CAS 保证只有一个 goroutine 执行。
+func (s *Shard) tryTriggerAsyncFlush() {
+	if !s.memTable.TrySetFlushing() {
+		return
+	}
+
+	s.compactionWg.Add(1)
+	go func() {
+		defer s.compactionWg.Done()
+		s.executeAsyncFlush()
+	}()
+}
+
+// asyncFlushInfo 保存异步 flush Phase 2 产出的 SSTable 信息，供 Phase 3 注册使用。
+type asyncFlushInfo struct {
+	sstSeq             uint64
+	finalPath          string
+	tmpPath            string
+	minTime            int64
+	maxTime            int64
+	useFlatCompaction  bool
+	useLevelCompaction bool
+}
+
+// executeAsyncFlush 后台执行：swap + SSTable 写入 + 清理。
+func (s *Shard) executeAsyncFlush() {
+	// Phase 1: 持锁交换 + WAL 切分 + 获取 seq/path
+	s.mu.Lock()
+
+	if s.wal != nil {
+		if err := s.wal.Rotate(); err != nil {
+			slog.Warn("WAL rotate before async flush failed", "error", err)
+			s.mu.Unlock()
+			s.memTable.ClearFlushing()
+			return
+		}
+	}
+
+	passive := s.memTable.Swap()
+
+	useFlatCompaction := s.compaction != nil && !s.levelCompactionEnabled()
+	useLevelCompaction := s.levelCompaction != nil
+
+	var sstSeq uint64
+	var dataDir string
+	if useLevelCompaction {
+		sstSeq = s.levelCompaction.NextSeq()
+		dataDir = filepath.Join(s.dir, "data", "L0")
+	} else {
+		sstSeq = s.sstSeq
+		s.sstSeq++ // 立即预留 seq，防止后台 compaction 复用
+		dataDir = filepath.Join(s.dir, "data")
+	}
+	s.mu.Unlock()
+
+	if len(passive) == 0 {
+		s.memTable.ClearPassive()
+		return
+	}
+
+	// 创建目标目录
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		slog.Error("async flush: create data dir failed", "error", err)
+		s.mu.Lock()
+		s.memTable.MergePassiveBack()
+		s.mu.Unlock()
+		return
+	}
+
+	// Phase 2: 写 SSTable（不持锁），输出到临时文件
+	info, err := s.writeSSTableAsync(passive, sstSeq, dataDir, useFlatCompaction)
+	if err != nil {
+		slog.Error("async flush: write SSTable failed", "error", err)
+		s.mu.Lock()
+		s.memTable.MergePassiveBack()
+		s.mu.Unlock()
+		return
+	}
+
+	// Phase 3: 持锁 → ClearPassive → 原子 rename → 注册 → WAL 清理
+	s.mu.Lock()
+
+	s.memTable.ClearPassive()
+
+	// 原子 rename：仅在 passive 清空后 SSTable 才对读者可见
+	if err := os.Rename(info.tmpPath, info.finalPath); err != nil {
+		s.mu.Unlock()
+		slog.Error("async flush: rename tmp to final failed", "tmp", info.tmpPath, "final", info.finalPath, "error", err)
+		_ = os.Remove(info.tmpPath)
+		s.triggerBackgroundCompaction()
+		return
+	}
+
+	// 注册 SSTable（seq 已在 Phase 1 预留）
+	if info.useLevelCompaction {
+		var size int64
+		if fi, statErr := os.Stat(info.finalPath); statErr == nil {
+			size = fi.Size()
+		}
+		s.levelCompaction.AddPart(0, compaction.PartInfo{
+			Name:    fmt.Sprintf("sst_%d", info.sstSeq),
+			Size:    size,
+			MinTime: info.minTime,
+			MaxTime: info.maxTime,
+		})
+	}
+
+	if s.wal != nil {
+		if walErr := s.wal.TruncateCurrent(); walErr != nil {
+			slog.Warn("failed to truncate WAL after async flush", "error", walErr)
+		}
+	}
+
+	s.mu.Unlock()
 
 	s.triggerBackgroundCompaction()
+}
 
-	return nil
+// writeSSTableAsync 异步写入 SSTable（不持锁）。
+// 写入最终文件后立即 rename 到临时路径，由 Phase 3 原子 rename 回最终路径，
+// 确保 SSTable 仅在 passive 清空后才对读者可见。
+func (s *Shard) writeSSTableAsync(points []types.InternalPoint, sstSeq uint64, dataDir string, useFlatCompaction bool) (*asyncFlushInfo, error) {
+	finalPath := filepath.Join(dataDir, fmt.Sprintf("sst_%d.bin", sstSeq))
+	tmpPath := filepath.Join(dataDir, fmt.Sprintf(".sst_%d.bin.tmp", sstSeq))
+
+	flushSucceeded := false
+	if useFlatCompaction {
+		_ = s.compaction.MarkWriting(finalPath)
+	}
+	defer func() {
+		if useFlatCompaction && !flushSucceeded {
+			_ = s.compaction.UnmarkWriting(finalPath)
+		}
+	}()
+
+	w, err := sstable.NewWriter(s.dir, sstSeq, 0, s.compressionAlgo)
+	if err != nil {
+		return nil, fmt.Errorf("create sstable writer: %w", err)
+	}
+
+	if err := w.WritePoints(points); err != nil {
+		_ = w.Close()
+		return nil, fmt.Errorf("write points: %w", err)
+	}
+
+	if s.schemaStore != nil {
+		s.schemaMu.Lock()
+		metaSchema := SSTableSchemaToMetadataSchema(w.Schema())
+		s.schemaMu.Unlock()
+		if err := s.schemaStore.SetSchema(s.db, s.measurement, metaSchema); err != nil {
+			slog.Warn("failed to persist schema", "error", err)
+		}
+		s.UpdateSchemaInMemory(metaSchema)
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("close sstable writer: %w", err)
+	}
+
+	// NewWriter + Close 输出到 <shardDir>/data/sst_N.bin；rename 到 dataDir 下的目标路径
+	srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))
+	if srcPath != finalPath {
+		if err := os.Rename(srcPath, finalPath); err != nil {
+			return nil, fmt.Errorf("move SSTable to dest: %w", err)
+		}
+	}
+
+	// 立即 rename 到临时路径，Phase 3 持锁后原子 rename 到 finalPath
+	if err := os.Rename(finalPath, tmpPath); err != nil {
+		return nil, fmt.Errorf("rename sst to tmp: %w", err)
+	}
+
+	if useFlatCompaction {
+		_ = s.compaction.UnmarkWriting(finalPath)
+	}
+	flushSucceeded = true
+
+	minTime, maxTime := s.calcPointTimeRange(points)
+
+	return &asyncFlushInfo{
+		sstSeq:             sstSeq,
+		finalPath:          finalPath,
+		tmpPath:            tmpPath,
+		minTime:            minTime,
+		maxTime:            maxTime,
+		useFlatCompaction:  useFlatCompaction,
+		useLevelCompaction: s.levelCompaction != nil,
+	}, nil
 }
 
 // calcPointTimeRange 计算 points 的时间范围。

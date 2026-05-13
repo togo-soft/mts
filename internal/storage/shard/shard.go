@@ -541,17 +541,10 @@ func (s *Shard) startPeriodicFlushCheck() {
 	}()
 }
 
-// doPeriodicFlush 定时执行的 MemTable 刷盘检查。
+// doPeriodicFlush 定时执行的 MemTable 刷盘检查（异步，不阻塞写入）。
 func (s *Shard) doPeriodicFlush() {
-	if !s.memTable.ShouldFlush() {
-		return
-	}
-
-	s.mu.Lock()
-	err := s.flushLocked()
-	s.mu.Unlock()
-	if err != nil {
-		slog.Error("periodic flush failed", "error", err)
+	if s.memTable.ShouldSwap() {
+		s.tryTriggerAsyncFlush()
 	}
 }
 

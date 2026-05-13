@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
+	"time"
 )
 
 // Close 关闭 Shard，释放资源。
@@ -66,70 +65,29 @@ func (s *Shard) closeWithLock() error {
 
 	slog.Info("Shard.Close: starting", "db", s.db, "measurement", s.measurement, "dir", s.dir)
 
-	flushed := false
-
-	// 2. 先刷写 MemTable 到 SSTable
-	// 如果使用 Level Compaction，调用 flushLocked 以保持一致的处理逻辑
-	if s.levelCompaction != nil {
-		slog.Info("Shard.Close: using level compaction flush", "memTableCount", s.memTable.Count())
-		if flushErr := s.flushLocked(); flushErr != nil {
-			// 即使失败也要继续关闭 WAL
-			if s.wal != nil {
-				if closeErr := s.wal.Close(); closeErr != nil {
-					slog.Warn("wal close failed after memtable flush error",
-						"flushErr", flushErr, "walCloseErr", closeErr)
-				}
-			}
-			return fmt.Errorf("flush memtable: %w", flushErr)
-		}
-		flushed = true
-		slog.Info("Shard.Close: level compaction flush completed")
-	} else {
-		// 平坦 Compaction 的刷盘逻辑
-		points := s.memTable.Flush()
-		slog.Info("Shard.Close: flat compaction flush", "pointsCount", len(points))
-		if len(points) > 0 {
-			w, wErr := sstable.NewWriter(s.dir, s.sstSeq, 0, s.compressionAlgo)
-			if wErr != nil {
-				if s.wal != nil {
-					if closeErr := s.wal.Close(); closeErr != nil {
-						slog.Warn("wal close failed after writer create error",
-							"writerErr", wErr, "walCloseErr", closeErr)
-					}
-				}
-				return fmt.Errorf("create sstable writer: %w", wErr)
-			}
-			s.sstSeq++
-
-			if writeErr := w.WritePoints(points); writeErr != nil {
-				_ = w.Close()
-				if s.wal != nil {
-					if closeErr := s.wal.Close(); closeErr != nil {
-						slog.Warn("wal close failed after write error",
-							"writeErr", writeErr, "walCloseErr", closeErr)
-					}
-				}
-				return fmt.Errorf("write points to sstable: %w", writeErr)
-			}
-
-			if closeErr := w.Close(); closeErr != nil {
-				if s.wal != nil {
-					if walCloseErr := s.wal.Close(); walCloseErr != nil {
-						slog.Warn("wal close failed after writer close error",
-							"writerCloseErr", closeErr, "walCloseErr", walCloseErr)
-					}
-				}
-				return fmt.Errorf("close sstable writer: %w", closeErr)
-			}
-			flushed = true
-		} else {
-			flushed = true
-		}
+	// 先等待正在进行的异步 flush 完成，然后最终同步刷盘
+	for s.memTable.IsFlushing() {
+		s.mu.Unlock()
+		time.Sleep(time.Millisecond)
+		s.mu.Lock()
 	}
 
-	// 4. WAL 清理（仅当 flush 成功时）
-	slog.Info("Shard.Close: flushed, about to close and purge WAL", "flushed", flushed, "wal", s.wal != nil)
-	if flushed && s.wal != nil {
+	// 使用 flushLocked 统一处理（Swap → writeSSTableSync → ClearPassive）
+	flushErr := s.flushLocked()
+	if flushErr != nil {
+		// 即使刷盘失败也继续关闭 WAL
+		if s.wal != nil {
+			if closeErr := s.wal.Close(); closeErr != nil {
+				slog.Warn("wal close failed after memtable flush error",
+					"flushErr", flushErr, "walCloseErr", closeErr)
+			}
+		}
+		return fmt.Errorf("flush memtable: %w", flushErr)
+	}
+
+	// WAL 清理
+	slog.Info("Shard.Close: flushed, about to close and purge WAL", "wal", s.wal != nil)
+	if s.wal != nil {
 		if closeErr := s.wal.Close(); closeErr != nil {
 			slog.Warn("failed to close WAL", "error", closeErr)
 		}
@@ -139,7 +97,7 @@ func (s *Shard) closeWithLock() error {
 		slog.Info("Shard.Close: WAL closed and purged")
 	}
 
-	// 5. 标记关闭，阻止新的后台 compaction 触发
+	// 标记关闭，阻止新的后台 compaction 触发
 	s.closed.Store(true)
 
 	return nil
