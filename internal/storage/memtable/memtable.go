@@ -65,14 +65,12 @@ func (m *MemTable) Write(ip types.InternalPoint) error {
 	m.activeCount++
 	m.lastWrite = time.Now()
 
-	if m.activeCount > 1 && m.active[m.activeCount-1].Timestamp < m.active[m.activeCount-2].Timestamp {
+	if !m.sorted || (m.activeCount > 1 && m.active[m.activeCount-1].Timestamp < m.active[m.activeCount-2].Timestamp) {
 		sort.Slice(m.active, func(i, j int) bool {
 			return m.active[i].Timestamp < m.active[j].Timestamp
 		})
-		m.sorted = true
-	} else {
-		m.sorted = true
 	}
+	m.sorted = true
 
 	return nil
 }
@@ -211,6 +209,19 @@ func (m *MemTable) ActiveFull() bool {
 	defer m.mu.RUnlock()
 	estimatedSize := int64(len(m.active)) * 1024
 	return estimatedSize >= m.maxSize*2 || (m.maxCount > 0 && m.activeCount >= m.maxCount*2)
+}
+
+// Sort 对 active 进行排序，确保数据有序。
+// 用于 WAL Replay 后或任何需要防御性排序的场景。
+func (m *MemTable) Sort() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeCount > 1 {
+		sort.Slice(m.active, func(i, j int) bool {
+			return m.active[i].Timestamp < m.active[j].Timestamp
+		})
+	}
+	m.sorted = true
 }
 
 // Iterator 返回合并 active 和 passive 的迭代器。
