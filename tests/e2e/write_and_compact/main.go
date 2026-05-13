@@ -156,8 +156,13 @@ func main() {
 
 	// 查询验证数据完整性
 	fmt.Println("\nQuerying to verify data integrity...")
-	rows, err := s.Read(baseTime, baseTime+int64(pointsPerFlush)*int64(time.Millisecond))
-	if err != nil {
+	iter := shard.NewShardIterator(s, baseTime, baseTime+int64(pointsPerFlush)*int64(time.Millisecond), 0)
+	var rows []*types.PointRow
+	for row := iter.Next(); row != nil; row = iter.Next() {
+		rows = append(rows, row)
+	}
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		fmt.Printf("FAIL: query: %v\n", err)
 		_ = s.Close()
 		os.Exit(1)

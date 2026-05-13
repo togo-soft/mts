@@ -291,7 +291,7 @@ func TestShard_Close_WithData(t *testing.T) {
 	}
 }
 
-func TestShard_ReadFromSSTable_Empty(t *testing.T) {
+func TestShard_ListSSTableFiles_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 	metaStore := metadata.NewSimpleSeriesStore()
 
@@ -305,11 +305,16 @@ func TestShard_ReadFromSSTable_Empty(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	// 没有 SSTable 的情况下读取
-	rows, err := s.readFromSSTable(0, time.Hour.Nanoseconds(), 0)
-	if err != nil {
-		t.Fatalf("readFromSSTable failed: %v", err)
+	// 没有 SSTable 的情况下 listSSTableFiles 返回空
+	files := s.listSSTableFiles()
+	if len(files) != 0 {
+		t.Errorf("expected empty files, got %d", len(files))
 	}
+
+	// ShardIterator 应返回空结果
+	iter := NewShardIterator(s, 0, time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
 	if len(rows) != 0 {
 		t.Errorf("expected empty rows, got %d", len(rows))
 	}
@@ -439,8 +444,10 @@ func TestNewShard_WALCreationFails(t *testing.T) {
 	}
 
 	// 读取验证
-	rows, err := s.Read(0, 2000000000)
-	if err != nil {
+	iter := NewShardIterator(s, 0, 2000000000, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 1 {
@@ -465,8 +472,10 @@ func TestShard_ReadFromSSTable_NoDataDir(t *testing.T) {
 	})
 
 	// 不创建 data 目录，直接读取
-	rows, err := s.Read(0, time.Hour.Nanoseconds())
-	if err != nil {
+	iter := NewShardIterator(s, 0, time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 0 {
@@ -610,8 +619,10 @@ func TestShard_Flush_AfterMultipleWrites(t *testing.T) {
 	}
 
 	// 读取所有数据
-	rows, err := s.Read(0, time.Hour.Nanoseconds())
-	if err != nil {
+	iter := NewShardIterator(s, 0, time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -808,8 +819,10 @@ func TestShard_LevelCompaction_Read(t *testing.T) {
 	}
 
 	// 读取数据
-	rows, err := s.Read(0, time.Hour.Nanoseconds())
-	if err != nil {
+	iter := NewShardIterator(s, 0, time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -985,8 +998,10 @@ func TestShard_Write_WithoutWAL(t *testing.T) {
 	}
 
 	// 读取验证
-	rows, err := s.Read(0, time.Hour.Nanoseconds())
-	if err != nil {
+	iter := NewShardIterator(s, 0, time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 1 {
@@ -1162,8 +1177,8 @@ func TestShard_Close_WALCloseError(t *testing.T) {
 	}
 }
 
-func TestShard_readFromSSTable_NoDataDir(t *testing.T) {
-	// 测试读取不存在的 SSTable 目录
+func TestShard_Iterator_NoDataDir(t *testing.T) {
+	// 测试 ShardIterator 在无 data 目录时正常工作
 	tmpDir := t.TempDir()
 
 	s := NewShard(ShardConfig{
@@ -1176,37 +1191,18 @@ func TestShard_readFromSSTable_NoDataDir(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	// 没有 data 目录，readFromSSTable 应该返回空
-	rows, err := s.readFromSSTable(0, time.Hour.Nanoseconds(), 0)
-	if err != nil {
-		t.Fatalf("readFromSSTable failed: %v", err)
+	// listSSTableFiles 应返回空
+	files := s.listSSTableFiles()
+	if len(files) != 0 {
+		t.Errorf("expected 0 files, got %d", len(files))
 	}
+
+	// ShardIterator 应能正常创建并返回空结果
+	iter := NewShardIterator(s, 0, time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
 	if len(rows) != 0 {
 		t.Errorf("expected 0 rows, got %d", len(rows))
-	}
-
-	_ = s.Close()
-}
-
-func TestShard_readSSTableFile_InvalidPath(t *testing.T) {
-	// 测试读取无效的 SSTable 文件
-	tmpDir := t.TempDir()
-
-	s := NewShard(ShardConfig{
-		DB:          "db1",
-		Measurement: "cpu",
-		StartTime:   0,
-		EndTime:     time.Hour.Nanoseconds(),
-		Dir:         tmpDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
-	})
-
-	// 读取不存在的 SSTable 文件
-	var rows []*types.PointRow
-	err := s.readSSTableFile("/nonexistent/path.bin", 0, time.Hour.Nanoseconds(), 0, &rows)
-	if err == nil {
-		t.Error("expected error for nonexistent SSTable file")
 	}
 
 	_ = s.Close()
@@ -1239,8 +1235,10 @@ func TestShard_Read_EmptyTimeRange(t *testing.T) {
 	}
 
 	// 读取不在范围内的时间
-	rows, err := s.Read(time.Hour.Nanoseconds(), 2*time.Hour.Nanoseconds())
-	if err != nil {
+	iter := NewShardIterator(s, time.Hour.Nanoseconds(), 2*time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 0 {
@@ -1312,8 +1310,10 @@ func TestShard_Write_ManyPoints(t *testing.T) {
 	}
 
 	// 读取验证
-	rows, err := s.Read(0, time.Hour.Nanoseconds())
-	if err != nil {
+	iter := NewShardIterator(s, 0, time.Hour.Nanoseconds(), 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 5000 {

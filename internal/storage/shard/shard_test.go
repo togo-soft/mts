@@ -16,6 +16,15 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+// collectAll 从 ShardIterator 收集所有结果，模拟旧的 Shard.Read 行为。
+func collectAll(si *ShardIterator) []*types.PointRow {
+	var rows []*types.PointRow
+	for row := si.Next(); row != nil; row = si.Next() {
+		rows = append(rows, row)
+	}
+	return rows
+}
+
 func TestShard_TimeRange(t *testing.T) {
 	start := time.Now().UnixNano()
 	end := start + int64(time.Hour)
@@ -130,8 +139,10 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 	}
 
 	// Read 应该合并 MemTable 和 SSTable
-	rows, err := s.Read(0, 20*1e9)
-	if err != nil {
+	iter := NewShardIterator(s, 0, 20*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -285,8 +296,10 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	rows, err := s2.Read(0, 5*1e9)
-	if err != nil {
+	iter := NewShardIterator(s2, 0, 5*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -347,8 +360,10 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	rows, err := s2.Read(0, 3*1e9)
-	if err != nil {
+	iter := NewShardIterator(s2, 0, 3*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -404,8 +419,10 @@ func TestShard_Read_OutOfRange(t *testing.T) {
 	}
 
 	// Read with range that doesn't include the data
-	rows, err := s.Read(0, 1*1e9)
-	if err != nil {
+	iter := NewShardIterator(s, 0, 1*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -479,8 +496,10 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	rows, err := s2.Read(0, 2*1e9)
-	if err != nil {
+	iter := NewShardIterator(s2, 0, 2*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -597,8 +616,10 @@ func TestShard_DeleteDataDir(t *testing.T) {
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
-	rows, err := s2.Read(0, 2*1e9)
-	if err != nil {
+	iter := NewShardIterator(s2, 0, 2*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -635,8 +656,10 @@ func TestShard_Write_WALDisabled(t *testing.T) {
 	}
 
 	// 读取验证
-	rows, err := s.Read(0, 2000000000)
-	if err != nil {
+	iter := NewShardIterator(s, 0, 2000000000, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 1 {
@@ -716,8 +739,10 @@ func TestShard_Flush_AfterWrite(t *testing.T) {
 	}
 
 	// 读取验证
-	rows, err := s.Read(0, 10*1e9)
-	if err != nil {
+	iter := NewShardIterator(s, 0, 10*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 10 {
@@ -754,8 +779,10 @@ func TestShard_Read_TimeRange(t *testing.T) {
 	}
 
 	// 读取 [1e9, 4e9) 范围的数据
-	rows, err := s.Read(1*1e9, 4*1e9)
-	if err != nil {
+	iter := NewShardIterator(s, 1*1e9, 4*1e9, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 	if len(rows) != 3 { // 1e9, 2e9, 3e9
@@ -810,8 +837,10 @@ func TestShard_ConcurrentWrite(t *testing.T) {
 	wg.Wait()
 
 	// 验证数据数量
-	rows, err := s.Read(0, math.MaxInt64)
-	if err != nil {
+	iter := NewShardIterator(s, 0, math.MaxInt64, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -859,8 +888,11 @@ func TestShard_ConcurrentReadWrite(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
-				_, err := s.Read(0, math.MaxInt64)
-				if err != nil {
+				iter := NewShardIterator(s, 0, math.MaxInt64, 0)
+				for iter.Next() != nil {
+				}
+				iter.Close()
+				if err := iter.Err(); err != nil {
 					t.Errorf("Read failed: %v", err)
 				}
 			}
@@ -923,8 +955,10 @@ func TestShard_Write_MultipleFlush(t *testing.T) {
 	}
 
 	// 读取所有数据
-	rows, err := s.Read(0, math.MaxInt64)
-	if err != nil {
+	iter := NewShardIterator(s, 0, math.MaxInt64, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
@@ -966,8 +1000,10 @@ func TestShard_Flush_EmptyMemTable(t *testing.T) {
 		}
 	}
 
-	rows, err := s.Read(0, math.MaxInt64)
-	if err != nil {
+	iter := NewShardIterator(s, 0, math.MaxInt64, 0)
+	rows := collectAll(iter)
+	iter.Close()
+	if err := iter.Err(); err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}
 
