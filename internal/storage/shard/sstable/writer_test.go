@@ -1,6 +1,7 @@
 package sstable
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -133,5 +134,163 @@ func TestWriter_WritePointsWithSids(t *testing.T) {
 	}
 	if rows[1].Sid != 99 {
 		t.Errorf("expected second row Sid=99, got %d", rows[1].Sid)
+	}
+}
+
+func TestWriter_DictEncodingRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+
+	// 低基数字符串：字典编码应有收益
+	points := make([]types.InternalPoint, 200)
+	statuses := []string{"ok", "error", "timeout", "ok", "ok", "error"}
+	for i := range points {
+		points[i] = types.InternalPoint{
+			Timestamp: int64((i + 1) * 100),
+			Sid:       uint64(i % 10),
+			Fields: []types.InternalField{
+				{Key: "status", Value: types.NewFieldValue(statuses[i%len(statuses)])},
+			},
+		}
+	}
+
+	w, err := NewWriter(dir, 0, 512, CompressionNone)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	if err := w.WritePoints(points); err != nil {
+		t.Fatalf("WritePoints: %v", err)
+	}
+	schema := w.Schema()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// 验证 schema 正确记录
+	if ft, ok := schema.Fields["status"]; !ok || ft != FieldTypeString {
+		t.Fatalf("expected string field 'status', got %v", schema.Fields)
+	}
+
+	// 读取验证
+	r, err := NewReader(filepath.Join(dir, "data", "sst_0.bin"), schema)
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	it, err := r.NewIterator(nil)
+	if err != nil {
+		t.Fatalf("NewIterator: %v", err)
+	}
+
+	var count int
+	for it.Next() {
+		row := it.Point()
+		if row.Fields["status"] == nil {
+			t.Errorf("row %d missing status field", count)
+		}
+		count++
+	}
+	if count != 200 {
+		t.Errorf("expected 200 rows, got %d", count)
+	}
+}
+
+func TestWriter_DictEncodingLargeDataset(t *testing.T) {
+	dir := t.TempDir()
+
+	// 10000 行低基数字符串，验证 streaming 不 OOM
+	points := make([]types.InternalPoint, 10000)
+	values := []string{"a", "b", "c", "d", "a", "b"}
+	for i := range points {
+		points[i] = types.InternalPoint{
+			Timestamp: int64((i + 1) * 100),
+			Sid:       uint64(i % 50),
+			Fields: []types.InternalField{
+				{Key: "label", Value: types.NewFieldValue(values[i%len(values)])},
+			},
+		}
+	}
+
+	w, err := NewWriter(dir, 0, 64*1024, CompressionNone)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	if err := w.WritePoints(points); err != nil {
+		t.Fatalf("WritePoints: %v", err)
+	}
+	schema := w.Schema()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// 完整读取验证行数
+	r, err := NewReader(filepath.Join(dir, "data", "sst_0.bin"), schema)
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	it, err := r.NewIterator(nil)
+	if err != nil {
+		t.Fatalf("NewIterator: %v", err)
+	}
+
+	count := 0
+	for it.Next() {
+		count++
+	}
+	if count != 10000 {
+		t.Errorf("expected 10000 rows, got %d", count)
+	}
+}
+
+func TestWriter_DictEncodingFallback(t *testing.T) {
+	dir := t.TempDir()
+
+	// 高基数随机字符串：字典编码应自动回退为 raw
+	points := make([]types.InternalPoint, 100)
+	for i := range points {
+		points[i] = types.InternalPoint{
+			Timestamp: int64((i + 1) * 100),
+			Sid:       uint64(i),
+			Fields: []types.InternalField{
+				{Key: "uuid", Value: types.NewFieldValue(fmt.Sprintf("id-%d-%x", i, i*37))},
+			},
+		}
+	}
+
+	w, err := NewWriter(dir, 0, 64*1024, CompressionNone)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	if err := w.WritePoints(points); err != nil {
+		t.Fatalf("WritePoints: %v", err)
+	}
+	schema := w.Schema()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := NewReader(filepath.Join(dir, "data", "sst_0.bin"), schema)
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	it, err := r.NewIterator(nil)
+	if err != nil {
+		t.Fatalf("NewIterator: %v", err)
+	}
+
+	count := 0
+	for it.Next() {
+		row := it.Point()
+		if row.Fields["uuid"] == nil {
+			t.Errorf("row %d missing uuid field", count)
+		}
+		count++
+	}
+	if count != 100 {
+		t.Errorf("expected 100 rows, got %d", count)
 	}
 }

@@ -39,7 +39,7 @@ func (w *Writer) WritePoints(points []types.InternalPoint) error {
 			return fmt.Errorf("open field file %s: %w", name, err)
 		}
 		w.fields[name] = f
-		w.fieldBufs[name] = make([]byte, 0, BlockSize)
+		w.fieldBufs[name] = make([]byte, 0, w.blockSize)
 		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
 	}
 
@@ -68,7 +68,7 @@ func (w *Writer) fieldTypeSize(t FieldType) int {
 
 // writeInternalPoint 将单个 InternalPoint 写入 block buffer。
 func (w *Writer) writeInternalPoint(ip types.InternalPoint) error {
-	if w.bufPos >= BlockSize {
+	if w.bufPos >= w.blockSize {
 		if err := w.flushBlock(); err != nil {
 			return err
 		}
