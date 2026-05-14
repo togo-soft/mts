@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/metrics"
+	"codeberg.org/micro-ts/mts/internal/storage"
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
@@ -70,7 +71,7 @@ func (s *Shard) writeSSTableSync(points []types.InternalPoint) error {
 	if s.levelCompaction != nil {
 		sstSeq = s.levelCompaction.NextSeq()
 		l0Dir := filepath.Join(s.dir, "data", "L0")
-		if err := os.MkdirAll(l0Dir, 0700); err != nil {
+		if err := storage.SafeMkdirAll(l0Dir, 0700); err != nil {
 			return fmt.Errorf("create L0 dir: %w", err)
 		}
 		sstPath = filepath.Join(l0Dir, fmt.Sprintf("sst_%d.bin", sstSeq))
@@ -212,7 +213,7 @@ func (s *Shard) executeAsyncFlush() {
 	}
 
 	// 创建目标目录
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := storage.SafeMkdirAll(dataDir, 0700); err != nil {
 		slog.Error("async flush: create data dir failed", "error", err)
 		s.mu.Lock()
 		s.memTable.MergePassiveBack()

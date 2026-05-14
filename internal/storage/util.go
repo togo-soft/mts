@@ -146,6 +146,40 @@ func SafeOpenFile(name string, flag int, perm uint32) (*os.File, error) {
 	return os.OpenFile(name, flag, os.FileMode(perm))
 }
 
+// SafeWriteFile 安全地写入数据到文件。
+//
+// 参数：
+//   - path: 文件路径
+//   - data: 要写入的数据
+//   - perm: 文件权限（通常应为 0600）
+//
+// 行为：
+//
+//	先写入临时文件，再原子 rename，确保不会留下部分写入的文件。
+//	自动创建父目录（权限 0700）。
+//
+// 安全检查：
+//
+//	路径不能包含 .. 路径遍历组件。
+func SafeWriteFile(path string, data []byte, perm uint32) error {
+	if !isPathSafe(path) {
+		return &PathError{Op: "write", Path: path, Err: ErrInvalidPath}
+	}
+
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
+	}
+
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, os.FileMode(perm)); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
 // PathError 表示路径安全检查失败
 type PathError struct {
 	Op   string

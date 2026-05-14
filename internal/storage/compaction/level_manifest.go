@@ -212,13 +212,8 @@ func (m *LevelManifest) Save() error {
 		return fmt.Errorf("marshal manifest: %w", err)
 	}
 
-	tmpPath := m.manifestPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := storage.SafeWriteFile(m.manifestPath, data, 0600); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, m.manifestPath); err != nil {
-		return fmt.Errorf("rename manifest: %w", err)
 	}
 
 	return nil

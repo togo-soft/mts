@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
 // Tombstone 表示数据删除标记。
@@ -18,7 +20,7 @@ type Tombstone struct {
 
 // TombstoneSet 表示一组删除标记。
 type TombstoneSet struct {
-	Tombstones []Tombstone          `json:"tombstones"`
+	Tombstones []Tombstone             `json:"tombstones"`
 	index      map[uint64][]*Tombstone // SID → 匹配的 tombstones（运行时索引，不入盘）
 }
 
@@ -85,19 +87,14 @@ func SaveTombstones(partPath string, ts *TombstoneSet) error {
 	}
 
 	tombstonePath := partPath + ".tombstones"
-	tmpPath := tombstonePath + ".tmp"
 
 	data, err := json.Marshal(ts)
 	if err != nil {
 		return fmt.Errorf("marshal tombstones: %w", err)
 	}
 
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := storage.SafeWriteFile(tombstonePath, data, 0600); err != nil {
 		return fmt.Errorf("write tombstones: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, tombstonePath); err != nil {
-		return fmt.Errorf("rename tombstones: %w", err)
 	}
 	return nil
 }
