@@ -365,16 +365,20 @@ func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*ty
 	}
 	defer func() { _ = it.Close() }()
 
-	var rows []*types.PointRow
+	var rows []*types.Row
 	for it.Next(ctx) {
-		row := it.Points()
-		if row != nil {
-			rows = append(rows, row)
+		pr := it.Points()
+		if pr != nil {
+			rows = append(rows, &types.Row{
+				Timestamp: pr.Timestamp,
+				Tags:      pr.Tags,
+				Fields:    pr.Fields,
+			})
 		}
 	}
 
 	return &types.QueryRangeResponse{
-		Rows:   rows,
+		Rows:    rows,
 		HasMore: false, // 流式查询已返回所有数据，HasMore 仅供分页参考
 	}, nil
 }

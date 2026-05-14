@@ -146,6 +146,14 @@ message QueryRangeRequest {
   int64               limit       = 8;
 }
 
+// 范围查询响应
+//
+// 封装范围查询的结果，包含所有查询到的数据行。
+message QueryRangeResponse {
+  repeated Row rows   = 1;
+  bool        has_more = 2;
+}
+
 // 一行数据（用于查询响应）
 message Row {
   int64                   timestamp = 1;
