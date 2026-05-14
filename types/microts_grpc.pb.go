@@ -63,7 +63,7 @@ type MicroTSClient interface {
 	//
 	// 查询指定时间范围内的数据，支持字段过滤、标签过滤和分页。
 	// 数据按时间戳升序返回。
-	QueryRange(ctx context.Context, in *QueryRangeRequest, opts ...grpc.CallOption) (*QueryRangeResponse, error)
+	QueryRange(ctx context.Context, in *QueryRangeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Row], error)
 	// 列出 Measurement
 	//
 	// 返回指定数据库中的所有 Measurement 名称。
@@ -128,15 +128,24 @@ func (c *microTSClient) WriteBatch(ctx context.Context, in *WriteBatchRequest, o
 	return out, nil
 }
 
-func (c *microTSClient) QueryRange(ctx context.Context, in *QueryRangeRequest, opts ...grpc.CallOption) (*QueryRangeResponse, error) {
+func (c *microTSClient) QueryRange(ctx context.Context, in *QueryRangeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Row], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(QueryRangeResponse)
-	err := c.cc.Invoke(ctx, MicroTS_QueryRange_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MicroTS_ServiceDesc.Streams[0], MicroTS_QueryRange_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[QueryRangeRequest, Row]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MicroTS_QueryRangeClient = grpc.ServerStreamingClient[Row]
 
 func (c *microTSClient) ListMeasurements(ctx context.Context, in *ListMeasurementsRequest, opts ...grpc.CallOption) (*ListMeasurementsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -240,7 +249,7 @@ type MicroTSServer interface {
 	//
 	// 查询指定时间范围内的数据，支持字段过滤、标签过滤和分页。
 	// 数据按时间戳升序返回。
-	QueryRange(context.Context, *QueryRangeRequest) (*QueryRangeResponse, error)
+	QueryRange(*QueryRangeRequest, grpc.ServerStreamingServer[Row]) error
 	// 列出 Measurement
 	//
 	// 返回指定数据库中的所有 Measurement 名称。
@@ -290,8 +299,8 @@ func (UnimplementedMicroTSServer) Write(context.Context, *WriteRequest) (*WriteR
 func (UnimplementedMicroTSServer) WriteBatch(context.Context, *WriteBatchRequest) (*WriteBatchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WriteBatch not implemented")
 }
-func (UnimplementedMicroTSServer) QueryRange(context.Context, *QueryRangeRequest) (*QueryRangeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method QueryRange not implemented")
+func (UnimplementedMicroTSServer) QueryRange(*QueryRangeRequest, grpc.ServerStreamingServer[Row]) error {
+	return status.Error(codes.Unimplemented, "method QueryRange not implemented")
 }
 func (UnimplementedMicroTSServer) ListMeasurements(context.Context, *ListMeasurementsRequest) (*ListMeasurementsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMeasurements not implemented")
@@ -370,23 +379,16 @@ func _MicroTS_WriteBatch_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MicroTS_QueryRange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryRangeRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+func _MicroTS_QueryRange_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(QueryRangeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(MicroTSServer).QueryRange(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MicroTS_QueryRange_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MicroTSServer).QueryRange(ctx, req.(*QueryRangeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(MicroTSServer).QueryRange(m, &grpc.GenericServerStream[QueryRangeRequest, Row]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MicroTS_QueryRangeServer = grpc.ServerStreamingServer[Row]
 
 func _MicroTS_ListMeasurements_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListMeasurementsRequest)
@@ -530,10 +532,6 @@ var MicroTS_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MicroTS_WriteBatch_Handler,
 		},
 		{
-			MethodName: "QueryRange",
-			Handler:    _MicroTS_QueryRange_Handler,
-		},
-		{
 			MethodName: "ListMeasurements",
 			Handler:    _MicroTS_ListMeasurements_Handler,
 		},
@@ -562,6 +560,12 @@ var MicroTS_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MicroTS_Health_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "QueryRange",
+			Handler:       _MicroTS_QueryRange_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "microts.proto",
 }

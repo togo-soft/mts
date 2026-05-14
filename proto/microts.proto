@@ -153,17 +153,6 @@ message Row {
   map<string, FieldValue> fields    = 3;
 }
 
-// 范围查询响应
-message QueryRangeResponse {
-  string       database    = 1;
-  string       measurement = 2;
-  int64        start_time  = 3;
-  int64        end_time    = 4;
-  int64        total_count = 5;
-  bool         has_more    = 6;
-  repeated Row rows        = 7;
-}
-
 // 列出 Measurement 请求
 message ListMeasurementsRequest {
   string database = 1;
@@ -338,7 +327,7 @@ service MicroTS {
   //
   // 查询指定时间范围内的数据，支持字段过滤、标签过滤和分页。
   // 数据按时间戳升序返回。
-  rpc QueryRange(QueryRangeRequest) returns (QueryRangeResponse);
+  rpc QueryRange(QueryRangeRequest) returns (stream Row);
 
   // 列出 Measurement
   //
