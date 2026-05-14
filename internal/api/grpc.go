@@ -36,6 +36,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -205,17 +206,42 @@ func (s *MicroTSService) WriteBatch(ctx context.Context, req *types.WriteBatchRe
 	}, nil
 }
 
-// QueryRange 处理范围查询请求。
+// QueryRange 处理范围查询请求（服务端流式）。
 //
-// 参数：
-//   - ctx: gRPC 上下文
-//   - req: 查询请求，包含时间范围和过滤条件
-//
-// 返回：
-//   - *types.QueryRangeResponse: 查询结果
-//   - error: 查询失败时返回 gRPC 错误
-func (s *MicroTSService) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
-	return s.engine.Query(ctx, req)
+// 数据按时间戳升序逐行发送，客户端可边接收边处理。
+// 当客户端断开连接或 context 取消时，自动停止迭代。
+func (s *MicroTSService) QueryRange(req *types.QueryRangeRequest, stream types.MicroTS_QueryRangeServer) error {
+	ctx := stream.Context()
+
+	qit, err := s.engine.QueryIterator(ctx, req)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "no shards found: %v", err)
+	}
+	defer func() {
+		if err := qit.Close(); err != nil {
+			slog.Warn("failed to close query iterator", "error", err)
+		}
+	}()
+
+	for qit.Next(ctx) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		row := qit.Points()
+		if row == nil {
+			continue
+		}
+		protoRow, err := pointRowToProto(row)
+		if err != nil {
+			return status.Errorf(codes.Internal, "convert row: %v", err)
+		}
+		if err := stream.Send(protoRow); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListMeasurements 处理列出 Measurement 请求。
