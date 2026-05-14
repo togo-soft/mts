@@ -439,7 +439,6 @@ func (w *Writer) encodeFixedFieldSection(
 	return encoded, offsets, encType, nil
 }
 
-
 // encodePerBlockRaw 对原始字节数据按 block 的行范围切片。
 // raw 是未处理的原始数据，每行占固定字节数（由 rowSize 隐式确定）。
 // 用于无法用泛型 encodeFn 描述的编码路径（如 raw 回退）。
