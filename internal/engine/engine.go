@@ -145,3 +145,8 @@ func (e *Engine) Flush() error {
 func (e *Engine) DataDir() string {
 	return e.cfg.DataDir
 }
+
+// SetCompactionConfig 运行时更新所有 Shard 的 Compaction 配置。
+func (e *Engine) SetCompactionConfig(config *compaction.CompactionConfig) {
+	e.shardManager.SetCompactionConfig(config)
+}

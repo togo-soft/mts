@@ -116,6 +116,23 @@ func (cm *CompactionManager) Context() context.Context {
 	return cm.ctx
 }
 
+// SetConfig 运行时更新 Compaction 配置。
+// 更新后自动重置 ticker 以使用新的 CheckInterval。
+func (cm *CompactionManager) SetConfig(config *CompactionConfig) {
+	cm.Mu.Lock()
+	defer cm.Mu.Unlock()
+
+	if config == nil {
+		return
+	}
+
+	cm.Config = config
+
+	if cm.Ticker != nil && config.CheckInterval > 0 {
+		cm.Ticker.Reset(config.CheckInterval)
+	}
+}
+
 // Compact 执行 compaction 合并。
 func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, error) {
 	// 先尝试获取 compaction 锁，防止并发 compaction

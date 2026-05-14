@@ -355,6 +355,18 @@ func (m *ShardManager) PersistAll() error {
 	return m.manager.Sync()
 }
 
+// SetCompactionConfig 运行时更新所有现有 Shard 的 Compaction 配置。
+func (m *ShardManager) SetCompactionConfig(config *compaction.CompactionConfig) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, s := range m.shards {
+		if s.compaction != nil {
+			s.compaction.SetConfig(config)
+		}
+	}
+}
+
 // GetAllShards 返回所有 Shard 的快照。
 func (m *ShardManager) GetAllShards() []*Shard {
 	m.mu.RLock()

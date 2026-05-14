@@ -168,6 +168,23 @@ func (lcm *LevelCompactionManager) Context() context.Context {
 	return lcm.ctx
 }
 
+// SetConfig 运行时更新 Level Compaction 配置。
+// 更新后自动重置 ticker 以使用新的 CheckInterval。
+func (lcm *LevelCompactionManager) SetConfig(config *LevelCompactionConfig) {
+	lcm.manifestMu.Lock()
+	defer lcm.manifestMu.Unlock()
+
+	if config == nil {
+		return
+	}
+
+	lcm.config = config
+
+	if lcm.ticker != nil && config.CheckInterval > 0 {
+		lcm.ticker.Reset(config.CheckInterval)
+	}
+}
+
 // Compact 执行 compaction。
 func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []string, error) {
 	if !atomic.CompareAndSwapInt32(&lcm.compactInProgress, 0, 1) {

@@ -500,6 +500,38 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 	_ = os.Remove(outputPath)
 }
 
+func TestCompactionManager_SetConfig(t *testing.T) {
+	cm := NewCompactionManager(nil, DefaultCompactionConfig())
+
+	newCfg := &CompactionConfig{
+		MaxSSTableCount:    8,
+		MaxCompactionBatch: 20,
+		ShardSizeLimit:     2 * 1024 * 1024 * 1024,
+		CheckInterval:      30 * time.Minute,
+		Timeout:            15 * time.Minute,
+	}
+	cm.SetConfig(newCfg)
+
+	if cm.Config.MaxSSTableCount != 8 {
+		t.Errorf("MaxSSTableCount = %d, want 8", cm.Config.MaxSSTableCount)
+	}
+	if cm.Config.MaxCompactionBatch != 20 {
+		t.Errorf("MaxCompactionBatch = %d, want 20", cm.Config.MaxCompactionBatch)
+	}
+	if cm.Config.ShardSizeLimit != 2*1024*1024*1024 {
+		t.Errorf("ShardSizeLimit = %d, want 2GB", cm.Config.ShardSizeLimit)
+	}
+}
+
+func TestCompactionManager_SetConfig_NilConfig(t *testing.T) {
+	cfg := DefaultCompactionConfig()
+	cm := NewCompactionManager(nil, cfg)
+	cm.SetConfig(nil)
+	if cm.Config != cfg {
+		t.Error("config should not change on nil input")
+	}
+}
+
 func TestDirSize(t *testing.T) {
 	tmpDir := t.TempDir()
 	// 空目录
