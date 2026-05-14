@@ -89,6 +89,85 @@ func (s *Shard) Write(point *types.Point) error {
 	return nil
 }
 
+// WriteBatch 批量写入数据点到 Shard，使用单次锁获取 + 单次 WAL 批量写入。
+//
+// 与多次调用 Write 的区别：
+//   - 只获取一次 Shard 锁（减少锁竞争）
+//   - 通过 WAL.WriteBatch 批量持久化（减少 fsync 次数）
+//
+// 参数：
+//   - points: 要写入的数据点切片
+//
+// 返回：
+//   - int: 成功写入的点数
+//   - error: 首个失败点的错误
+func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
+	if len(points) == 0 {
+		return 0, nil
+	}
+
+	// 背压检查
+	for s.memTable.ActiveFull() {
+		if !s.memTable.IsFlushing() {
+			s.tryTriggerAsyncFlush()
+		}
+		time.Sleep(time.Millisecond)
+		if s.closed.Load() {
+			return 0, fmt.Errorf("shard closed during backpressure wait")
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 预序列化所有 point
+	ips := make([]types.InternalPoint, 0, len(points))
+	walData := make([][]byte, 0, len(points))
+
+	for i, point := range points {
+		sid, err := s.seriesStore.AllocateSID(point.Tags)
+		if err != nil {
+			return i, fmt.Errorf("allocate SID for point %d: %w", i, err)
+		}
+		if err := s.ValidateFieldTypes(point); err != nil {
+			return i, fmt.Errorf("validate field types for point %d: %w", i, err)
+		}
+		ip := types.PointToInternal(point, sid)
+		ips = append(ips, ip)
+
+		if s.wal != nil {
+			data, err := serializeInternalPoint(ip)
+			if err != nil {
+				return i, fmt.Errorf("serialize point %d: %w", i, err)
+			}
+			walData = append(walData, data)
+		}
+	}
+
+	// 批量写入 WAL
+	if s.wal != nil && len(walData) > 0 {
+		if _, err := s.wal.WriteBatch(walData); err != nil {
+			return 0, fmt.Errorf("wal write batch: %w", err)
+		}
+	}
+
+	// 批量写入 MemTable
+	for i, ip := range ips {
+		if err := s.memTable.Write(ip); err != nil {
+			return i, fmt.Errorf("write to memtable at %d: %w", i, err)
+		}
+	}
+
+	// 检查是否需要异步 flush
+	shouldFlush := s.memTable.ShouldSwap()
+
+	if shouldFlush {
+		s.tryTriggerAsyncFlush()
+	}
+
+	return len(ips), nil
+}
+
 // listSSTableFiles 列出 Shard 中所有可读的 SSTable 文件路径。
 // 自动处理 flat（data/sst_*.bin）和 leveled（data/L0/sst_*.bin, ...）两种目录结构。
 func (s *Shard) listSSTableFiles() []string {
