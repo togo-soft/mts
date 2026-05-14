@@ -224,11 +224,6 @@ func (s *MicroTSService) QueryRange(req *types.QueryRangeRequest, stream types.M
 	}()
 
 	for qit.Next(ctx) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		row := qit.Points()
 		if row == nil {
 			continue
