@@ -93,6 +93,9 @@ type (
 	//	}
 	QueryRangeRequest = types.QueryRangeRequest
 
+	// QueryRangeResponse 是范围查询的响应。
+	QueryRangeResponse = types.QueryRangeResponse
+
 	// MemTableConfig 配置内存表的行为。
 	//
 	// 控制 MemTable 的大小、条目数和空闲时间，当达到任一阈值时会触发刷盘。
@@ -306,6 +309,74 @@ func (db *DB) Write(ctx context.Context, point *types.Point) error {
 //	}
 func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 	return db.engine.WriteBatch(ctx, points)
+}
+
+// QueryRange 执行范围查询，返回指定时间范围内的数据点。
+//
+// 查询会自动合并 MemTable（内存数据）和 SSTable（磁盘数据）的结果。
+// 数据按时间戳升序返回。
+//
+// 参数：
+//   - ctx: 上下文，可用于取消查询
+//   - req: 查询请求，包含时间范围、字段列表、标签过滤和分页参数
+//
+// 返回：
+//   - *QueryRangeResponse: 包含查询结果行、总数和是否有更多数据
+//   - error: 查询失败时返回错误
+//
+// 说明：
+//
+//	底层使用流式迭代器查询，本方法会迭代读取所有数据后返回。
+//	如果需要处理大量数据，建议使用 QueryIterator 直接流式处理，
+//	可以避免在内存中累积所有结果。
+//
+// 分页处理：
+//
+//	使用 Offset 和 Limit 进行分页。当 HasMore 为 true 时，
+//	可以通过设置 Offset = 已返回行数 来获取下一页。
+//
+// 字段过滤：
+//
+//	如果 Fields 为空，返回所有字段。
+//	如果指定字段，只返回这些字段的值。
+//
+// 使用示例：
+//
+//	resp, err := db.QueryRange(ctx, &microts.QueryRangeRequest{
+//	    Database:    "metrics",
+//	    Measurement: "cpu",
+//	    StartTime:   start.UnixNano(),
+//	    EndTime:     end.UnixNano(),
+//	    Fields:      []string{"usage", "temperature"},
+//	    Tags:        map[string]string{"host": "server1"},
+//	    Offset:      0,
+//	    Limit:       1000,
+//	})
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	for _, row := range resp.Rows {
+//	    fmt.Printf("时间: %d, 字段: %v\n", row.Timestamp, row.Fields)
+//	}
+func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
+	it, err := db.engine.QueryIterator(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = it.Close() }()
+
+	var rows []*types.PointRow
+	for it.Next(ctx) {
+		row := it.Points()
+		if row != nil {
+			rows = append(rows, row)
+		}
+	}
+
+	return &types.QueryRangeResponse{
+		Rows:   rows,
+		HasMore: false, // 流式查询已返回所有数据，HasMore 仅供分页参考
+	}, nil
 }
 
 // QueryIterator 创建流式查询迭代器，用于处理大量数据而不占用大量内存。

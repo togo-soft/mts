@@ -150,3 +150,15 @@ func (p *PointRow) ToPoint(database, measurement string) *Point {
 		Fields:      p.Fields,
 	}
 }
+
+// ===================================
+// QueryRangeResponse 辅助函数
+// ===================================
+
+// QueryRangeResponse 封装范围查询结果。
+type QueryRangeResponse struct {
+	// Rows 查询结果行
+	Rows []*PointRow
+	// HasMore 是否还有更多数据未返回（分页用）
+	HasMore bool
+}
