@@ -184,11 +184,16 @@ func TestPoint_GetField_NilFieldValue(t *testing.T) {
 func TestPointRow_SetField(t *testing.T) {
 	pr := &PointRow{}
 	pr.SetField("temp", float64(23.5))
-	if pr.Fields == nil {
+	if len(pr.Fields) == 0 {
 		t.Fatal("expected non-nil Fields")
 	}
-	if pr.Fields["temp"].GetFloatValue() != 23.5 {
-		t.Errorf("expected 23.5, got %v", pr.Fields["temp"].GetFloatValue())
+	fv := pr.GetField("temp")
+	if fv == nil {
+		t.Fatal("expected non-nil field value for 'temp'")
+	}
+	floatVal := fv.(*FieldValue_FloatValue).FloatValue
+	if floatVal != 23.5 {
+		t.Errorf("expected 23.5, got %v", floatVal)
 	}
 }
 
@@ -225,8 +230,8 @@ func TestPointRow_ToPoint(t *testing.T) {
 	pr := &PointRow{
 		Timestamp: 1000,
 		Tags:      map[string]string{"host": "s1"},
-		Fields: map[string]*FieldValue{
-			"value": NewFieldValue(int64(42)),
+		Fields: []*FieldEntry{
+			{Key: "value", Value: NewFieldValue(int64(42))},
 		},
 	}
 	p := pr.ToPoint("mydb", "cpu")

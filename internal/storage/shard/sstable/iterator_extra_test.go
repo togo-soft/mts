@@ -596,7 +596,7 @@ func TestIterator_DecodeFieldValueFromData_Int64(t *testing.T) {
 	count := 0
 	for it.Next() {
 		pt := it.Point()
-		if pt != nil && pt.Fields["v"] != nil {
+		if pt != nil && pt.GetFieldValue("v") != nil {
 			count++
 		}
 	}
@@ -684,7 +684,7 @@ func TestIterator_DecodeFieldValueFromData_Float64(t *testing.T) {
 	count := 0
 	for it.Next() {
 		pt := it.Point()
-		if pt != nil && pt.Fields["v"] != nil {
+		if pt != nil && pt.GetFieldValue("v") != nil {
 			count++
 		}
 	}
@@ -1053,7 +1053,7 @@ func TestReadRange_EarlyTermination(t *testing.T) {
 	// 验证数据正确性（前 10 个点）
 	for i, row := range rows {
 		expectedVal := float64(i)
-		got := row.Fields["value"].GetFloatValue()
+		got := row.GetFieldValue("value").GetFloatValue()
 		if got != expectedVal {
 			t.Errorf("row[%d]: expected value=%f, got %f", i, expectedVal, got)
 		}

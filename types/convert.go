@@ -116,21 +116,44 @@ func (p *Point) GetField(name string) any {
 // PointRow 辅助函数
 // ===================================
 
-// SetField 设置 PointRow 的字段值。
+// SetField 设置 PointRow 的字段值（存在则替换，不存在则追加）。
 func (p *PointRow) SetField(name string, value any) {
-	if p.Fields == nil {
-		p.Fields = make(map[string]*FieldValue)
+	fv := NewFieldValue(value)
+	for i, f := range p.Fields {
+		if f.Key == name {
+			p.Fields[i] = &FieldEntry{Key: name, Value: fv}
+			return
+		}
 	}
-	p.Fields[name] = NewFieldValue(value)
+	p.Fields = append(p.Fields, &FieldEntry{Key: name, Value: fv})
 }
 
 // GetField 获取 PointRow 的字段值。
 func (p *PointRow) GetField(name string) any {
-	if p.Fields == nil {
-		return nil
+	for _, f := range p.Fields {
+		if f.Key == name && f.Value != nil {
+			return f.Value.GetValue()
+		}
 	}
-	if fv, ok := p.Fields[name]; ok && fv != nil {
-		return fv.GetValue()
+	return nil
+}
+
+// GetFieldValue 获取 PointRow 的字段值（返回 *FieldValue，方便链式调用 GetFloatValue 等）。
+func (p *PointRow) GetFieldValue(name string) *FieldValue {
+	for _, f := range p.Fields {
+		if f.Key == name {
+			return f.Value
+		}
+	}
+	return nil
+}
+
+// GetFieldValue 获取 Row 的字段值（返回 *FieldValue）。
+func (r *Row) GetFieldValue(name string) *FieldValue {
+	for _, f := range r.Fields {
+		if f.Key == name {
+			return f.Value
+		}
 	}
 	return nil
 }
@@ -142,11 +165,16 @@ func (p *PointRow) ToPoint(database, measurement string) *Point {
 	if p == nil {
 		return nil
 	}
+	// Point.Fields 仍然是 map，需要转换
+	fields := make(map[string]*FieldValue, len(p.Fields))
+	for _, f := range p.Fields {
+		fields[f.Key] = f.Value
+	}
 	return &Point{
 		Database:    database,
 		Measurement: measurement,
 		Tags:        p.Tags,
 		Timestamp:   p.Timestamp,
-		Fields:      p.Fields,
+		Fields:      fields,
 	}
 }

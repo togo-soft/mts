@@ -211,7 +211,7 @@ func Test1_LargeScaleIntegrity() error {
 	// 采样验证
 	errors := 0
 	for _, row := range rows {
-		idx := int(row.Fields["v"].GetFloatValue())
+		idx := int(row.GetFieldValue("v").GetFloatValue())
 		if idx < 0 || idx >= total {
 			errors++
 		}
@@ -366,7 +366,6 @@ func Test4_ConcurrentWriteCompaction() error {
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, numWorkers)
-	totalWritten := 0
 
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
@@ -384,12 +383,12 @@ func Test4_ConcurrentWriteCompaction() error {
 					errCh <- fmt.Errorf("worker %d write %d: %w", workerID, i, err)
 					return
 				}
-				totalWritten++
 			}
 		}(w)
 	}
 
 	wg.Wait()
+	close(errCh)
 	fmt.Printf("写入结束: %s\n", time.Now().Format("15:04:05.000"))
 	for e := range errCh {
 		return e

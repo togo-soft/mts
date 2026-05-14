@@ -62,7 +62,7 @@ func (s *Shard) flushLocked() error {
 }
 
 // writeSSTableSync 同步写入 SSTable（持锁调用）。
-func (s *Shard) writeSSTableSync(points []types.InternalPoint) error {
+func (s *Shard) writeSSTableSync(points []types.MemPoint) error {
 	useFlatCompaction := s.compaction != nil && !s.levelCompactionEnabled()
 
 	var sstSeq uint64
@@ -99,7 +99,17 @@ func (s *Shard) writeSSTableSync(points []types.InternalPoint) error {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
 
-	if err := w.WritePoints(points); err != nil {
+	// 批量解码 MemPoint → InternalPoint（仅存活于 flush 期间）
+	ips := make([]types.InternalPoint, len(points))
+	for i, mp := range points {
+		ip, err := types.MemPointToInternal(mp)
+		if err != nil {
+			_ = w.Close()
+			return fmt.Errorf("decode mempoint %d: %w", i, err)
+		}
+		ips[i] = ip
+	}
+	if err := w.WritePoints(ips); err != nil {
 		_ = w.Close()
 		return fmt.Errorf("write points to sstable: %w", err)
 	}
@@ -287,7 +297,7 @@ func (s *Shard) executeAsyncFlush() {
 // writeSSTableAsync 异步写入 SSTable（不持锁）。
 // 写入最终文件后立即 rename 到临时路径，由 Phase 3 原子 rename 回最终路径，
 // 确保 SSTable 仅在 passive 清空后才对读者可见。
-func (s *Shard) writeSSTableAsync(points []types.InternalPoint, sstSeq uint64, dataDir string, useFlatCompaction bool) (*asyncFlushInfo, error) {
+func (s *Shard) writeSSTableAsync(points []types.MemPoint, sstSeq uint64, dataDir string, useFlatCompaction bool) (*asyncFlushInfo, error) {
 	finalPath := filepath.Join(dataDir, fmt.Sprintf("sst_%d.bin", sstSeq))
 	tmpPath := filepath.Join(dataDir, fmt.Sprintf(".sst_%d.bin.tmp", sstSeq))
 
@@ -306,7 +316,17 @@ func (s *Shard) writeSSTableAsync(points []types.InternalPoint, sstSeq uint64, d
 		return nil, fmt.Errorf("create sstable writer: %w", err)
 	}
 
-	if err := w.WritePoints(points); err != nil {
+	// 批量解码 MemPoint → InternalPoint
+	ips := make([]types.InternalPoint, len(points))
+	for i, mp := range points {
+		ip, err := types.MemPointToInternal(mp)
+		if err != nil {
+			_ = w.Close()
+			return nil, fmt.Errorf("decode mempoint %d: %w", i, err)
+		}
+		ips[i] = ip
+	}
+	if err := w.WritePoints(ips); err != nil {
 		_ = w.Close()
 		return nil, fmt.Errorf("write points: %w", err)
 	}
@@ -357,7 +377,7 @@ func (s *Shard) writeSSTableAsync(points []types.InternalPoint, sstSeq uint64, d
 }
 
 // calcPointTimeRange 计算 points 的时间范围。
-func (s *Shard) calcPointTimeRange(points []types.InternalPoint) (int64, int64) {
+func (s *Shard) calcPointTimeRange(points []types.MemPoint) (int64, int64) {
 	minTime := int64(0)
 	maxTime := int64(0)
 	for i, p := range points {

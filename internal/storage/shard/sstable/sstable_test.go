@@ -383,16 +383,16 @@ func TestWriter_FieldTypes(t *testing.T) {
 	}
 
 	row := rows[0]
-	if fv, ok := row.Fields["float_val"]; !ok || fv.GetValue() == nil {
+	if fv := row.GetFieldValue("float_val"); fv == nil || fv.GetValue() == nil {
 		t.Errorf("missing or nil float_val")
 	}
-	if fv, ok := row.Fields["int_val"]; !ok || fv.GetValue() == nil {
+	if fv := row.GetFieldValue("int_val"); fv == nil || fv.GetValue() == nil {
 		t.Errorf("missing or nil int_val")
 	}
-	if fv, ok := row.Fields["str_val"]; !ok || fv.GetValue() == nil {
+	if fv := row.GetFieldValue("str_val"); fv == nil || fv.GetValue() == nil {
 		t.Errorf("missing or nil str_val")
 	}
-	if fv, ok := row.Fields["bool_val"]; !ok || fv.GetValue() == nil {
+	if fv := row.GetFieldValue("bool_val"); fv == nil || fv.GetValue() == nil {
 		t.Errorf("missing or nil bool_val")
 	}
 }
@@ -487,7 +487,7 @@ func TestWriter_AppendZeroValue(t *testing.T) {
 	}
 
 	// 验证零值字段存在
-	if _, ok := rows[0].Fields["usage"]; !ok {
+	if rows[0].GetFieldValue("usage") == nil {
 		t.Errorf("missing usage field")
 	}
 }

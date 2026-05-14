@@ -28,8 +28,8 @@ func DefaultMemTableConfig() *MemTableConfig {
 // 写入路径仅操作 active（持锁），flush 在后台 goroutine 中处理 passive。
 type MemTable struct {
 	mu          sync.RWMutex
-	active      []types.InternalPoint
-	passive     []types.InternalPoint
+	active      []types.MemPoint
+	passive     []types.MemPoint
 	flushing    atomic.Bool
 	maxSize     int64
 	maxCount    int
@@ -42,7 +42,7 @@ type MemTable struct {
 // NewMemTable 创建新的 MemTable 实例。
 func NewMemTable(cfg *MemTableConfig) *MemTable {
 	return &MemTable{
-		active:      make([]types.InternalPoint, 0, 1024),
+		active:      make([]types.MemPoint, 0, 1024),
 		maxSize:     cfg.MaxSize,
 		maxCount:    int(cfg.MaxCount),
 		idleTimeout: time.Duration(cfg.IdleDurationNanos),
@@ -50,19 +50,12 @@ func NewMemTable(cfg *MemTableConfig) *MemTable {
 	}
 }
 
-// Write 写入 InternalPoint 到 active。
-func (m *MemTable) Write(ip types.InternalPoint) error {
+// Write 写入 MemPoint 到 active。直接接管 FieldData 所有权，无需拷贝。
+func (m *MemTable) Write(mp types.MemPoint) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	fields := make([]types.InternalField, len(ip.Fields))
-	copy(fields, ip.Fields)
-
-	m.active = append(m.active, types.InternalPoint{
-		Timestamp: ip.Timestamp,
-		Fields:    fields,
-		Sid:       ip.Sid,
-	})
+	m.active = append(m.active, mp)
 	m.activeCount++
 	m.lastWrite = time.Now()
 
@@ -121,7 +114,7 @@ func (m *MemTable) shouldSwapUnsafe() bool {
 
 // Flush 将 active 交换到 passive 并返回 passive（向后兼容）。
 // 调用者应确保当前无 flush 进行中。
-func (m *MemTable) Flush() []types.InternalPoint {
+func (m *MemTable) Flush() []types.MemPoint {
 	return m.Swap()
 }
 
@@ -129,7 +122,7 @@ func (m *MemTable) Flush() []types.InternalPoint {
 //
 // 如果 passive 仍有未处理数据（上次 swap 未 clear/merge），会先合并回 active 再 swap，
 // 确保数据不丢失。正常流程中 passive 应在 swap 前已被 ClearPassive 或 MergePassiveBack 清空。
-func (m *MemTable) Swap() []types.InternalPoint {
+func (m *MemTable) Swap() []types.MemPoint {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -147,7 +140,7 @@ func (m *MemTable) Swap() []types.InternalPoint {
 	}
 
 	m.passive = m.active
-	m.active = make([]types.InternalPoint, 0, 1024)
+	m.active = make([]types.MemPoint, 0, 1024)
 	m.activeCount = 0
 	m.sorted = false
 	m.flushing.Store(true)
@@ -246,44 +239,54 @@ func (m *MemTable) IdleTimeout() time.Duration {
 
 // MemTableIterator 迭代器，二路归并 active 和 passive。
 type MemTableIterator struct {
-	active     []types.InternalPoint
-	passive    []types.InternalPoint
+	active     []types.MemPoint
+	passive    []types.MemPoint
 	idxA       int // active 中下一条待读取的位置
 	idxP       int // passive 中下一条待读取的位置
 	current    types.InternalPoint
 	hasCurrent bool
+	err        error
 }
 
-// Next 移动到下一个条目（按 timestamp 升序归并）。
+// Next 移动到下一个条目（按 timestamp 升序归并），惰性解码 MemPoint → InternalPoint。
 func (it *MemTableIterator) Next() bool {
+	var mp types.MemPoint
 	aHas := it.idxA < len(it.active)
 	pHas := it.idxP < len(it.passive)
 
 	if aHas && pHas {
 		if it.active[it.idxA].Timestamp <= it.passive[it.idxP].Timestamp {
-			it.current = it.active[it.idxA]
+			mp = it.active[it.idxA]
 			it.idxA++
 		} else {
-			it.current = it.passive[it.idxP]
+			mp = it.passive[it.idxP]
 			it.idxP++
 		}
-		it.hasCurrent = true
-		return true
-	}
-	if aHas {
-		it.current = it.active[it.idxA]
+	} else if aHas {
+		mp = it.active[it.idxA]
 		it.idxA++
-		it.hasCurrent = true
-		return true
-	}
-	if pHas {
-		it.current = it.passive[it.idxP]
+	} else if pHas {
+		mp = it.passive[it.idxP]
 		it.idxP++
-		it.hasCurrent = true
-		return true
+	} else {
+		it.hasCurrent = false
+		return false
 	}
-	it.hasCurrent = false
-	return false
+
+	ip, err := types.MemPointToInternal(mp)
+	if err != nil {
+		it.err = err
+		it.hasCurrent = false
+		return false
+	}
+	it.current = ip
+	it.hasCurrent = true
+	return true
+}
+
+// Err 返回迭代过程中的解码错误。
+func (it *MemTableIterator) Err() error {
+	return it.err
 }
 
 // Point 返回当前位置的 InternalPoint。

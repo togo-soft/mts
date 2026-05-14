@@ -192,16 +192,16 @@ func TestReader_ReadRange_AllFields(t *testing.T) {
 	}
 
 	row := rows[0]
-	if row.Fields["float_val"] == nil {
+	if row.GetFieldValue("float_val") == nil {
 		t.Error("float_val should be present")
 	}
-	if row.Fields["int_val"] == nil {
+	if row.GetFieldValue("int_val") == nil {
 		t.Error("int_val should be present")
 	}
-	if row.Fields["str_val"] == nil {
+	if row.GetFieldValue("str_val") == nil {
 		t.Error("str_val should be present")
 	}
-	if row.Fields["bool_val"] == nil {
+	if row.GetFieldValue("bool_val") == nil {
 		t.Error("bool_val should be present")
 	}
 }

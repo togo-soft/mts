@@ -58,8 +58,8 @@ func testWriteReadRoundtrip(t *testing.T, algo CompressionAlgorithm, numPoints i
 
 	got := make(map[int64]int64)
 	for _, row := range rows {
-		if row.Fields != nil && row.Fields["value"] != nil {
-			got[row.Timestamp] = row.Fields["value"].GetIntValue()
+		if row.Fields != nil && row.GetFieldValue("value") != nil {
+			got[row.Timestamp] = row.GetFieldValue("value").GetIntValue()
 		}
 	}
 
@@ -157,16 +157,16 @@ func TestCompressionRoundtrip_MixedFieldTypes(t *testing.T) {
 			t.Errorf("row[%d] should have fields", i)
 			continue
 		}
-		if row.Fields["float_val"] == nil {
+		if row.GetFieldValue("float_val") == nil {
 			t.Errorf("row[%d] missing float_val", i)
 		}
-		if row.Fields["int_val"] == nil {
+		if row.GetFieldValue("int_val") == nil {
 			t.Errorf("row[%d] missing int_val", i)
 		}
-		if row.Fields["str_val"] == nil {
+		if row.GetFieldValue("str_val") == nil {
 			t.Errorf("row[%d] missing str_val", i)
 		}
-		if row.Fields["bool_val"] == nil {
+		if row.GetFieldValue("bool_val") == nil {
 			t.Errorf("row[%d] missing bool_val", i)
 		}
 	}

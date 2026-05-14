@@ -280,25 +280,25 @@ func TestIterator_ProjectedFields(t *testing.T) {
 	if row == nil {
 		t.Fatal("expected non-nil row")
 	}
-	if _, ok := row.Fields["cpu"]; !ok {
+	if row.GetFieldValue("cpu") == nil {
 		t.Error("expected cpu field")
 	}
-	if _, ok := row.Fields["mem"]; ok {
+	if row.GetFieldValue("mem") != nil {
 		t.Error("mem should not be present with field projection")
 	}
-	if _, ok := row.Fields["disk"]; ok {
+	if row.GetFieldValue("disk") != nil {
 		t.Error("disk should not be present with field projection")
 	}
-	if row.Fields["cpu"].GetFloatValue() != float64(1.5) {
-		t.Errorf("expected cpu=1.5, got %v", row.Fields["cpu"])
+	if row.GetFieldValue("cpu").GetFloatValue() != float64(1.5) {
+		t.Errorf("expected cpu=1.5, got %v", row.GetFieldValue("cpu"))
 	}
 
 	if !it.Next() {
 		t.Fatal("expected second row")
 	}
 	row2 := it.Point()
-	if row2.Fields["cpu"].GetFloatValue() != float64(2.0) {
-		t.Errorf("expected cpu=2.0, got %v", row2.Fields["cpu"])
+	if row2.GetFieldValue("cpu").GetFloatValue() != float64(2.0) {
+		t.Errorf("expected cpu=2.0, got %v", row2.GetFieldValue("cpu"))
 	}
 }
 

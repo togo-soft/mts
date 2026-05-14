@@ -167,6 +167,8 @@ func (cm *Manager) Compact(ctx context.Context) (string, []string, error) {
 		batchLimit = twoPhaseThreshold
 	}
 	if len(sstFiles) > batchLimit {
+		// 释放被截断部分的引用，防止引用泄漏
+		cm.ReleaseSSTRefs(sstFiles[batchLimit:])
 		sstFiles = sstFiles[:batchLimit]
 	}
 

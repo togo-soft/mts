@@ -271,13 +271,13 @@ func TestIterator_FieldProjection(t *testing.T) {
 
 	// 验证 field3 被过滤掉
 	for _, row := range got {
-		if _, ok := row.Fields["field3"]; ok {
+		if row.GetFieldValue("field3") != nil {
 			t.Error("expected field3 to be filtered out")
 		}
-		if _, ok := row.Fields["field1"]; !ok {
+		if row.GetFieldValue("field1") == nil {
 			t.Error("expected field1 to be present")
 		}
-		if _, ok := row.Fields["field2"]; !ok {
+		if row.GetFieldValue("field2") == nil {
 			t.Error("expected field2 to be present")
 		}
 	}

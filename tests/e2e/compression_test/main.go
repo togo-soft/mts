@@ -217,11 +217,11 @@ func testMultipleFieldTypes(name string, opt func(*framework.Config)) bool {
 
 	errors := 0
 	for i, row := range rows {
-		if row.Fields["usage"] == nil {
+		if row.GetFieldValue("usage") == nil {
 			fmt.Printf("  Row %d: missing 'usage' field\n", i)
 			errors++
 		}
-		if row.Fields["count"] == nil {
+		if row.GetFieldValue("count") == nil {
 			fmt.Printf("  Row %d: missing 'count' field\n", i)
 			errors++
 		}

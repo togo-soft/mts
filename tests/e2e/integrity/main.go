@@ -127,8 +127,8 @@ func main() {
 
 		// 验证 fields
 		for name, expectedVal := range expected.Fields {
-			actualVal, ok := row.Fields[name]
-			if !ok {
+			actualVal := row.GetFieldValue(name)
+			if actualVal == nil {
 				fmt.Printf("row %d: missing field %s\n", i, name)
 				errorCount++
 				if errorCount > 10 {

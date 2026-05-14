@@ -41,7 +41,6 @@ func (it *Iterator) Point() *types.PointRow {
 
 	row := &types.PointRow{
 		Timestamp: it.blockTimestamps[it.pos],
-		Fields:    make(map[string]*types.FieldValue),
 	}
 	if it.pos < len(it.blockSids) {
 		row.Sid = it.blockSids[it.pos]
@@ -51,6 +50,7 @@ func (it *Iterator) Point() *types.PointRow {
 	if it.blockFieldValues == nil {
 		it.blockFieldValues = make(map[string][]*types.FieldValue)
 	}
+	row.Fields = make([]*types.FieldEntry, 0, len(it.blockFieldData))
 	for name, rawData := range it.blockFieldData {
 		if _, ok := it.blockFieldValues[name]; !ok {
 			vals, err := it.reader.decodeFieldSectionBlockFromData(name, rawData, it.blockRowCount)
@@ -61,7 +61,7 @@ func (it *Iterator) Point() *types.PointRow {
 			it.blockFieldValues[name] = vals
 		}
 		if vals := it.blockFieldValues[name]; vals != nil && it.pos < len(vals) {
-			row.Fields[name] = vals[it.pos]
+			row.Fields = append(row.Fields, &types.FieldEntry{Key: name, Value: vals[it.pos]})
 		}
 	}
 

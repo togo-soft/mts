@@ -144,7 +144,7 @@ func (cm *Manager) Merge(ctx context.Context, task *Task) error {
 
 		ip := types.InternalPoint{
 			Timestamp: row.Timestamp,
-			Fields:    types.MapToInternalFields(row.Fields),
+			Fields:    types.FieldEntryToInternalFields(row.Fields),
 			Sid:       row.Sid,
 		}
 		pointsToWrite = append(pointsToWrite, ip)

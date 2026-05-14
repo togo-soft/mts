@@ -185,7 +185,7 @@ func TestWriter_DictEncodingRoundTrip(t *testing.T) {
 	var count int
 	for it.Next() {
 		row := it.Point()
-		if row.Fields["status"] == nil {
+		if row.GetFieldValue("status") == nil {
 			t.Errorf("row %d missing status field", count)
 		}
 		count++
@@ -285,7 +285,7 @@ func TestWriter_DictEncodingFallback(t *testing.T) {
 	count := 0
 	for it.Next() {
 		row := it.Point()
-		if row.Fields["uuid"] == nil {
+		if row.GetFieldValue("uuid") == nil {
 			t.Errorf("row %d missing uuid field", count)
 		}
 		count++

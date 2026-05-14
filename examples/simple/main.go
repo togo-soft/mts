@@ -115,7 +115,7 @@ func main() {
 	fmt.Println("前 5 条数据:")
 	for i := 0; i < 5 && i < len(rows); i++ {
 		row := rows[i]
-		fmt.Printf("  [%d] host=%s usage=%.1f\n", row.Timestamp, row.Tags["host"], row.Fields["usage"].GetFloatValue())
+		fmt.Printf("  [%d] host=%s usage=%.1f\n", row.Timestamp, row.Tags["host"], row.GetFieldValue("usage").GetFloatValue())
 	}
 
 	fmt.Println("\n=== 示例完成 ===")

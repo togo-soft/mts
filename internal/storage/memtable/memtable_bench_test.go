@@ -19,7 +19,7 @@ func BenchmarkMemTableWrite(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p.Timestamp = int64(i)
-		_ = mt.Write(types.PointToInternal(p, 0))
+		_ = mt.Write(types.PointToMemPoint(p, 0))
 	}
 }
 
@@ -37,7 +37,7 @@ func BenchmarkMemTableWriteParallel(b *testing.B) {
 				Tags:        map[string]string{"host": "server1"},
 				Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 			}
-			_ = mt.Write(types.PointToInternal(p, 0))
+			_ = mt.Write(types.PointToMemPoint(p, 0))
 		}
 	})
 }
@@ -54,7 +54,7 @@ func BenchmarkMemTableFlush(b *testing.B) {
 				Tags:        map[string]string{"host": "server1"},
 				Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(j))},
 			}
-			_ = mts[i].Write(types.PointToInternal(p, 0))
+			_ = mts[i].Write(types.PointToMemPoint(p, 0))
 		}
 	}
 
@@ -74,7 +74,7 @@ func BenchmarkMemTableShouldFlush(b *testing.B) {
 			Tags:        map[string]string{"host": "server1"},
 			Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		_ = mt.Write(types.PointToInternal(p, 0))
+		_ = mt.Write(types.PointToMemPoint(p, 0))
 	}
 
 	b.ResetTimer()

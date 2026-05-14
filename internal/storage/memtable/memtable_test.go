@@ -18,7 +18,7 @@ func TestMemTable_Write(t *testing.T) {
 		Fields:      map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
 
-	if err := m.Write(types.PointToInternal(p, 0)); err != nil {
+	if err := m.Write(types.PointToMemPoint(p, 0)); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -35,13 +35,13 @@ func TestMemTable_SortKey(t *testing.T) {
 	p2 := &types.Point{Measurement: "cpu", Timestamp: now}
 	p3 := &types.Point{Measurement: "cpu", Timestamp: now + 200}
 
-	if err := m.Write(types.PointToInternal(p2, 0)); err != nil {
+	if err := m.Write(types.PointToMemPoint(p2, 0)); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
-	if err := m.Write(types.PointToInternal(p1, 0)); err != nil {
+	if err := m.Write(types.PointToMemPoint(p1, 0)); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
-	if err := m.Write(types.PointToInternal(p3, 0)); err != nil {
+	if err := m.Write(types.PointToMemPoint(p3, 0)); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestMemTable_ShouldFlush(t *testing.T) {
 	}
 
 	for !m.ShouldFlush() {
-		if err := m.Write(types.PointToInternal(p, 0)); err != nil {
+		if err := m.Write(types.PointToMemPoint(p, 0)); err != nil {
 			t.Fatalf("Write failed: %v", err)
 		}
 	}
@@ -104,7 +104,7 @@ func TestMemTable_WriteOutOfOrder(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := m.Write(types.PointToInternal(p, 0)); err != nil {
+		if err := m.Write(types.PointToMemPoint(p, 0)); err != nil {
 			t.Fatalf("Write failed: %v", err)
 		}
 	}
@@ -115,7 +115,7 @@ func TestMemTable_WriteOutOfOrder(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(0.5)},
 	}
-	if err := m.Write(types.PointToInternal(p, 0)); err != nil {
+	if err := m.Write(types.PointToMemPoint(p, 0)); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func TestMemTable_ShouldFlush_IdleTimeout(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(85.5)},
 	}
-	if err := m.Write(types.PointToInternal(p, 0)); err != nil {
+	if err := m.Write(types.PointToMemPoint(p, 0)); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -168,7 +168,7 @@ func TestMemTable_FlushMultipleTimes(t *testing.T) {
 				Tags:      map[string]string{"host": "server1"},
 				Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 			}
-			if err := m.Write(types.PointToInternal(p, 0)); err != nil {
+			if err := m.Write(types.PointToMemPoint(p, 0)); err != nil {
 				t.Fatalf("Write failed: %v", err)
 			}
 		}
@@ -217,7 +217,7 @@ func TestMemTable_Swap(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	passive := m.Swap()
@@ -241,7 +241,7 @@ func TestMemTable_SwapThenWrite(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	_ = m.Swap()
@@ -252,7 +252,7 @@ func TestMemTable_SwapThenWrite(t *testing.T) {
 			Timestamp: now + int64(i+3)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i + 3))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	if m.Count() != 3 {
@@ -279,7 +279,7 @@ func TestMemTable_ClearPassive(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	_ = m.Swap()
@@ -307,7 +307,7 @@ func TestMemTable_IteratorMergesActivePassive(t *testing.T) {
 			Timestamp: now + ts*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// Swap → passive = {t=0, t=2, t=4}
@@ -319,7 +319,7 @@ func TestMemTable_IteratorMergesActivePassive(t *testing.T) {
 			Timestamp: now + ts*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// Iterator 归并: t=0,1,2,3,4,5
@@ -351,7 +351,7 @@ func TestMemTable_MergePassiveBack(t *testing.T) {
 			Timestamp: now + ts*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// Swap
@@ -364,7 +364,7 @@ func TestMemTable_MergePassiveBack(t *testing.T) {
 			Timestamp: now + ts*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// 模拟 flush 失败：合并 passive 回 active
@@ -433,7 +433,7 @@ func TestMemTable_ActiveFull(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	if m.ActiveFull() {
 		t.Error("5 points should not trigger ActiveFull with MaxCount=10")
@@ -445,7 +445,7 @@ func TestMemTable_ActiveFull(t *testing.T) {
 			Timestamp: now + int64(i+5)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	if !m.ActiveFull() {
 		t.Error("25 points should trigger ActiveFull with MaxCount=10")
@@ -470,7 +470,7 @@ func TestMemTable_ConcurrentWriteSwap(t *testing.T) {
 					Timestamp: now + int64(gid*writesPerGoroutine+i)*1e3,
 					Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 				}
-				_ = m.Write(types.PointToInternal(p, 0))
+				_ = m.Write(types.PointToMemPoint(p, 0))
 			}
 		}(g)
 	}
@@ -516,7 +516,7 @@ func TestMemTable_SwapDoubleSwapDataSafety(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// 第一次 Swap: active(3) → passive(3)
@@ -531,7 +531,7 @@ func TestMemTable_SwapDoubleSwapDataSafety(t *testing.T) {
 			Timestamp: now + int64(i+3)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i + 3))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// 第二次 Swap: 旧 passive(3) 合并回 active → active(5) → passive(5)
@@ -555,7 +555,7 @@ func TestMemTable_ShouldSwap_WhenFlushing(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// 确认 ShouldSwap 返回 true
@@ -591,7 +591,7 @@ func TestMemTable_ActiveCount(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	if m.ActiveCount() != 3 {
@@ -619,7 +619,7 @@ func TestMemTable_Iterator_OnlyPassive(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	_ = m.Swap()
@@ -657,7 +657,7 @@ func TestMemTable_SortMethod(t *testing.T) {
 			Timestamp: now + ts*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// Write 内部应已排序，但显式调用 Sort 应幂等
@@ -697,7 +697,7 @@ func TestMemTable_SortMethod_SingleElement(t *testing.T) {
 		Timestamp: now,
 		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)},
 	}
-	_ = m.Write(types.PointToInternal(p, 0))
+	_ = m.Write(types.PointToMemPoint(p, 0))
 
 	// 单元素 Sort 不应 panic
 	m.Sort()
@@ -718,7 +718,7 @@ func TestMemTable_SortAfterSwap(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	_ = m.Swap()
 	m.ClearPassive()
@@ -729,7 +729,7 @@ func TestMemTable_SortAfterSwap(t *testing.T) {
 			Timestamp: now + ts*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(ts))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 
 	// 验证 active 有序（passive 已清空，仅 active 有数据）
@@ -759,7 +759,7 @@ func TestMemTable_WriteUnsortedActive(t *testing.T) {
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
-		_ = m.Write(types.PointToInternal(p, 0))
+		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	_ = m.Swap()
 	m.ClearPassive()
@@ -769,7 +769,7 @@ func TestMemTable_WriteUnsortedActive(t *testing.T) {
 		Timestamp: now + 100*1e9,
 		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(100.0)},
 	}
-	_ = m.Write(types.PointToInternal(p, 0))
+	_ = m.Write(types.PointToMemPoint(p, 0))
 
 	// sorted 应已被 Write 设置为 true（sortActive 内部设置）
 	if !m.sorted {
@@ -781,7 +781,7 @@ func TestMemTable_WriteUnsortedActive(t *testing.T) {
 		Timestamp: now + 50*1e9,
 		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(50.0)},
 	}
-	_ = m.Write(types.PointToInternal(p2, 0))
+	_ = m.Write(types.PointToMemPoint(p2, 0))
 
 	// 验证 active 有序
 	iter := m.Iterator()
@@ -813,7 +813,7 @@ func TestMemTable_ShouldSwap_IdleTimeout_ZeroMaxCount(t *testing.T) {
 		Timestamp: now,
 		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)},
 	}
-	_ = m.Write(types.PointToInternal(p, 0))
+	_ = m.Write(types.PointToMemPoint(p, 0))
 
 	// 刚写入不应触发
 	if m.ShouldSwap() {

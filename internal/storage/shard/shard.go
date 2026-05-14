@@ -562,7 +562,7 @@ func (s *Shard) ReplayWAL() error {
 	s.replaying = true
 
 	err := s.wal.Replay(func(data []byte) error {
-		ip, err := deserializeInternalPoint(data)
+		mp, err := deserializeFromWAL(data)
 		if err != nil {
 			slog.Warn("WAL replay: failed to deserialize point, skipping", "error", err)
 			return nil
@@ -570,10 +570,10 @@ func (s *Shard) ReplayWAL() error {
 
 		// 预热 SeriesStore 缓存（Tags 已在原始写入时通过 AllocateSID 持久化到 boltDB）
 		if s.seriesStore != nil {
-			s.seriesStore.GetTagsBySID(ip.Sid)
+			s.seriesStore.GetTagsBySID(mp.Sid)
 		}
 
-		if err := s.memTable.Write(ip); err != nil {
+		if err := s.memTable.Write(mp); err != nil {
 			return fmt.Errorf("WAL replay: write to memtable: %w", err)
 		}
 

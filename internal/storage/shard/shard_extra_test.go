@@ -95,7 +95,7 @@ func TestShardIterator_FilterRow(t *testing.T) {
 	row := &types.PointRow{
 		Timestamp: 500000000, // 0.5s
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]*types.FieldValue{},
+		Fields:    []*types.FieldEntry{},
 	}
 	filtered := iter.filterRow(row)
 	if filtered == nil {
@@ -106,7 +106,7 @@ func TestShardIterator_FilterRow(t *testing.T) {
 	outOfRangeRow := &types.PointRow{
 		Timestamp: time.Hour.Nanoseconds() + 1, // 超过 endTime
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]*types.FieldValue{},
+		Fields:    []*types.FieldEntry{},
 	}
 	_ = iter.filterRow(outOfRangeRow)
 	// filterRow 会递归调用 Next，所以这里会跳过

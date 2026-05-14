@@ -35,7 +35,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"google.golang.org/grpc/codes"
@@ -86,40 +85,6 @@ func New(eng *engine.Engine) *MicroTSService {
 	}
 }
 
-// fieldValueToAny 将 types.FieldValue 转换为 interface{}。
-func fieldValueToAny(fv *types.FieldValue) (any, error) {
-	switch v := fv.Value.(type) {
-	case *types.FieldValue_IntValue:
-		return v.IntValue, nil
-	case *types.FieldValue_FloatValue:
-		return v.FloatValue, nil
-	case *types.FieldValue_StringValue:
-		return v.StringValue, nil
-	case *types.FieldValue_BoolValue:
-		return v.BoolValue, nil
-	default:
-		return nil, fmt.Errorf("unknown field value type")
-	}
-}
-
-// anyToFieldValue 将 interface{} 转换为 types.FieldValue。
-func anyToFieldValue(v any) (*types.FieldValue, error) {
-	switch val := v.(type) {
-	case *types.FieldValue:
-		return val, nil
-	case int64:
-		return &types.FieldValue{Value: &types.FieldValue_IntValue{IntValue: val}}, nil
-	case float64:
-		return &types.FieldValue{Value: &types.FieldValue_FloatValue{FloatValue: val}}, nil
-	case string:
-		return &types.FieldValue{Value: &types.FieldValue_StringValue{StringValue: val}}, nil
-	case bool:
-		return &types.FieldValue{Value: &types.FieldValue_BoolValue{BoolValue: val}}, nil
-	default:
-		return nil, fmt.Errorf("unsupported field type: %T", v)
-	}
-}
-
 // writeRequestToPoint 将 types.WriteRequest 转换为 types.Point。
 func writeRequestToPoint(req *types.WriteRequest) (*types.Point, error) {
 	return &types.Point{
@@ -137,19 +102,10 @@ func pointRowToProto(row *types.PointRow) (*types.Row, error) {
 		return nil, nil
 	}
 
-	fields := make(map[string]*types.FieldValue, len(row.Fields))
-	for name, v := range row.Fields {
-		fv, err := anyToFieldValue(v)
-		if err != nil {
-			return nil, fmt.Errorf("field %s: %w", name, err)
-		}
-		fields[name] = fv
-	}
-
 	return &types.Row{
 		Timestamp: row.Timestamp,
 		Tags:      row.Tags,
-		Fields:    fields,
+		Fields:    row.Fields,
 	}, nil
 }
 

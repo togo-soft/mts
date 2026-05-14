@@ -368,9 +368,9 @@ func TestFieldValueConversion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fv, err := anyToFieldValue(tt.value)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			fv := types.NewFieldValue(tt.value)
+			if fv == nil {
+				t.Fatalf("unexpected nil for %v", tt.value)
 			}
 
 			// 验证包装的值
@@ -378,15 +378,8 @@ func TestFieldValueConversion(t *testing.T) {
 				t.Errorf("field value check failed for %v", tt.value)
 			}
 
-			// 转换回来验证
-			val, err := fieldValueToAny(fv)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if val != tt.value {
-				t.Errorf("expected %v, got %v", tt.value, val)
-			}
+			// GetValue 返回的是 oneof wrapper，不是原始 Go 类型
+			_ = fv.GetValue()
 		})
 	}
 }
@@ -428,7 +421,7 @@ func TestConversionToProtoPointRow(t *testing.T) {
 	row := &types.PointRow{
 		Timestamp: 1234567890,
 		Tags:      map[string]string{"tag1": "value1"},
-		Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(float64(1.0))},
+		Fields:    []*types.FieldEntry{{Key: "field1", Value: types.NewFieldValue(float64(1.0))}},
 	}
 
 	protoRow := toProtoPointRow(row)
@@ -455,16 +448,16 @@ func TestToProtoPointRow_Nil(t *testing.T) {
 }
 
 func TestAnyToFieldValue_Unsupported(t *testing.T) {
-	_, err := anyToFieldValue([]byte("unsupported"))
-	if err == nil {
-		t.Error("expected error for unsupported type")
+	fv := types.NewFieldValue([]byte("unsupported"))
+	if fv != nil {
+		t.Error("expected nil for unsupported type")
 	}
 }
 
 func TestFieldValueToAny_Unsupported(t *testing.T) {
-	_, err := fieldValueToAny(&types.FieldValue{})
-	if err == nil {
-		t.Error("expected error for unsupported field value")
+	val := (&types.FieldValue{}).GetValue()
+	if val != nil {
+		t.Error("expected nil for empty field value")
 	}
 }
 
@@ -678,22 +671,22 @@ func TestWriteRequestToPoint_WithFields(t *testing.T) {
 }
 
 func TestPointRowToProto_WithData(t *testing.T) {
-	// pointRowToProto converts PointRow to Row by calling anyToFieldValue on each field
-	// But anyToFieldValue expects native types, not *types.FieldValue
-	// So this function has a bug and will return an error for non-nil fields
 	row := &types.PointRow{
 		Timestamp: 1234567890,
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(float64(85.5))},
+		Fields:    []*types.FieldEntry{{Key: "value", Value: types.NewFieldValue(float64(85.5))}},
 	}
 
-	// This will fail because anyToFieldValue doesn't support *types.FieldValue
 	protoRow, err := pointRowToProto(row)
-	if err == nil {
-		t.Log("pointRowToProto with *types.FieldValue returned no error - this may indicate dead code")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	// The function is buggy - it should handle *types.FieldValue but doesn't
-	_ = protoRow
+	if protoRow == nil {
+		t.Fatal("expected non-nil proto row")
+	}
+	if len(protoRow.Fields) != 1 {
+		t.Errorf("expected 1 field, got %d", len(protoRow.Fields))
+	}
 }
 
 func TestMicroTSService_Write_EngineError(t *testing.T) {
@@ -899,15 +892,19 @@ func TestPointRowToProto_WithNilField(t *testing.T) {
 	row := &types.PointRow{
 		Timestamp: 1234567890,
 		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]*types.FieldValue{"value": nil},
+		Fields:    []*types.FieldEntry{{Key: "value", Value: nil}},
 	}
 
 	protoRow, err := pointRowToProto(row)
-	// nil field value should trigger anyToFieldValue error
-	if err == nil {
-		t.Log("pointRowToProto with nil field value returned no error - this may indicate dead code")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	_ = protoRow
+	if protoRow == nil {
+		t.Fatal("expected non-nil proto row")
+	}
+	if len(protoRow.Fields) != 1 || protoRow.Fields[0].Value != nil {
+		t.Error("expected nil field value in proto row")
+	}
 }
 
 func TestPointRowToProto_WithUnknownFieldType(t *testing.T) {

@@ -60,17 +60,12 @@ func (s *Shard) Write(point *types.Point) error {
 		return fmt.Errorf("validate field types: %w", err)
 	}
 
-	// 3. 转换为 InternalPoint
-	ip := types.PointToInternal(point, sid)
+	// 3. 转换为 MemPoint（字段直接序列化为紧凑 []byte）
+	mp := types.PointToMemPoint(point, sid)
 
-	// 4. 写入 WAL（紧凑 InternalPoint 格式，不含 Tags）
+	// 4. 写入 WAL（WAL 完整格式 = Version + TS + SID + FieldData）
 	if s.wal != nil {
-		data, err := serializeInternalPoint(ip)
-		if err != nil {
-			metrics.Incr(metrics.WriteErrors, 1)
-			s.mu.Unlock()
-			return fmt.Errorf("serialize point: %w", err)
-		}
+		data := serializePointForWAL(mp.Timestamp, mp.Sid, mp.FieldData)
 		if _, err := s.wal.Write(data); err != nil {
 			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
@@ -78,8 +73,8 @@ func (s *Shard) Write(point *types.Point) error {
 		}
 	}
 
-	// 5. 写入 MemTable
-	if err := s.memTable.Write(ip); err != nil {
+	// 5. 写入 MemTable（接管 FieldData 所有权，零拷贝）
+	if err := s.memTable.Write(mp); err != nil {
 		metrics.Incr(metrics.WriteErrors, 1)
 		s.mu.Unlock()
 		return fmt.Errorf("write to memtable: %w", err)
@@ -136,7 +131,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	}
 
 	// 预序列化所有 point
-	ips := make([]types.InternalPoint, 0, len(points))
+	mps := make([]types.MemPoint, 0, len(points))
 	walData := make([][]byte, 0, len(points))
 
 	for i, point := range points {
@@ -150,17 +145,11 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 			s.mu.Unlock()
 			return i, fmt.Errorf("validate field types for point %d: %w", i, err)
 		}
-		ip := types.PointToInternal(point, sid)
-		ips = append(ips, ip)
+		mp := types.PointToMemPoint(point, sid)
+		mps = append(mps, mp)
 
 		if s.wal != nil {
-			data, err := serializeInternalPoint(ip)
-			if err != nil {
-				metrics.Incr(metrics.WriteErrors, 1)
-				s.mu.Unlock()
-				return i, fmt.Errorf("serialize point %d: %w", i, err)
-			}
-			walData = append(walData, data)
+			walData = append(walData, serializePointForWAL(mp.Timestamp, mp.Sid, mp.FieldData))
 		}
 	}
 
@@ -174,8 +163,8 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	}
 
 	// 批量写入 MemTable
-	for i, ip := range ips {
-		if err := s.memTable.Write(ip); err != nil {
+	for i, mp := range mps {
+		if err := s.memTable.Write(mp); err != nil {
 			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
 			return i, fmt.Errorf("write to memtable at %d: %w", i, err)
@@ -183,7 +172,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	}
 
 	metrics.Incr(metrics.WriteBatchTotal, 1)
-	metrics.Incr(metrics.WriteTotal, int64(len(ips)))
+	metrics.Incr(metrics.WriteTotal, int64(len(mps)))
 
 	s.mu.Unlock()
 
@@ -192,7 +181,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 		s.tryTriggerAsyncFlush()
 	}
 
-	return len(ips), nil
+	return len(mps), nil
 }
 
 // listSSTableFiles 列出 Shard 中所有可读的 SSTable 文件路径。

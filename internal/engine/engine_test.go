@@ -233,13 +233,13 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 
 	// 验证只有指定字段
 	row := rows[0]
-	if _, ok := row.Fields["usage"]; !ok {
+	if row.GetFieldValue("usage") == nil {
 		t.Errorf("expected usage field")
 	}
-	if _, ok := row.Fields["count"]; !ok {
+	if row.GetFieldValue("count") == nil {
 		t.Errorf("expected count field")
 	}
-	if _, ok := row.Fields["temperature"]; ok {
+	if row.GetFieldValue("temperature") != nil {
 		t.Errorf("temperature field should not be present")
 	}
 }

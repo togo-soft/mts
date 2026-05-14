@@ -142,14 +142,14 @@ func (r *Reader) ReadAll(fields []string) ([]*types.PointRow, error) {
 	for i := range rowCount {
 		row := &types.PointRow{
 			Timestamp: timestamps[i],
-			Fields:    make(map[string]*types.FieldValue),
 		}
 		if i < len(sids) {
 			row.Sid = sids[i]
 		}
+		row.Fields = make([]*types.FieldEntry, 0, len(fields))
 		for _, name := range fields {
 			if vals, ok := decodedFields[name]; ok && i < len(vals) {
-				row.Fields[name] = vals[i]
+				row.Fields = append(row.Fields, &types.FieldEntry{Key: name, Value: vals[i]})
 			}
 		}
 		rows[i] = row

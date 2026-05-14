@@ -78,3 +78,13 @@ func (s *Shard) IsSSTUnused(path string) bool {
 	}
 	return ref.IsUnused()
 }
+
+// RefCount 返回指定路径的当前引用计数（用于调试）。
+func (s *Shard) RefCount(path string) int32 {
+	s.sstRefs.mu.Lock()
+	defer s.sstRefs.mu.Unlock()
+	if ref, ok := s.sstRefs.refs[path]; ok {
+		return ref.refCnt.Load()
+	}
+	return 0
+}

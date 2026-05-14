@@ -79,6 +79,41 @@ func serializeInternalPoint(ip types.InternalPoint) ([]byte, error) {
 	return buf, nil
 }
 
+// serializePointForWAL 将 ts + sid + FieldData 组装为完整 WAL 格式。
+// 格式: Version(1B) + Timestamp(8B) + Sid(8B) + FieldData
+func serializePointForWAL(ts int64, sid uint64, fieldData []byte) []byte {
+	size := 1 + 8 + 8 + len(fieldData)
+	buf := make([]byte, 0, size)
+	buf = append(buf, pointVersion)
+	var tmp [8]byte
+	binary.BigEndian.PutUint64(tmp[:], uint64(ts))
+	buf = append(buf, tmp[:]...)
+	binary.BigEndian.PutUint64(tmp[:], sid)
+	buf = append(buf, tmp[:]...)
+	buf = append(buf, fieldData...)
+	return buf
+}
+
+// deserializeFromWAL 从 WAL 完整格式解析出 MemPoint。
+// FieldData 需要 copy，因为 WAL replay 的 data 缓冲区会被重用。
+func deserializeFromWAL(data []byte) (types.MemPoint, error) {
+	if len(data) < 19 {
+		return types.MemPoint{}, fmt.Errorf("wal data too short: %d bytes", len(data))
+	}
+	if data[0] != pointVersion {
+		return types.MemPoint{}, fmt.Errorf("unsupported point version: %d (expected %d)", data[0], pointVersion)
+	}
+	ts := int64(binary.BigEndian.Uint64(data[1:9]))
+	sid := binary.BigEndian.Uint64(data[9:17])
+	fieldData := make([]byte, len(data)-17)
+	copy(fieldData, data[17:])
+	return types.MemPoint{
+		Timestamp: ts,
+		Sid:       sid,
+		FieldData: fieldData,
+	}, nil
+}
+
 func appendU16(buf []byte, v uint16) []byte {
 	var b [2]byte
 	binary.BigEndian.PutUint16(b[:], v)

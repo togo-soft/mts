@@ -33,6 +33,18 @@ message FieldValue {
   }
 }
 
+// 字段条目（键值对，用于替代 map<string, FieldValue>）
+//
+// 用于 PointRow 和 Row 消息的字段列表。
+// 相比 map，repeated FieldEntry 的优势：
+//   - 确定性遍历顺序
+//   - 更低的内存开销（无哈希表元数据）
+//   - 更好的缓存局部性
+message FieldEntry {
+  string     key   = 1;
+  FieldValue value = 2;
+}
+
 // 数据点
 //
 // Point 是写入时序数据库的基本数据单元。
@@ -99,8 +111,8 @@ message PointRow {
   // 标签键值对
   map<string, string> tags = 3;
 
-  // 字段值
-  map<string, FieldValue> fields = 4;
+  // 字段值（按名访问使用 GetField 辅助方法）
+  repeated FieldEntry fields = 4;
 }
 
 // ===================================
@@ -156,9 +168,9 @@ message QueryRangeResponse {
 
 // 一行数据（用于查询响应）
 message Row {
-  int64                   timestamp = 1;
-  map<string, string>     tags      = 2;
-  map<string, FieldValue> fields    = 3;
+  int64               timestamp = 1;
+  map<string, string> tags      = 2;
+  repeated FieldEntry fields    = 3;
 }
 
 // 列出 Measurement 请求

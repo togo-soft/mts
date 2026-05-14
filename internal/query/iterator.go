@@ -130,6 +130,9 @@ func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRan
 		si := shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
 		if si.Current() != nil {
 			q.heap = append(q.heap, si)
+		} else {
+			// 该 Shard 无匹配数据，释放其持有的 SSTable 引用
+			si.Close()
 		}
 	}
 	heap.Init(&q.heap)
@@ -152,6 +155,9 @@ func (q *Iterator) fetchNextValid() {
 		next := si.Next()
 		if next != nil {
 			heap.Push(&q.heap, si)
+		} else {
+			// Shard 已耗尽，释放其持有的 SSTable 引用
+			si.Close()
 		}
 
 		// row 为 nil 表示该 Shard 已完全耗尽
@@ -183,10 +189,15 @@ func (q *Iterator) projectFields(row *types.PointRow) *types.PointRow {
 	if len(q.req.Fields) == 0 {
 		return row
 	}
-	filtered := make(map[string]*types.FieldValue)
+	// 构建请求字段名集合用于快速匹配
+	fieldSet := make(map[string]bool, len(q.req.Fields))
 	for _, name := range q.req.Fields {
-		if v, ok := row.Fields[name]; ok {
-			filtered[name] = v
+		fieldSet[name] = true
+	}
+	filtered := make([]*types.FieldEntry, 0, len(q.req.Fields))
+	for _, f := range row.Fields {
+		if fieldSet[f.Key] {
+			filtered = append(filtered, f)
 		}
 	}
 	return &types.PointRow{
@@ -268,16 +279,20 @@ func (q *Iterator) Points() *types.PointRow {
 	return row
 }
 
-// Close 关闭迭代器。
+// Close 关闭迭代器，释放底层 ShardIterator 持有的 SSTable 引用。
 //
 // 返回：
 //   - error: 关闭失败时返回错误（当前总是返回 nil）
 //
 // 说明：
 //
-//	标记迭代器为已关闭，后续 Next() 调用将返回 false。
+//	标记迭代器为已关闭，关闭所有 ShardIterator 以释放 SSTable 引用计数，
+//	防止 Compaction 因引用未释放而无法清理旧文件。
 //	建议配合 defer 使用以确保资源释放。
 func (q *Iterator) Close() error {
 	q.closed = true
+	for _, si := range q.heap {
+		si.Close()
+	}
 	return nil
 }

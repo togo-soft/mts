@@ -222,8 +222,8 @@ func (h *TestHarness) VerifyDataIntegrity(count int, interval time.Duration) err
 	for i, row := range rows {
 		expectedUsage := float64(i) * 1.5
 		expectedCount := int64(i * 10)
-		usage := row.Fields["usage"]
-		countVal := row.Fields["count"]
+		usage := row.GetFieldValue("usage")
+		countVal := row.GetFieldValue("count")
 		if usage == nil || countVal == nil {
 			fmt.Printf("Row %d: nil fields!\n", i)
 			errors++

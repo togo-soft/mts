@@ -105,7 +105,7 @@ func (si *ShardIterator) pointToRow(ip types.InternalPoint) *types.PointRow {
 		Sid:       ip.Sid,
 		Timestamp: ip.Timestamp,
 		Tags:      tags,
-		Fields:    types.InternalFieldsToMap(ip.Fields),
+		Fields:    types.InternalFieldsToFieldEntry(ip.Fields),
 	}
 }
 

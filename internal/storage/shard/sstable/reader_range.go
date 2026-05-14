@@ -87,14 +87,14 @@ func (r *Reader) readRangeBlocks(matchingBlocks []int, startTime, endTime int64,
 				row := &types.PointRow{
 					Timestamp: ts,
 					Tags:      nil,
-					Fields:    make(map[string]*types.FieldValue),
 				}
 				if i < len(sids) {
 					row.Sid = sids[i]
 				}
+				row.Fields = make([]*types.FieldEntry, 0, len(fields))
 				for _, name := range fields {
 					if vals, ok := decodedFields[name]; ok && i < len(vals) {
-						row.Fields[name] = vals[i]
+						row.Fields = append(row.Fields, &types.FieldEntry{Key: name, Value: vals[i]})
 					}
 				}
 				rows = append(rows, row)
