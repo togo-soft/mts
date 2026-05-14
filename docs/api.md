@@ -9,7 +9,6 @@ MicroTS 是一个轻量级时间序列数据库服务，提供 gRPC 接口进行
 - **导入路径**: `microts/internal/api/pb`
 
 ---
-
 ## 目录
 
 - [服务方法](#服务方法)
@@ -23,7 +22,6 @@ MicroTS 是一个轻量级时间序列数据库服务，提供 gRPC 接口进行
 - [使用示例](#使用示例)
 
 ---
-
 ## 服务方法
 
 ### Write
@@ -98,7 +96,6 @@ func main() {
 ```
 
 ---
-
 ### WriteBatch
 
 批量写入多个时间序列数据点。
@@ -183,7 +180,6 @@ func main() {
 ```
 
 ---
-
 ### QueryRange
 
 按时间范围查询数据。
@@ -191,7 +187,7 @@ func main() {
 #### 方法签名
 
 ```protobuf
-rpc QueryRange(QueryRangeRequest) returns (QueryRangeResponse);
+rpc QueryRange(QueryRangeRequest) returns (stream Row);
 ```
 
 #### 功能说明
@@ -211,17 +207,9 @@ rpc QueryRange(QueryRangeRequest) returns (QueryRangeResponse);
 | `offset` | `int64` | 否 | 分页偏移量，默认为 0 |
 | `limit` | `int64` | 否 | 返回结果数量限制，默认为 0（无限制） |
 
-#### 响应结构 (QueryRangeResponse)
+#### 响应（服务端流式）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `database` | `string` | 查询的数据库名称 |
-| `measurement` | `string` | 查询的测量项名称 |
-| `start_time` | `int64` | 实际查询起始时间 |
-| `end_time` | `int64` | 实际查询结束时间 |
-| `total_count` | `int64` | 符合条件的总记录数 |
-| `has_more` | `bool` | 是否还有更多数据 |
-| `rows` | `repeated Row` | 查询结果数据行 |
+`QueryRange` 是服务端流式 RPC，逐行返回 `Row` 消息。客户端通过 `Recv()` 循环接收，直到 `io.EOF`。
 
 #### 数据行结构 (Row)
 
@@ -255,7 +243,7 @@ func main() {
     client := pb.NewMicroTSClient(conn)
 
     now := time.Now()
-    resp, err := client.QueryRange(context.Background(), &pb.QueryRangeRequest{
+    stream, err := client.QueryRange(context.Background(), &pb.QueryRangeRequest{
         Database:    "metrics",
         Measurement: "cpu_usage",
         StartTime:   now.Add(-1 * time.Hour).UnixNano(),
@@ -267,8 +255,16 @@ func main() {
         log.Fatal(err)
     }
 
-    log.Printf("Query returned %d rows, total: %d", len(resp.Rows), resp.TotalCount)
-    for _, row := range resp.Rows {
+    count := 0
+    for {
+        row, err := stream.Recv()
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            log.Fatal(err)
+        }
+        count++
         log.Printf("Timestamp: %d, Tags: %v, Fields: %v",
             row.Timestamp, row.Tags, row.Fields)
     }
@@ -276,7 +272,6 @@ func main() {
 ```
 
 ---
-
 ### ListMeasurements
 
 列出指定数据库中的所有测量项。
@@ -340,7 +335,6 @@ func main() {
 ```
 
 ---
-
 ### Health
 
 健康检查接口。
@@ -402,7 +396,6 @@ func main() {
 ```
 
 ---
-
 ## 消息定义
 
 ### FieldValue
@@ -432,7 +425,6 @@ message FieldValue {
 **注意**: `oneof` 类型意味着一次只能设置一个字段值。
 
 ---
-
 ### WriteRequest
 
 单个数据点写入请求。
@@ -448,7 +440,6 @@ message WriteRequest {
 ```
 
 ---
-
 ### WriteBatchRequest
 
 批量写入请求。
@@ -460,7 +451,6 @@ message WriteBatchRequest {
 ```
 
 ---
-
 ### WriteResponse
 
 单个写入响应。
@@ -473,7 +463,6 @@ message WriteResponse {
 ```
 
 ---
-
 ### WriteBatchResponse
 
 批量写入响应。
@@ -487,7 +476,6 @@ message WriteBatchResponse {
 ```
 
 ---
-
 ### QueryRangeRequest
 
 范围查询请求。
@@ -507,24 +495,6 @@ message QueryRangeRequest {
 
 ---
 
-### QueryRangeResponse
-
-范围查询响应。
-
-```protobuf
-message QueryRangeResponse {
-    string database = 1;
-    string measurement = 2;
-    int64 start_time = 3;
-    int64 end_time = 4;
-    int64 total_count = 5;
-    bool has_more = 6;
-    repeated Row rows = 7;
-}
-```
-
----
-
 ### Row
 
 数据行结构。
@@ -538,7 +508,6 @@ message Row {
 ```
 
 ---
-
 ### ListMeasurementsRequest
 
 列出测量项请求。
@@ -550,7 +519,6 @@ message ListMeasurementsRequest {
 ```
 
 ---
-
 ### ListMeasurementsResponse
 
 列出测量项响应。
@@ -562,7 +530,6 @@ message ListMeasurementsResponse {
 ```
 
 ---
-
 ### HealthRequest
 
 健康检查请求。
@@ -573,7 +540,6 @@ message HealthRequest {
 ```
 
 ---
-
 ### HealthResponse
 
 健康检查响应。
@@ -586,7 +552,6 @@ message HealthResponse {
 ```
 
 ---
-
 ## 错误码
 
 gRPC 状态码用于表示错误类型：
@@ -605,7 +570,6 @@ gRPC 状态码用于表示错误类型：
 | `INTERNAL` (13) | 内部错误 | 服务器内部错误 |
 
 ---
-
 ## 使用示例
 
 ### 完整客户端示例
@@ -691,7 +655,6 @@ func main() {
 ```
 
 ---
-
 ## 附录
 
 ### Proto 文件位置
