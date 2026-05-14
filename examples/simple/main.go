@@ -91,7 +91,7 @@ func main() {
 	// 查询时间范围：所有累积数据（从 0 到未来一个月）
 	oneMonthLater := time.Now().Add(30 * 24 * time.Hour).UnixNano()
 	fmt.Println("\nStep 2: 查询所有累积数据（从 0 到未来一个月）")
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measurement,
 		StartTime:   0,
@@ -102,13 +102,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("查询失败: %v", err)
 	}
+	defer func() { _ = it.Close() }()
 
-	fmt.Printf("查询结果: %d 条数据（时间范围 [0, %d]）\n\n", len(resp.Rows), oneMonthLater)
+	var rows []*types.PointRow
+	for it.Next(context.Background()) {
+		rows = append(rows, it.Points())
+	}
+
+	fmt.Printf("查询结果: %d 条数据（时间范围 [0, %d]）\n\n", len(rows), oneMonthLater)
 
 	// 打印前几条数据
 	fmt.Println("前 5 条数据:")
-	for i := 0; i < 5 && i < len(resp.Rows); i++ {
-		row := resp.Rows[i]
+	for i := 0; i < 5 && i < len(rows); i++ {
+		row := rows[i]
 		fmt.Printf("  [%d] host=%s usage=%.1f\n", row.Timestamp, row.Tags["host"], row.Fields["usage"].GetFloatValue())
 	}
 

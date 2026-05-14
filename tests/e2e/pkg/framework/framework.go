@@ -178,9 +178,9 @@ func (h *TestHarness) WritePoints(ctx context.Context, count int, interval time.
 	return nil
 }
 
-// QueryRange 查询指定时间范围的数据
-func (h *TestHarness) QueryRange(ctx context.Context, start, end int64) (*types.QueryRangeResponse, error) {
-	return h.db.QueryRange(ctx, &types.QueryRangeRequest{
+// QueryRange 查询指定时间范围的数据（内部使用流式迭代器）
+func (h *TestHarness) QueryRange(ctx context.Context, start, end int64) ([]*types.PointRow, error) {
+	it, err := h.db.QueryIterator(ctx, &types.QueryRangeRequest{
 		Database:    h.cfg.DBName,
 		Measurement: h.cfg.MeasurementName,
 		StartTime:   start,
@@ -188,21 +188,34 @@ func (h *TestHarness) QueryRange(ctx context.Context, start, end int64) (*types.
 		Offset:      0,
 		Limit:       0,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("create iterator: %w", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	var rows []*types.PointRow
+	for it.Next(ctx) {
+		row := it.Points()
+		if row != nil {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
 }
 
 // VerifyDataIntegrity 验证数据完整性
 func (h *TestHarness) VerifyDataIntegrity(count int, interval time.Duration) error {
-	resp, err := h.QueryRange(context.Background(), h.startTime, h.startTime+int64(count)*int64(interval))
+	rows, err := h.QueryRange(context.Background(), h.startTime, h.startTime+int64(count)*int64(interval))
 	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
 
-	if len(resp.Rows) != count {
-		return fmt.Errorf("expected %d rows, got %d", count, len(resp.Rows))
+	if len(rows) != count {
+		return fmt.Errorf("expected %d rows, got %d", count, len(rows))
 	}
 
 	errors := 0
-	for i, row := range resp.Rows {
+	for i, row := range rows {
 		expectedUsage := float64(i) * 1.5
 		expectedCount := int64(i * 10)
 		usage := row.Fields["usage"]
