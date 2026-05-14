@@ -79,6 +79,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 	}()
 
 	tombstones := collectInputTombstones(task.InputFiles)
+	tombstones.BuildIndex()
 
 	seqStr := filepath.Base(task.OutputPath)
 	var outputSeq uint64

@@ -184,3 +184,45 @@ func TestRemoveTombstones_NotExist(t *testing.T) {
 		t.Fatalf("removeTombstones should not error for nonexistent: %v", err)
 	}
 }
+
+func TestTombstoneSet_BuildIndex(t *testing.T) {
+	ts := &TombstoneSet{
+		Tombstones: []Tombstone{
+			{SID: 1, MinTime: 100, MaxTime: 200, DeletedAt: 300},
+			{SID: 1, MinTime: 500, MaxTime: 600, DeletedAt: 300},
+			{SID: 2, MinTime: 150, MaxTime: 250, DeletedAt: 300},
+			{SID: 3, MinTime: 0, MaxTime: 1000, DeletedAt: 300},
+		},
+	}
+	ts.BuildIndex()
+
+	tests := []struct {
+		name      string
+		sid       uint64
+		timestamp int64
+		want      bool
+	}{
+		{"match first of same SID", 1, 100, true},
+		{"match second of same SID", 1, 550, true},
+		{"gap between same SID ranges", 1, 350, false},
+		{"different SID match", 2, 200, true},
+		{"SID with single range", 3, 500, true},
+		{"SID not in index", 99, 100, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ts.ShouldDelete(tt.sid, tt.timestamp)
+			if got != tt.want {
+				t.Errorf("ShouldDelete(%d, %d) = %v, want %v", tt.sid, tt.timestamp, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTombstoneSet_BuildIndex_Empty(t *testing.T) {
+	ts := &TombstoneSet{}
+	ts.BuildIndex()
+	if ts.ShouldDelete(1, 100) {
+		t.Error("empty indexed TombstoneSet.ShouldDelete should return false")
+	}
+}

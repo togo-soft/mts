@@ -308,6 +308,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 	}()
 
 	tombstones := collectInputTombstones(inputPaths)
+	tombstones.BuildIndex()
 
 	iterators := make([]*sstable.Iterator, 0, len(readers))
 	for _, r := range readers {
