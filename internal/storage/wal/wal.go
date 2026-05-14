@@ -316,6 +316,8 @@ func (w *WAL) TruncateAfterFlush() error {
 		}
 	}
 
+	_ = ClearCheckpoint(w.dir)
+
 	return nil
 }
 
@@ -431,10 +433,9 @@ func (w *WAL) ReplayedSegments() int {
 	return w.replayedSegs
 }
 
-// Replay 流式回放所有 WAL segment。
+// Replay 流式回放 WAL segment。
 //
-// 简化设计：每次从头回放所有 segments，不使用 checkpoint。
-// WAL 是 append-only 日志，从头回放是可靠且简单的恢复方式。
+// 通过 checkpoint 跳过已持久化到 SSTable 的旧 segment，减少重启恢复时间。
 // 去重由上层（memtable）通过 timestamp + tags 处理。
 func (w *WAL) Replay(fn func(payload []byte) error) error {
 	entries, err := listSegments(w.dir)
@@ -442,9 +443,29 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 		return err
 	}
 
-	w.replayedSegs = len(entries)
+	// 加载 checkpoint，跳过已完成 flush 的旧 segment
+	cp, _ := LoadCheckpoint(w.dir)
+	if cp != nil {
+		w.cfg.Logger.Info("WAL checkpoint found, skipping persisted segments",
+			"checkpoint_gen", cp.Generation,
+			"checkpoint_seg", cp.Segment)
+	}
 
-	for _, e := range entries {
+	var toReplay []segmentEntry
+	if cp != nil {
+		for _, e := range entries {
+			if e.Gen == cp.Generation && e.Num <= cp.Segment {
+				continue
+			}
+			toReplay = append(toReplay, e)
+		}
+	} else {
+		toReplay = entries
+	}
+
+	w.replayedSegs = len(toReplay)
+
+	for _, e := range toReplay {
 		file, err := os.Open(e.Path)
 		if err != nil {
 			w.cfg.Logger.Warn("failed to open WAL segment for replay", "path", e.Path, "error", err)

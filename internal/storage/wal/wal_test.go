@@ -480,3 +480,97 @@ func TestWAL_WriteAfterClose(t *testing.T) {
 		t.Errorf("expected ErrWALClosed, got %v", err)
 	}
 }
+
+func TestReplay_WithCheckpoint_SkipsPersistedSegments(t *testing.T) {
+	dir := t.TempDir()
+	w, err := Open(Config{Dir: dir, SegmentSize: 1024, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 写入 seg1
+	_, _ = w.Write([]byte("seg1-data"))
+	_ = w.Rotate()
+	// 写入 seg2
+	_, _ = w.Write([]byte("seg2-data"))
+	_ = w.Rotate()
+	// 写入 seg3
+	_, _ = w.Write([]byte("seg3-data"))
+	_ = w.Close()
+
+	// 记录 checkpoint: seg2 已持久化
+	cp := &Checkpoint{Generation: w.Generation(), Segment: 2}
+	if err := cp.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// 重新打开，replay 应只回放 seg3
+	w2, err := Open(Config{Dir: dir, SegmentSize: 1024, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w2.Close()
+
+	var replayed []string
+	err = w2.Replay(func(data []byte) error {
+		replayed = append(replayed, string(data))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replayed) != 1 {
+		t.Fatalf("expected 1 replayed segment, got %d: %v", len(replayed), replayed)
+	}
+	if replayed[0] != "seg3-data" {
+		t.Errorf("expected seg3-data, got %s", replayed[0])
+	}
+}
+
+func TestReplay_NoCheckpoint_ReplaysAll(t *testing.T) {
+	dir := t.TempDir()
+	w, err := Open(Config{Dir: dir, SegmentSize: 1024, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("data1"))
+	_, _ = w.Write([]byte("data2"))
+	_ = w.Close()
+
+	w2, _ := Open(Config{Dir: dir, SegmentSize: 1024, SyncMode: SyncNone})
+	defer w2.Close()
+
+	var replayed []string
+	_ = w2.Replay(func(data []byte) error {
+		replayed = append(replayed, string(data))
+		return nil
+	})
+	if len(replayed) != 2 {
+		t.Fatalf("expected 2 replayed segments, got %d", len(replayed))
+	}
+}
+
+func TestTruncateAfterFlush_ClearsCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	w, err := Open(Config{Dir: dir, SegmentSize: 1024, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 写入数据
+	_, _ = w.Write([]byte("test-data"))
+
+	// 创建 checkpoint
+	cp := &Checkpoint{Generation: w.Generation(), Segment: w.SegmentNum()}
+	_ = cp.Save(dir)
+
+	// TruncateAfterFlush 应清理 checkpoint
+	_ = w.TruncateAfterFlush()
+
+	loaded, _ := LoadCheckpoint(dir)
+	if loaded != nil {
+		t.Error("expected checkpoint to be cleared after TruncateAfterFlush")
+	}
+
+	w.Close()
+}
