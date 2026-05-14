@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 
+	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/internal/query"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 // Query 执行范围查询。
 func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
+	metrics.Incr(metrics.QueryTotal, 1)
+
 	if e.isClosed() {
 		return nil, fmt.Errorf("engine is closed")
 	}
@@ -45,6 +48,8 @@ func (e *Engine) Query(ctx context.Context, req *types.QueryRangeRequest) (*type
 	if err != nil {
 		return nil, err
 	}
+
+	metrics.Incr(metrics.QueryPoints, int64(collected))
 
 	return e.buildQueryResponse(req, pointRows, skipped, collected, hasMore)
 }

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"codeberg.org/micro-ts/mts/internal/metrics"
 )
 
 const (
@@ -153,6 +155,7 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 	// 两阶段合并：当文件数超过阈值时分批合并为中间文件，再合并中间文件。
 	mergedFiles, mergeErr := cm.compactWithTwoPhase(ctx, sstFiles, outputPath)
 	if mergeErr != nil {
+		metrics.Incr(metrics.CompactionErrors, 1)
 		cm.Mu.Lock()
 		cm.CurrentTask = &CompactionProgress{Status: "failed", Err: mergeErr}
 		cm.Mu.Unlock()
@@ -176,9 +179,15 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 	}
 
 	if err := cm.Commit(task); err != nil {
+		metrics.Incr(metrics.CompactionErrors, 1)
 		_ = os.Remove(outputPath)
 		return "", nil, fmt.Errorf("commit failed: %w", err)
 	}
+
+	metrics.Incr(metrics.CompactionTotal, 1)
+	metrics.Incr(metrics.CompactionInputFiles, int64(len(task.MergedFiles)))
+	metrics.Incr(metrics.CompactionOutputCount, int64(task.OutputCount))
+	metrics.Incr(metrics.CompactionDupCount, int64(task.DuplicateCount))
 
 	return task.OutputPath, task.InputFiles, nil
 }

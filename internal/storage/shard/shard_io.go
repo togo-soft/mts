@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -52,6 +53,7 @@ func (s *Shard) Write(point *types.Point) error {
 
 	// 2. 验证字段类型一致性
 	if err := s.ValidateFieldTypes(point); err != nil {
+		metrics.Incr(metrics.WriteErrors, 1)
 		s.mu.Unlock()
 		return fmt.Errorf("validate field types: %w", err)
 	}
@@ -63,10 +65,12 @@ func (s *Shard) Write(point *types.Point) error {
 	if s.wal != nil {
 		data, err := serializeInternalPoint(ip)
 		if err != nil {
+			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
 			return fmt.Errorf("serialize point: %w", err)
 		}
 		if _, err := s.wal.Write(data); err != nil {
+			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
 			return fmt.Errorf("write to wal: %w", err)
 		}
@@ -74,9 +78,12 @@ func (s *Shard) Write(point *types.Point) error {
 
 	// 5. 写入 MemTable
 	if err := s.memTable.Write(ip); err != nil {
+		metrics.Incr(metrics.WriteErrors, 1)
 		s.mu.Unlock()
 		return fmt.Errorf("write to memtable: %w", err)
 	}
+
+	metrics.Incr(metrics.WriteTotal, 1)
 
 	// 6. 检查是否需要异步 flush（释放锁后触发，避免阻塞写入）
 	shouldFlush := s.memTable.ShouldSwap()
@@ -133,6 +140,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	for i, point := range points {
 		sid, err := s.seriesStore.AllocateSID(point.Tags)
 		if err != nil {
+			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
 			return i, fmt.Errorf("allocate SID for point %d: %w", i, err)
 		}
@@ -146,6 +154,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 		if s.wal != nil {
 			data, err := serializeInternalPoint(ip)
 			if err != nil {
+				metrics.Incr(metrics.WriteErrors, 1)
 				s.mu.Unlock()
 				return i, fmt.Errorf("serialize point %d: %w", i, err)
 			}
@@ -156,6 +165,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	// 批量写入 WAL
 	if s.wal != nil && len(walData) > 0 {
 		if _, err := s.wal.WriteBatch(walData); err != nil {
+			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
 			return 0, fmt.Errorf("wal write batch: %w", err)
 		}
@@ -164,10 +174,14 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	// 批量写入 MemTable
 	for i, ip := range ips {
 		if err := s.memTable.Write(ip); err != nil {
+			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
 			return i, fmt.Errorf("write to memtable at %d: %w", i, err)
 		}
 	}
+
+	metrics.Incr(metrics.WriteBatchTotal, 1)
+	metrics.Incr(metrics.WriteTotal, int64(len(ips)))
 
 	s.mu.Unlock()
 

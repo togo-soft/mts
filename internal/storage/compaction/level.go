@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -278,6 +279,8 @@ func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []strin
 		dataDir := filepath.Join(lcm.shard.Dir(), "data")
 		_ = cp.Clear(dataDir)
 	}
+
+	metrics.Incr(metrics.CompactionTotal, 1)
 
 	return outputPath, inputPaths, nil
 }

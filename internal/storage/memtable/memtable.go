@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -150,6 +151,8 @@ func (m *MemTable) Swap() []types.InternalPoint {
 	m.activeCount = 0
 	m.sorted = false
 	m.flushing.Store(true)
+
+	metrics.Incr(metrics.MemTableSwapTotal, 1)
 
 	return m.passive
 }

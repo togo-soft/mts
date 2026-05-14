@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
@@ -43,6 +44,9 @@ func (s *Shard) flushLocked() error {
 	}
 
 	s.memTable.ClearPassive()
+
+	metrics.Incr(metrics.FlushTotal, 1)
+	metrics.Incr(metrics.FlushPoints, int64(len(passive)))
 
 	// WAL 清理（replay 期间跳过）
 	if !s.replaying && s.wal != nil {
@@ -267,6 +271,9 @@ func (s *Shard) executeAsyncFlush() {
 			slog.Warn("failed to save WAL checkpoint", "error", cpErr)
 		}
 	}
+
+	metrics.Incr(metrics.FlushTotal, 1)
+	metrics.Incr(metrics.FlushPoints, int64(len(passive)))
 
 	s.mu.Unlock()
 

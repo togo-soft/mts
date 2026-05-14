@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
@@ -597,6 +598,8 @@ func (s *Shard) ReplayWAL() error {
 			slog.Warn("WAL replay final flush failed", "error", err)
 		}
 	}
+
+	metrics.Incr(metrics.WALReplayTotal, 1)
 
 	s.replaying = false
 	return err
