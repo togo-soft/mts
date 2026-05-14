@@ -1803,3 +1803,72 @@ func TestShardIterator_Streaming(t *testing.T) {
 		t.Errorf("expected %d rows, got %d", totalPoints, count)
 	}
 }
+
+func TestShard_WriteBatch(t *testing.T) {
+	dir := t.TempDir()
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         dir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+	})
+	defer func() { _ = s.Close() }()
+
+	points := make([]*types.Point, 50)
+	for i := range points {
+		points[i] = &types.Point{
+			Timestamp: int64((i + 1) * 100),
+			Tags:      map[string]string{"host": "srv1"},
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		}
+	}
+
+	n, err := s.WriteBatch(points)
+	if err != nil {
+		t.Fatalf("WriteBatch: %v", err)
+	}
+	if n != 50 {
+		t.Errorf("wrote %d, want 50", n)
+	}
+
+	// 验证数据可读
+	iter := NewShardIterator(s, 0, 0, 0)
+	defer iter.Close()
+	rows := collectAll(iter)
+	if len(rows) != 50 {
+		t.Errorf("read %d rows, want 50", len(rows))
+	}
+}
+
+func TestShard_WriteBatch_EmptyInput(t *testing.T) {
+	dir := t.TempDir()
+	s := NewShard(ShardConfig{
+		DB:          "db1",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         dir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: memtable.DefaultMemTableConfig(),
+	})
+	defer func() { _ = s.Close() }()
+
+	n, err := s.WriteBatch(nil)
+	if err != nil {
+		t.Fatalf("WriteBatch(nil): %v", err)
+	}
+	if n != 0 {
+		t.Errorf("wrote %d, want 0", n)
+	}
+
+	n, err = s.WriteBatch([]*types.Point{})
+	if err != nil {
+		t.Fatalf("WriteBatch([]): %v", err)
+	}
+	if n != 0 {
+		t.Errorf("wrote %d, want 0", n)
+	}
+}
