@@ -97,7 +97,7 @@ func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *Shar
 
 // pointToRow 将 InternalPoint 转换为 PointRow，通过 Sid 从 SeriesStore 恢复 Tags。
 func (si *ShardIterator) pointToRow(ip types.InternalPoint) *types.PointRow {
-	var tags map[string]string
+	tags := make(map[string]string)
 	if si.shard.seriesStore != nil {
 		tags, _ = si.shard.seriesStore.GetTagsBySID(ip.Sid)
 	}
