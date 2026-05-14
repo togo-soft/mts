@@ -322,16 +322,7 @@ func (w *Writer) encodeFieldSection(name string, rowCount int) ([]byte, []uint64
 				return compression.EncodeBoolValues(values), nil
 			}, EncodingBitmapBool)
 	case FieldTypeString:
-		// 变长类型：回退到全量读取
-		raw, err := os.ReadFile(rawPath)
-		if err != nil {
-			return nil, nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
-		}
-		values := compression.ExtractStringData(raw, rowCount)
-		data, offsets := encodePerBlock(w, values, func(vals []string) []byte {
-			return compression.EncodeStringValuesRaw(vals)
-		})
-		return data, offsets, EncodingRaw, nil
+		return w.encodeStringFieldSection(name, rowCount)
 	default:
 		// raw bytes: 直接按 block 边界切片，不做编码
 		raw, err := os.ReadFile(rawPath)
@@ -341,6 +332,75 @@ func (w *Writer) encodeFieldSection(name string, rowCount int) ([]byte, []uint64
 		data, offsets := encodePerBlockRaw(w, raw, rowCount)
 		return data, offsets, EncodingRaw, nil
 	}
+}
+
+// encodeStringFieldSection 逐块流式编码字符串字段段（变长类型）。
+//
+// 与 encodeFixedFieldSection 相似，使用 fieldByteOffsets 中记录的字节偏移
+// 逐块从 temp 文件中读取原始字符串数据，避免全量 os.ReadFile。
+// 每块独立进行字典编码（有收益时自动启用），prepend 1 字节格式标志。
+func (w *Writer) encodeStringFieldSection(name string, rowCount int) ([]byte, []uint64, EncodingType, error) {
+	rawPath := filepath.Join(w.tmpDir, "fields", name+".bin")
+	f, err := os.Open(rawPath)
+	if err != nil {
+		return nil, nil, EncodingRaw, fmt.Errorf("open field temp %s: %w", rawPath, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	byteOffsets := w.fieldByteOffsets[name]
+	if len(byteOffsets) != w.blockIndex.Len() {
+		return nil, nil, EncodingRaw, fmt.Errorf("field %s: byte offset count %d != block count %d",
+			name, len(byteOffsets), w.blockIndex.Len())
+	}
+
+	var encoded []byte
+	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
+	off := uint64(0)
+	offsets = append(offsets, off)
+
+	for i := 0; i < w.blockIndex.Len(); i++ {
+		entry := w.blockIndex.Entry(i)
+		n := int(entry.RowCount)
+
+		// 定位到该 block 的字节偏移
+		if _, err := f.Seek(byteOffsets[i], io.SeekStart); err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("seek field %s block %d: %w", name, i, err)
+		}
+
+		// 计算该 block 的字节大小
+		var blockBytes int64
+		if i+1 < len(byteOffsets) {
+			blockBytes = byteOffsets[i+1] - byteOffsets[i]
+		} else {
+			fi, err := f.Stat()
+			if err != nil {
+				return nil, nil, EncodingRaw, fmt.Errorf("stat field %s temp: %w", name, err)
+			}
+			blockBytes = fi.Size() - byteOffsets[i]
+		}
+
+		raw := make([]byte, blockBytes)
+		if _, err := io.ReadFull(f, raw); err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("read field %s block %d: %w", name, i, err)
+		}
+
+		values := compression.ExtractStringData(raw, n)
+		blockData, isDict := compression.EncodeStringValues(values)
+
+		// prepend 1 字节格式标志: 0=raw, 1=dict
+		var flag byte
+		if isDict {
+			flag = 1
+		}
+		blockData = append([]byte{flag}, blockData...)
+
+		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		encoded = append(encoded, compressed...)
+		off += uint64(len(compressed))
+		offsets = append(offsets, off)
+	}
+
+	return encoded, offsets, EncodingDictString, nil
 }
 
 // encodeFixedFieldSection 逐 block 流式编码定长字段。

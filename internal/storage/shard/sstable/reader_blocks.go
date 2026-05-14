@@ -242,7 +242,10 @@ func (r *Reader) decodeFieldSectionBlock(name string, blockIdx int) ([]*types.Fi
 		}
 		return int64ValuesToFieldValues(intVals), nil
 	case EncodingDictString:
-		strVals, err := compression.DecodeStringValues(data, rowCount, true)
+		if len(data) == 0 {
+			return nil, fmt.Errorf("decode dict string field %s: empty data", name)
+		}
+		strVals, err := compression.DecodeStringValues(data[1:], rowCount, data[0] == 1)
 		if err != nil {
 			return nil, fmt.Errorf("decode dict string field %s: %w", name, err)
 		}
@@ -333,7 +336,10 @@ func (r *Reader) decodeFieldSectionBlockUpTo(name string, blockIdx int, maxRow i
 		}
 		return int64ValuesToFieldValues(intVals), nil
 	case EncodingDictString:
-		strVals, err := compression.DecodeStringValues(data, maxRow, true)
+		if len(data) == 0 {
+			return nil, fmt.Errorf("decode dict string field %s: empty data", name)
+		}
+		strVals, err := compression.DecodeStringValues(data[1:], maxRow, data[0] == 1)
 		if err != nil {
 			return nil, fmt.Errorf("decode dict string field %s: %w", name, err)
 		}
@@ -373,7 +379,10 @@ func (r *Reader) decodeFieldSectionBlockFromData(name string, data []byte, rowCo
 		}
 		return int64ValuesToFieldValues(intVals), nil
 	case EncodingDictString:
-		strVals, err := compression.DecodeStringValues(data, rowCount, true)
+		if len(data) == 0 {
+			return nil, fmt.Errorf("decode dict string field %s: empty data", name)
+		}
+		strVals, err := compression.DecodeStringValues(data[1:], rowCount, data[0] == 1)
 		if err != nil {
 			return nil, fmt.Errorf("decode dict string field %s: %w", name, err)
 		}
