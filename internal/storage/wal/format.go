@@ -110,7 +110,7 @@ func EncodeRecord(dst []byte, typ byte, payload []byte) []byte {
 
 	dst = append(dst, payload...)
 
-	for i := 0; i < padding; i++ {
+	for range padding {
 		dst = append(dst, 0)
 	}
 

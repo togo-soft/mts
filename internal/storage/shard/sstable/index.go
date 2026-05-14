@@ -136,7 +136,7 @@ func (idx *BlockIndex) parse(data []byte) error {
 	}
 
 	idx.entries = make([]BlockIndexEntry, blockCount)
-	for i := uint32(0); i < blockCount; i++ {
+	for i := range blockCount {
 		off := 16 + int(i)*entrySize
 		idx.entries[i] = BlockIndexEntry{
 			FirstTimestamp: int64(binary.BigEndian.Uint64(data[off : off+8])),
@@ -207,7 +207,7 @@ func (idx *BlockIndex) Read(file string) error {
 
 	// 解析 entries
 	idx.entries = make([]BlockIndexEntry, blockCount)
-	for i := uint32(0); i < blockCount; i++ {
+	for i := range blockCount {
 		off := 16 + int(i)*entrySize
 		idx.entries[i] = BlockIndexEntry{
 			FirstTimestamp: int64(binary.BigEndian.Uint64(buf[off : off+8])),

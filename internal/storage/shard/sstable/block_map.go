@@ -85,7 +85,7 @@ func UnmarshalBlockSectionMap(data []byte) (*BlockSectionMap, error) {
 	pos := 2
 
 	sections := make([]BlockSectionOffsets, 0, sectionCount)
-	for i := 0; i < sectionCount; i++ {
+	for i := range sectionCount {
 		if pos+1 > len(data) {
 			return nil, fmt.Errorf("block section map truncated at section %d header", i)
 		}
@@ -109,7 +109,7 @@ func UnmarshalBlockSectionMap(data []byte) (*BlockSectionMap, error) {
 				i, offsetCount*8)
 		}
 		offsets := make([]uint64, offsetCount)
-		for j := 0; j < offsetCount; j++ {
+		for j := range offsetCount {
 			offsets[j] = binary.BigEndian.Uint64(data[pos : pos+8])
 			pos += 8
 		}

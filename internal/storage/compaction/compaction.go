@@ -84,7 +84,7 @@ type CompactionManager struct {
 	wg                sync.WaitGroup
 	lastCompact       time.Time
 	compactMu         sync.Mutex
-	compactInProgress int32
+	compactInProgress  atomic.Int32
 	CurrentTask       *CompactionProgress
 
 	ctx    context.Context
@@ -223,10 +223,7 @@ func (cm *CompactionManager) compactWithTwoPhase(ctx context.Context, inputFiles
 	// 分批合并为中间文件
 	var intermediates []string
 	for i := 0; i < len(inputFiles); i += twoPhaseThreshold {
-		end := i + twoPhaseThreshold
-		if end > len(inputFiles) {
-			end = len(inputFiles)
-		}
+		end := min(i+twoPhaseThreshold, len(inputFiles))
 		batch := inputFiles[i:end]
 
 		intermediateSeq := cm.ShardAccess.NextSSTSeq()
@@ -522,9 +519,7 @@ func (cm *CompactionManager) StartPeriodicCheck() {
 
 	cm.Ticker = time.NewTicker(cm.Config.CheckInterval)
 	ticker := cm.Ticker
-	cm.wg.Add(1)
-	go func() {
-		defer cm.wg.Done()
+	cm.wg.Go(func() {
 		for {
 			select {
 			case <-ticker.C:
@@ -534,7 +529,7 @@ func (cm *CompactionManager) StartPeriodicCheck() {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Stop 停止定期检查。
@@ -570,9 +565,9 @@ func (cm *CompactionManager) DoPeriodicCompaction() {
 }
 
 func (cm *CompactionManager) TryAcquireCompactLock() bool {
-	return atomic.CompareAndSwapInt32(&cm.compactInProgress, 0, 1)
+	return cm.compactInProgress.CompareAndSwap(0, 1)
 }
 
 func (cm *CompactionManager) ReleaseCompactLock() {
-	atomic.StoreInt32(&cm.compactInProgress, 0)
+	cm.compactInProgress.Store(0)
 }

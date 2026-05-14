@@ -107,7 +107,7 @@ func deserializeInternalPoint(data []byte) (types.InternalPoint, error) {
 	pos += 2
 
 	fields := make([]types.InternalField, 0, fieldCount)
-	for i := 0; i < fieldCount; i++ {
+	for range fieldCount {
 		if pos+2 > len(data) {
 			return types.InternalPoint{}, fmt.Errorf("point data too short for field key len")
 		}

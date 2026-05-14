@@ -86,7 +86,7 @@ func (r *BitReader) ReadBit() (uint8, error) {
 // ReadBits 读取 n 个 bit，MSB first。
 func (r *BitReader) ReadBits(n int) (uint64, error) {
 	var v uint64
-	for i := 0; i < n; i++ {
+	for range n {
 		bit, err := r.ReadBit()
 		if err != nil {
 			return v, err

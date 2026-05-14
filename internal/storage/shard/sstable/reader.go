@@ -139,7 +139,7 @@ func (r *Reader) ReadAll(fields []string) ([]*types.PointRow, error) {
 	}
 
 	rows := make([]*types.PointRow, rowCount)
-	for i := 0; i < rowCount; i++ {
+	for i := range rowCount {
 		row := &types.PointRow{
 			Timestamp: timestamps[i],
 			Fields:    make(map[string]*types.FieldValue),
@@ -163,7 +163,7 @@ func (r *Reader) computeFieldOffsets(name string, data []byte, rowCount int) []i
 	offsets := make([]int, rowCount)
 	fieldType := r.schema.Fields[name]
 	pos := 0
-	for i := 0; i < rowCount; i++ {
+	for i := range rowCount {
 		offsets[i] = pos
 		if pos >= len(data) {
 			continue

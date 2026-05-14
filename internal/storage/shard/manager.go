@@ -49,14 +49,12 @@ func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memta
 	}
 
 	// 后台触发主动发现，不阻塞构造函数
-	sm.discoveryWg.Add(1)
-	go func() {
-		defer sm.discoveryWg.Done()
+	sm.discoveryWg.Go(func() {
 		if err := sm.discoverAndReplayWAL(); err != nil {
 			slog.Warn("failed to discover and replay WAL", "error", err)
 		}
 		close(sm.discoveryDone)
-	}()
+	})
 
 	return sm
 }

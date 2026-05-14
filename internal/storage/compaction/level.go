@@ -109,7 +109,7 @@ type LevelCompactionManager struct {
 	Manifest *LevelManifest
 
 	manifestMu        sync.RWMutex
-	compactInProgress int32
+	compactInProgress atomic.Int32
 
 	ticker   *time.Ticker
 	stopCh   chan struct{}
@@ -183,10 +183,10 @@ func (lcm *LevelCompactionManager) SetConfig(config *LevelCompactionConfig) {
 
 // Compact 执行 compaction。
 func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []string, error) {
-	if !atomic.CompareAndSwapInt32(&lcm.compactInProgress, 0, 1) {
+	if !lcm.compactInProgress.CompareAndSwap(0, 1) {
 		return "", nil, nil
 	}
-	defer atomic.StoreInt32(&lcm.compactInProgress, 0)
+	defer lcm.compactInProgress.Store(0)
 
 	lcm.manifestMu.Lock()
 
@@ -564,9 +564,7 @@ func (lcm *LevelCompactionManager) StartPeriodicCheck() {
 
 	lcm.ticker = time.NewTicker(lcm.config.CheckInterval)
 	ticker := lcm.ticker
-	lcm.wg.Add(1)
-	go func() {
-		defer lcm.wg.Done()
+	lcm.wg.Go(func() {
 		for {
 			select {
 			case <-ticker.C:
@@ -576,7 +574,7 @@ func (lcm *LevelCompactionManager) StartPeriodicCheck() {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Stop 停止定期检查。
@@ -591,10 +589,10 @@ func (lcm *LevelCompactionManager) Stop() {
 }
 
 func (lcm *LevelCompactionManager) doPeriodicCompaction() {
-	if !atomic.CompareAndSwapInt32(&lcm.compactInProgress, 0, 1) {
+	if !lcm.compactInProgress.CompareAndSwap(0, 1) {
 		return
 	}
-	defer atomic.StoreInt32(&lcm.compactInProgress, 0)
+	defer lcm.compactInProgress.Store(0)
 
 	if !lcm.ShouldCompact() {
 		return

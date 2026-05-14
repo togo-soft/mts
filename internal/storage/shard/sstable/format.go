@@ -135,7 +135,7 @@ func UnmarshalSectionTable(data []byte) (SectionTable, error) {
 	st := SectionTable{Entries: make([]SectionEntry, 0, count)}
 	pos := 4 // skip count + reserved
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if pos+sectionEntrySize > len(data) {
 			return SectionTable{}, fmt.Errorf("section table truncated at entry %d", i)
 		}

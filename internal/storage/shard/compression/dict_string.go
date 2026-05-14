@@ -85,7 +85,7 @@ func DictDecode(data []byte, count int) ([]string, error) {
 
 	// 读取字典
 	dict := make([]string, dictSize)
-	for i := 0; i < dictSize; i++ {
+	for i := range dictSize {
 		if pos+2 > len(data) {
 			return nil, ioError("dict entry truncated")
 		}

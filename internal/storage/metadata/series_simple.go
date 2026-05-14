@@ -3,6 +3,7 @@ package metadata
 import (
 	"encoding/binary"
 	"encoding/json"
+	"maps"
 	"sort"
 	"sync"
 )
@@ -51,9 +52,7 @@ func copyTags(tags map[string]string) map[string]string {
 		return nil
 	}
 	result := make(map[string]string, len(tags))
-	for k, v := range tags {
-		result[k] = v
-	}
+	maps.Copy(result, tags)
 	return result
 }
 

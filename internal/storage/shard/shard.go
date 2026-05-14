@@ -527,9 +527,7 @@ func (s *Shard) startPeriodicFlushCheck() {
 	}
 
 	s.flushTicker = time.NewTicker(interval)
-	s.flushWg.Add(1)
-	go func() {
-		defer s.flushWg.Done()
+	s.flushWg.Go(func() {
 		for {
 			select {
 			case <-s.flushTicker.C:
@@ -539,7 +537,7 @@ func (s *Shard) startPeriodicFlushCheck() {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // doPeriodicFlush 定时执行的 MemTable 刷盘检查（异步，不阻塞写入）。

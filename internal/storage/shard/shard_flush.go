@@ -158,11 +158,9 @@ func (s *Shard) tryTriggerAsyncFlush() {
 		return
 	}
 
-	s.compactionWg.Add(1)
-	go func() {
-		defer s.compactionWg.Done()
+	s.compactionWg.Go(func() {
 		s.executeAsyncFlush()
-	}()
+	})
 }
 
 // asyncFlushInfo 保存异步 flush Phase 2 产出的 SSTable 信息，供 Phase 3 注册使用。
@@ -380,9 +378,7 @@ func (s *Shard) triggerBackgroundCompaction() {
 	}
 
 	if s.levelCompaction != nil && s.levelCompaction.ShouldCompact() {
-		s.compactionWg.Add(1)
-		go func() {
-			defer s.compactionWg.Done()
+		s.compactionWg.Go(func() {
 			if s.closed.Load() {
 				return
 			}
@@ -393,11 +389,9 @@ func (s *Shard) triggerBackgroundCompaction() {
 					slog.Error("background level compaction failed", "error", err)
 				}
 			}
-		}()
+		})
 	} else if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
-		s.compactionWg.Add(1)
-		go func() {
-			defer s.compactionWg.Done()
+		s.compactionWg.Go(func() {
 			if s.closed.Load() {
 				return
 			}
@@ -410,7 +404,7 @@ func (s *Shard) triggerBackgroundCompaction() {
 			} else {
 				s.compaction.ResetTimer()
 			}
-		}()
+		})
 	}
 }
 

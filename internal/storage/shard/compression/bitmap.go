@@ -35,7 +35,7 @@ func BitmapDecode(data []byte, count int) []bool {
 	}
 
 	values := make([]bool, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		byteIdx := i / 8
 		bitIdx := i % 8
 		if byteIdx < len(data) {
