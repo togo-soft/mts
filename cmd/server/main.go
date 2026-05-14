@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"codeberg.org/micro-ts/mts/internal/api"
+	"codeberg.org/micro-ts/mts/internal/api/auth"
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -27,6 +28,7 @@ func main() {
 	dataDir := flag.String("data-dir", "", "数据目录路径（默认从 MICROTS_DATA_DIR 环境变量读取，回退到 /var/lib/microts）")
 	tlsCert := flag.String("tls-cert", "", "TLS 证书文件路径（可选，启用 TLS 需要同时指定 -tls-key）")
 	tlsKey := flag.String("tls-key", "", "TLS 私钥文件路径（可选，启用 TLS 需要同时指定 -tls-cert）")
+	authKey := flag.String("auth-key", "", "API 密钥（可选，未设置则不验证）")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -60,6 +62,17 @@ func main() {
 		grpc.MaxConcurrentStreams(100),
 		grpc.MaxRecvMsgSize(4 * 1024 * 1024), // 4MB
 		grpc.MaxSendMsgSize(4 * 1024 * 1024), // 4MB
+	}
+
+	// 认证配置（可选）
+	var authInterceptor *auth.APIKeyAuthenticator
+	if *authKey != "" {
+		authInterceptor = auth.NewAPIKeyAuthenticator(*authKey)
+		grpcOpts = append(grpcOpts,
+			grpc.UnaryInterceptor(authInterceptor.UnaryServerInterceptor()),
+			grpc.StreamInterceptor(authInterceptor.StreamServerInterceptor()),
+		)
+		logger.Info("API key authentication enabled")
 	}
 
 	// TLS 配置（可选）
