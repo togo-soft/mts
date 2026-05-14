@@ -45,9 +45,10 @@ type Writer struct {
 	rowCount  uint32
 	totalRows uint32
 
-	sidBuf     []uint64
-	fieldBufs  map[string][]byte
-	fieldSizes map[string]int
+	sidBuf           []uint64
+	fieldBufs        map[string][]byte
+	fieldSizes       map[string]int
+	fieldByteOffsets map[string][]int64 // 每个 block 在各 field temp 文件中的字节起始偏移
 
 	compressAlgo CompressionAlgorithm
 }
@@ -83,22 +84,23 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 	}
 
 	w := &Writer{
-		shardDir:     shardDir,
-		seq:          seq,
-		blockSize:    blockSize,
-		dataDir:      dataDir,
-		tmpDir:       tmpDir,
-		timestamp:    tsFile,
-		sids:         sidFile,
-		fields:       make(map[string]*os.File),
-		schema:       Schema{Fields: make(map[string]FieldType)},
-		blockIndex:   NewBlockIndex(),
-		buf:          make([]byte, blockSize),
-		bufPos:       0,
-		rowCount:     0,
-		fieldBufs:    make(map[string][]byte),
-		fieldSizes:   make(map[string]int),
-		compressAlgo: compressAlgo,
+		shardDir:         shardDir,
+		seq:              seq,
+		blockSize:        blockSize,
+		dataDir:          dataDir,
+		tmpDir:           tmpDir,
+		timestamp:        tsFile,
+		sids:             sidFile,
+		fields:           make(map[string]*os.File),
+		schema:           Schema{Fields: make(map[string]FieldType)},
+		blockIndex:       NewBlockIndex(),
+		buf:              make([]byte, blockSize),
+		bufPos:           0,
+		rowCount:         0,
+		fieldBufs:        make(map[string][]byte),
+		fieldSizes:       make(map[string]int),
+		fieldByteOffsets: make(map[string][]int64),
+		compressAlgo:     compressAlgo,
 	}
 
 	return w, nil

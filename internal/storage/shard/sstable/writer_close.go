@@ -33,6 +33,13 @@ func (w *Writer) flushBlock() error {
 	w.sidBuf = w.sidBuf[:0]
 
 	for name, buf := range w.fieldBufs {
+		// 记录此 block 在 temp 文件中的字节起始偏移
+		curOff, err := w.fields[name].Seek(0, io.SeekCurrent)
+		if err != nil {
+			return fmt.Errorf("seek field %s for offset: %w", name, err)
+		}
+		w.fieldByteOffsets[name] = append(w.fieldByteOffsets[name], curOff)
+
 		if _, err := w.fields[name].Write(buf); err != nil {
 			return fmt.Errorf("write field block %s: %w", name, err)
 		}
