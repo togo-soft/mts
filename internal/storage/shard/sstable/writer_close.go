@@ -439,24 +439,6 @@ func (w *Writer) encodeFixedFieldSection(
 	return encoded, offsets, encType, nil
 }
 
-// encodePerBlock 将全部行数据按 BlockIndex 分块后独立编码，返回拼接数据和 per-block 字节偏移。
-func encodePerBlock[T any](w *Writer, values []T, encodeFn func([]T) []byte) ([]byte, []uint64) {
-	var encoded []byte
-	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
-	offset := uint64(0)
-	offsets = append(offsets, offset)
-	for i := 0; i < w.blockIndex.Len(); i++ {
-		entry := w.blockIndex.Entry(i)
-		start := int(entry.Offset)
-		end := start + int(entry.RowCount)
-		blockData := encodeFn(values[start:end])
-		compressed, _ := CompressBlock(blockData, w.compressAlgo)
-		encoded = append(encoded, compressed...)
-		offset += uint64(len(compressed))
-		offsets = append(offsets, offset)
-	}
-	return encoded, offsets
-}
 
 // encodePerBlockRaw 对原始字节数据按 block 的行范围切片。
 // raw 是未处理的原始数据，每行占固定字节数（由 rowSize 隐式确定）。
