@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -561,5 +562,67 @@ func TestCatalogStore_ListDatabases_SkipsInternalFiles(t *testing.T) {
 	names := cs.ListDatabases()
 	if len(names) != 1 || names[0] != "metrics" {
 		t.Errorf("expected [metrics], got %v", names)
+	}
+}
+
+func TestCatalogStore_SetSchema_InvalidJSONRecovery(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("db1")
+	_ = cs.CreateMeasurement("db1", "meas1")
+
+	// 写入无效 JSON 到 measurement 的 _schema 键模拟损坏
+	err := db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte("db1"))
+		if dbBucket == nil {
+			return fmt.Errorf("db1 bucket not found")
+		}
+		measBucket := dbBucket.Bucket([]byte("meas1"))
+		if measBucket == nil {
+			return fmt.Errorf("meas1 bucket not found")
+		}
+		return measBucket.Put([]byte("_schema"), []byte("{invalid json"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// SetSchema 应该能处理损坏的旧数据，写入新 schema
+	newSchema := &Schema{Version: 2, UpdatedAt: time.Now().UnixNano()}
+	err = cs.SetSchema("db1", "meas1", newSchema)
+	if err != nil {
+		t.Errorf("SetSchema should succeed even with corrupted old data: %v", err)
+	}
+}
+
+func TestCatalogStore_SetSchema_FieldAddition(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("db1")
+	_ = cs.CreateMeasurement("db1", "meas1")
+
+	// 先设一个带 field_a 的 schema
+	schema1 := &Schema{Version: 1, Fields: []FieldDef{{Name: "field_a", Type: 1}}, UpdatedAt: time.Now().UnixNano()}
+	_ = cs.SetSchema("db1", "meas1", schema1)
+
+	// 再加一个兼容的新字段 field_b
+	schema2 := &Schema{Version: 2, Fields: []FieldDef{
+		{Name: "field_a", Type: 1},
+		{Name: "field_b", Type: 2},
+	}, UpdatedAt: time.Now().UnixNano()}
+	err := cs.SetSchema("db1", "meas1", schema2)
+	if err != nil {
+		t.Errorf("adding compatible new field should succeed: %v", err)
+	}
+
+	// 验证读回
+	loaded, err := cs.GetSchema("db1", "meas1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Fields) != 2 {
+		t.Errorf("expected 2 fields, got %d", len(loaded.Fields))
 	}
 }

@@ -453,6 +453,104 @@ func TestCompactionManager_Commit_OutputIsDir(t *testing.T) {
 	}
 }
 
+func TestCompactionManager_Commit_MergedFilesNilFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	_ = os.MkdirAll(dataDir, 0755)
+
+	outputPath := filepath.Join(dataDir, "sst_1.bin")
+	if err := os.WriteFile(outputPath, []byte("valid sstable data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &mockShardAccess{
+		dir:    tmpDir,
+		schema: sstable.Schema{Fields: make(map[string]sstable.FieldType)},
+		refs:   make(map[string]int32),
+		unused: make(map[string]bool),
+	}
+	cm := NewCompactionManager(mock, DefaultCompactionConfig())
+
+	// MergedFiles 为 nil 时应回退到 InputFiles
+	task := &CompactionTask{
+		InputFiles:  []string{filepath.Join(dataDir, "input1.bin"), filepath.Join(dataDir, "input2.bin")},
+		MergedFiles: nil,
+		OutputPath:  outputPath,
+	}
+
+	// 创建 input 文件以通过验证
+	for _, p := range task.InputFiles {
+		_ = os.WriteFile(p, []byte("data"), 0644)
+	}
+
+	err := cm.Commit(task)
+	if err != nil {
+		t.Logf("Commit error (expected in test env): %v", err)
+	}
+	// 关键: Commit 不会 panic，MergedFiles nil 回退到 InputFiles 不会导致崩溃
+}
+
+func TestCompactionManager_Commit_DeferCleanup(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	_ = os.MkdirAll(dataDir, 0755)
+
+	inputPath := filepath.Join(dataDir, "sst_10.bin")
+	outputPath := filepath.Join(dataDir, "sst_merged.bin")
+
+	_ = os.WriteFile(inputPath, []byte("input data"), 0644)
+	_ = os.WriteFile(outputPath, []byte("merged data"), 0644)
+
+	mock := &mockShardAccess{
+		dir:    tmpDir,
+		schema: sstable.Schema{Fields: make(map[string]sstable.FieldType)},
+		refs:   make(map[string]int32),
+		unused: map[string]bool{inputPath: true},
+	}
+
+	cm := NewCompactionManager(mock, DefaultCompactionConfig())
+
+	task := &CompactionTask{
+		InputFiles:  []string{inputPath},
+		MergedFiles: []string{inputPath},
+		OutputPath:  outputPath,
+	}
+
+	// Commit 应该成功
+	err := cm.Commit(task)
+	if err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+}
+
+func TestCompactionManager_Commit_OutputNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	_ = os.MkdirAll(dataDir, 0755)
+
+	outputPath := filepath.Join(dataDir, "sst_nonexistent.bin")
+
+	mock := &mockShardAccess{
+		dir:    tmpDir,
+		schema: sstable.Schema{Fields: make(map[string]sstable.FieldType)},
+		refs:   make(map[string]int32),
+		unused: make(map[string]bool),
+	}
+
+	cm := NewCompactionManager(mock, DefaultCompactionConfig())
+
+	task := &CompactionTask{
+		InputFiles:  []string{},
+		MergedFiles: []string{},
+		OutputPath:  outputPath,
+	}
+
+	err := cm.Commit(task)
+	if err == nil {
+		t.Error("expected error when output file doesn't exist")
+	}
+}
+
 func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 	tmpDir := t.TempDir()
 

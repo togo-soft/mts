@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -224,5 +225,47 @@ func TestTombstoneSet_BuildIndex_Empty(t *testing.T) {
 	ts.BuildIndex()
 	if ts.ShouldDelete(1, 100) {
 		t.Error("empty indexed TombstoneSet.ShouldDelete should return false")
+	}
+}
+
+func TestCollectInputTombstones(t *testing.T) {
+	dir := t.TempDir()
+
+	// 创建带 tombstones 的 SSTable 文件
+	sstPath1 := filepath.Join(dir, "sst_1.bin")
+	_ = os.WriteFile(sstPath1, []byte("sst data"), 0600)
+	tsData1, _ := json.Marshal(&TombstoneSet{
+		Tombstones: []Tombstone{
+			{SID: 1, MinTime: 100, MaxTime: 200},
+			{SID: 2, MinTime: 300, MaxTime: 400},
+		},
+	})
+	_ = os.WriteFile(sstPath1+".tombstones", tsData1, 0600)
+
+	// SSTable 不带 tombstones
+	sstPath2 := filepath.Join(dir, "sst_2.bin")
+	_ = os.WriteFile(sstPath2, []byte("sst data"), 0600)
+
+	// 不存在的 SSTable 文件（跳过）
+	sstPath3 := filepath.Join(dir, "sst_3.bin")
+
+	paths := []string{sstPath1, sstPath2, sstPath3}
+	result := collectInputTombstones(paths)
+
+	if result == nil {
+		t.Fatal("expected non-nil TombstoneSet")
+	}
+	if len(result.Tombstones) != 2 {
+		t.Errorf("expected 2 tombstones from file 1, got %d", len(result.Tombstones))
+	}
+}
+
+func TestCollectInputTombstones_EmptyInput(t *testing.T) {
+	result := collectInputTombstones(nil)
+	if result == nil {
+		t.Fatal("expected non-nil empty TombstoneSet")
+	}
+	if len(result.Tombstones) != 0 {
+		t.Errorf("expected 0 tombstones, got %d", len(result.Tombstones))
 	}
 }
