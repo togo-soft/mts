@@ -338,3 +338,16 @@ func WithCompression(algo string) func(*Config) {
 		c.CompressionAlgo = algo
 	}
 }
+
+// DefaultTimeout 默认操作超时时间
+const DefaultTimeout = 30 * time.Second
+
+// NewContext 创建带超时限制的上下文
+func NewContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), DefaultTimeout)
+}
+
+// NewContextWithDuration 创建带自定义超时时间的上下文
+func NewContextWithDuration(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
+}

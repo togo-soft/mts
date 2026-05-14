@@ -24,6 +24,7 @@ import (
 const (
 	serverAddr = "127.0.0.1:20261"
 	count      = 10000
+	timeout    = 60 * time.Second
 )
 
 func main() {
@@ -50,12 +51,16 @@ func main() {
 
 	client := types.NewMicroTSClient(conn)
 
+	// 创建带超时的上下文
+	ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	// 创建数据库和 measurement
-	if _, err := client.CreateDatabase(context.Background(), &types.CreateDatabaseRequest{Database: "db1"}); err != nil {
+	if _, err := client.CreateDatabase(ctx, &types.CreateDatabaseRequest{Database: "db1"}); err != nil {
 		fmt.Printf("CreateDatabase failed: %v\n", err)
 		os.Exit(1)
 	}
-	if _, err := client.CreateMeasurement(context.Background(), &types.CreateMeasurementRequest{
+	if _, err := client.CreateMeasurement(ctx, &types.CreateMeasurementRequest{
 		Database:    "db1",
 		Measurement: "cpu",
 	}); err != nil {
@@ -90,7 +95,7 @@ func main() {
 			Fields:      p.Fields,
 		}
 
-		resp, err := client.Write(context.Background(), req)
+		resp, err := client.Write(ctx, req)
 		if err != nil {
 			fmt.Printf("Write failed at %d: %v\n", i, err)
 			os.Exit(1)
@@ -121,7 +126,7 @@ func main() {
 	fmt.Printf("Before query: %s\n", metrics.FormatMemStats(memBeforeRead))
 
 	queryTimer := metrics.NewTimer()
-	stream, err := client.QueryRange(context.Background(), &types.QueryRangeRequest{
+	stream, err := client.QueryRange(ctx, &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
 		StartTime:   baseTime,

@@ -233,7 +233,9 @@ func (s *MicroTSService) QueryRange(req *types.QueryRangeRequest, stream types.M
 			return status.Errorf(codes.Internal, "convert row: %v", err)
 		}
 		if err := stream.Send(protoRow); err != nil {
-			return err
+			// 客户端断开连接或其他流错误，记录但不返回
+			slog.Warn("stream send failed", "error", err)
+			return nil
 		}
 	}
 	return nil
