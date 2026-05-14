@@ -1,4 +1,30 @@
-// cmd/server/main.go
+// Package main provides the micro-ts gRPC server entry point.
+//
+// 主要功能：
+//
+//   - 启动 gRPC 服务端监听客户端连接
+//   - 支持 TLS 加密传输（可选）
+//   - 支持 API Key 认证（可选）
+//   - 集成 grpc_health_v1 健康检查服务（K8s 探针兼容）
+//   - 优雅关闭：收到信号后先停止接收新请求，再刷盘，最后释放资源
+//
+// CLI 参数：
+//
+//	-data-dir string  数据目录路径（默认从 MICROTS_DATA_DIR 环境变量读取，回退到 /var/lib/microts）
+//	-tls-cert string  TLS 证书文件路径（可选，启用 TLS 需要同时指定 -tls-key）
+//	-tls-key string   TLS 私钥文件路径（可选，启用 TLS 需要同时指定 -tls-cert）
+//	-auth-key string  API 密钥（可选，未设置则不验证）
+//
+// 使用示例：
+//
+//	# 启动服务（无认证）
+//	./server -data-dir=/var/lib/microts
+//
+//	# 启动服务（TLS + 认证）
+//	./server -data-dir=/var/lib/microts -tls-cert=cert.pem -tls-key=key.pem -auth-key=secret
+//
+//	# Kubernetes 部署（使用健康检查）
+//	./server -data-dir=/var/lib/microts -auth-key=${API_KEY}
 package main
 
 import (
@@ -146,6 +172,9 @@ func main() {
 }
 
 // loadTLSCredentials 加载 TLS 证书和私钥。
+//
+// 证书同时用于服务端证书和客户端 CA 证书池。
+// 如果配置客户端证书验证，需要双方使用相同证书。
 func loadTLSCredentials(certFile, keyFile string) (credentials.TransportCredentials, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
