@@ -509,7 +509,7 @@ func TestReplay_WithCheckpoint_SkipsPersistedSegments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w2.Close()
+	defer func() { _ = w2.Close() }()
 
 	var replayed []string
 	err = w2.Replay(func(data []byte) error {
@@ -538,7 +538,7 @@ func TestReplay_NoCheckpoint_ReplaysAll(t *testing.T) {
 	_ = w.Close()
 
 	w2, _ := Open(Config{Dir: dir, SegmentSize: 1024, SyncMode: SyncNone})
-	defer w2.Close()
+	defer func() { _ = w2.Close() }()
 
 	var replayed []string
 	_ = w2.Replay(func(data []byte) error {
@@ -572,5 +572,5 @@ func TestTruncateAfterFlush_ClearsCheckpoint(t *testing.T) {
 		t.Error("expected checkpoint to be cleared after TruncateAfterFlush")
 	}
 
-	w.Close()
+	_ = w.Close()
 }
