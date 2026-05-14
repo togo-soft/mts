@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/framework"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 )
 
 func main() {
@@ -19,11 +21,21 @@ func main() {
 
 	const count = 100
 
+	gen := data_gen.NewDataGenerator(42)
+	baseTime := h.StartTime()
+
+	timer := metrics.NewWriteSummary(count)
 	fmt.Printf("Writing %d points...\n", count)
-	if err := h.WritePoints(context.Background(), count, time.Second); err != nil {
-		fmt.Printf("Write failed: %v\n", err)
-		return
+	for i := 0; i < count; i++ {
+		ts := baseTime + int64(i)*time.Second.Nanoseconds()
+		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
+		if err := h.DB().Write(context.Background(), p); err != nil {
+			fmt.Printf("Write failed at %d: %v\n", i, err)
+			return
+		}
 	}
+	timer.Finish()
+	fmt.Printf("%s\n", timer.Format())
 
 	fmt.Printf("Waiting for idle flush...\n")
 	time.Sleep(6 * time.Second)

@@ -76,7 +76,7 @@ func main() {
 	memBeforeWrite := metrics.ReadMemStats()
 	fmt.Printf("Before write: %s\n", metrics.FormatMemStats(memBeforeWrite))
 
-	timer := metrics.NewTimer()
+	timer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
@@ -100,13 +100,14 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	writeElapsed := timer.Elapsed()
+	timer.Finish()
 
 	metrics.GC()
 	memAfterWrite := metrics.ReadMemStats()
 	writeDelta := metrics.CalcDelta(memBeforeWrite, memAfterWrite)
 
-	fmt.Printf("Write completed in %v, TPS: %.2f\n", writeElapsed, metrics.TPS(count, writeElapsed))
+	fmt.Printf("%s\n", timer.Format())
+	fmt.Printf("Write completed in %v, TPS: %.2f\n", timer.Elapsed(), timer.TPS())
 	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfterWrite))
 	fmt.Printf("Write memory delta: %s\n\n", writeDelta.Format())
 
@@ -119,7 +120,7 @@ func main() {
 	memBeforeRead := metrics.ReadMemStats()
 	fmt.Printf("Before query: %s\n", metrics.FormatMemStats(memBeforeRead))
 
-	timer = metrics.NewTimer()
+	queryTimer := metrics.NewTimer()
 	stream, err := client.QueryRange(context.Background(), &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
@@ -144,7 +145,7 @@ func main() {
 		}
 		queryResp = append(queryResp, row)
 	}
-	readElapsed := timer.Elapsed()
+	readElapsed := queryTimer.Elapsed()
 
 	metrics.GC()
 	memAfterRead := metrics.ReadMemStats()
@@ -207,7 +208,7 @@ func main() {
 	fmt.Printf("\n====================================\n")
 	fmt.Printf("PASS: gRPC E2E test successful!\n")
 	fmt.Printf("  Written: %d points\n", count)
-	fmt.Printf("  Write TPS: %.2f\n", metrics.TPS(count, writeElapsed))
+	fmt.Printf("  Write TPS: %.2f\n", timer.TPS())
 	fmt.Printf("  Query Rows: %d\n", len(queryResp))
 
 	// 统计存储

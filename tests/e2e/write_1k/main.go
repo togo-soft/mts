@@ -27,7 +27,7 @@ func main() {
 	baseTime := h.StartTime()
 	const count = 1000
 
-	timer := metrics.NewTimer()
+	timer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
@@ -36,13 +36,14 @@ func main() {
 			return
 		}
 	}
-	elapsed := timer.Elapsed()
+	timer.Finish()
 
 	metrics.GC()
 	memAfter := metrics.ReadMemStats()
 	delta := metrics.CalcDelta(memBefore, memAfter)
 
-	fmt.Printf("Write 1K: %d points in %v, TPS: %.2f\n", count, elapsed, metrics.TPS(count, elapsed))
+	fmt.Printf("%s\n", timer.Format())
+	fmt.Printf("Write 1K: %d points in %v, TPS: %.2f\n", count, timer.Elapsed(), timer.TPS())
 	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfter))
 	fmt.Printf("Memory delta: %s\n", delta.Format())
 

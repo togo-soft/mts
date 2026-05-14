@@ -40,6 +40,7 @@ func main() {
 	const count = 20000
 
 	fmt.Printf("Writing %d points...\n", count)
+	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
@@ -48,6 +49,8 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	writeTimer.Finish()
+	fmt.Printf("%s\n", writeTimer.Format())
 	fmt.Printf("Write completed.\n")
 
 	// 等待数据落盘后统计存储

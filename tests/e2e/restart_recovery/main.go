@@ -20,6 +20,7 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -68,6 +69,7 @@ func main() {
 		}
 
 		startTs := baseTime + int64((cycle-1)*pointsPerCycle)*int64(time.Millisecond)
+		writeTimer := metrics.NewWriteSummary(pointsPerCycle)
 		for i := 0; i < pointsPerCycle; i++ {
 			p := &types.Point{
 				Database:    dbName,
@@ -86,6 +88,8 @@ func main() {
 				os.Exit(1)
 			}
 		}
+		writeTimer.Finish()
+		fmt.Printf("  %s\n", writeTimer.Format())
 
 		if err := db.Close(); err != nil {
 			fmt.Printf("FATAL: 第 %d 次关闭失败: %v\n", cycle, err)

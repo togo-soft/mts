@@ -27,6 +27,7 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -85,6 +86,7 @@ func getWALDirectories(dataDir, dbName, measurement string) ([]string, error) {
 
 // writeTestPoints 写入测试数据点
 func writeTestPoints(db *microts.DB, dbName, measurement string, startTime int64, count int, interval time.Duration) error {
+	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		p := &types.Point{
 			Database:    dbName,
@@ -102,6 +104,8 @@ func writeTestPoints(db *microts.DB, dbName, measurement string, startTime int64
 			return fmt.Errorf("write point %d: %w", i, err)
 		}
 	}
+	writeTimer.Finish()
+	fmt.Printf("  %s\n", writeTimer.Format())
 	return nil
 }
 

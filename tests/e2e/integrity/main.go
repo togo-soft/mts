@@ -46,7 +46,7 @@ func main() {
 	fmt.Printf("Before write: %s\n", metrics.FormatMemStats(memBeforeWrite))
 	fmt.Printf("Generating and writing %d points...\n", count)
 
-	timer := metrics.NewTimer()
+	timer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
@@ -56,13 +56,14 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	writeElapsed := timer.Elapsed()
+	timer.Finish()
 
 	metrics.GC()
 	memAfterWrite := metrics.ReadMemStats()
 	writeDelta := metrics.CalcDelta(memBeforeWrite, memAfterWrite)
 
-	fmt.Printf("Write completed in %v, TPS: %.2f\n", writeElapsed, metrics.TPS(count, writeElapsed))
+	fmt.Printf("%s\n", timer.Format())
+	fmt.Printf("Write completed in %v, TPS: %.2f\n", timer.Elapsed(), timer.TPS())
 	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfterWrite))
 	fmt.Printf("Write memory delta: %s\n\n", writeDelta.Format())
 

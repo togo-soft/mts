@@ -53,6 +53,7 @@ func main() {
 	memBefore := metrics.ReadMemStats()
 	fmt.Printf("Before write: %s\n", metrics.FormatMemStats(memBefore))
 
+	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
@@ -64,6 +65,8 @@ func main() {
 			fmt.Printf("Progress: %d/%d\n", i, count)
 		}
 	}
+	writeTimer.Finish()
+	fmt.Printf("\n%s\n", writeTimer.Format())
 
 	metrics.GC()
 	memAfter := metrics.ReadMemStats()

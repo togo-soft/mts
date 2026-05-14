@@ -40,6 +40,7 @@ func main() {
 	fmt.Printf("Total points:   %d\n", count)
 	fmt.Printf("MaxCount/flush: %d (~%d flushes)\n\n", maxCount, count/int(maxCount))
 
+	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*pointInterval
 		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
@@ -48,6 +49,8 @@ func main() {
 			return
 		}
 	}
+	writeTimer.Finish()
+	fmt.Printf("%s\n\n", writeTimer.Format())
 
 	metrics.GC()
 	memAfterWrite := metrics.ReadMemStats()

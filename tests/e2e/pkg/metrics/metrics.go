@@ -114,6 +114,48 @@ func TPS(count int, elapsed time.Duration) float64 {
 	return float64(count) / elapsed.Seconds()
 }
 
+// WriteSummary 写入汇总信息
+type WriteSummary struct {
+	Count     int
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// NewWriteSummary 创建写入汇总
+func NewWriteSummary(count int) *WriteSummary {
+	return &WriteSummary{
+		Count:     count,
+		StartTime: time.Now(),
+	}
+}
+
+// Finish 标记写入结束
+func (s *WriteSummary) Finish() {
+	s.EndTime = time.Now()
+}
+
+// Elapsed 返回写入耗时
+func (s *WriteSummary) Elapsed() time.Duration {
+	if s.EndTime.IsZero() {
+		return time.Since(s.StartTime)
+	}
+	return s.EndTime.Sub(s.StartTime)
+}
+
+// TPS 返回写入 TPS
+func (s *WriteSummary) TPS() float64 {
+	return TPS(s.Count, s.Elapsed())
+}
+
+// Format 格式化写入汇总
+func (s *WriteSummary) Format() string {
+	return fmt.Sprintf("写入开始: %s, 写入结束: %s, 耗时: %v, TPS: %.2f",
+		s.StartTime.Format("15:04:05.000"),
+		s.EndTime.Format("15:04:05.000"),
+		s.Elapsed(),
+		s.TPS())
+}
+
 // FormatTPS 格式化 TPS
 func FormatTPS(op string, count int, elapsed time.Duration) string {
 	tps := TPS(count, elapsed)

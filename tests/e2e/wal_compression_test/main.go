@@ -21,6 +21,7 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -67,6 +68,7 @@ func getWALFileSize(walDir string) (int64, error) {
 
 // writeLargePoints 写入大量数据点，验证压缩效果
 func writeLargePoints(db *microts.DB, dbName, measurement string, startTime int64, count int) error {
+	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		p := &types.Point{
 			Database:    dbName,
@@ -91,6 +93,8 @@ func writeLargePoints(db *microts.DB, dbName, measurement string, startTime int6
 			return fmt.Errorf("write point %d: %w", i, err)
 		}
 	}
+	writeTimer.Finish()
+	fmt.Printf("  %s\n", writeTimer.Format())
 	return nil
 }
 

@@ -44,7 +44,7 @@ func main() {
 	baseTime := time.Now().UnixNano()
 	const count = 1000000
 
-	timer := metrics.NewTimer()
+	timer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*int64(time.Second)
 		p := gen.GeneratePoint("db1", "cpu", ts)
@@ -53,14 +53,15 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	elapsed := timer.Elapsed()
+	timer.Finish()
 
 	// GC 后记录最终内存
 	metrics.GC()
 	memAfter := metrics.ReadMemStats()
 	delta := metrics.CalcDelta(memBefore, memAfter)
 
-	fmt.Printf("Write 1M: %d points in %v, TPS: %.2f\n", count, elapsed, metrics.TPS(count, elapsed))
+	fmt.Printf("%s\n", timer.Format())
+	fmt.Printf("Write 1M: %d points in %v, TPS: %.2f\n", count, timer.Elapsed(), timer.TPS())
 	fmt.Printf("After write: %s\n", metrics.FormatMemStats(memAfter))
 	fmt.Printf("Memory delta: %s\n", delta.Format())
 

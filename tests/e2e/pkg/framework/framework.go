@@ -11,6 +11,7 @@ import (
 
 	microts "codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -159,6 +160,7 @@ func (h *TestHarness) Close() error {
 
 // WritePoints写入多个数据点
 func (h *TestHarness) WritePoints(ctx context.Context, count int, interval time.Duration) error {
+	timer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		ts := h.startTime + int64(i)*int64(interval)
 		p := &types.Point{
@@ -175,6 +177,8 @@ func (h *TestHarness) WritePoints(ctx context.Context, count int, interval time.
 			return fmt.Errorf("write failed at %d: %w", i, err)
 		}
 	}
+	timer.Finish()
+	fmt.Printf("%s\n", timer.Format())
 	return nil
 }
 

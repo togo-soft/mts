@@ -21,6 +21,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -88,8 +89,9 @@ func main() {
 	numFlushes := 7
 	pointsPerFlush := 5
 
+	totalPoints := numFlushes * pointsPerFlush
 	fmt.Printf("\nWriting %d batches x %d points each with overlapping time ranges...\n", numFlushes, pointsPerFlush)
-
+	writeTimer := metrics.NewWriteSummary(totalPoints)
 	for flush := 0; flush < numFlushes; flush++ {
 		for i := 0; i < pointsPerFlush; i++ {
 			ts := baseTime + int64(i)*int64(time.Millisecond)
@@ -116,6 +118,8 @@ func main() {
 		}
 		fmt.Printf("  Flush %d complete\n", flush+1)
 	}
+	writeTimer.Finish()
+	fmt.Printf("%s\n", writeTimer.Format())
 
 	l0Dir := filepath.Join(tmpDir, "data", "L0")
 	l1Dir := filepath.Join(tmpDir, "data", "L1")

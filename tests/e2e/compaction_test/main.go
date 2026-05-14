@@ -23,6 +23,7 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -61,6 +62,7 @@ func getShardDataDir(baseDir, dbName, measurement string) string {
 }
 
 func writePoints(db *microts.DB, dbName, meas string, baseTime int64, count int, step time.Duration, tagCardinality int) error {
+	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		p := &types.Point{
 			Database:    dbName,
@@ -75,6 +77,8 @@ func writePoints(db *microts.DB, dbName, meas string, baseTime int64, count int,
 			return fmt.Errorf("write point %d: %w", i, err)
 		}
 	}
+	writeTimer.Finish()
+	fmt.Printf("  %s\n", writeTimer.Format())
 	return nil
 }
 
@@ -166,6 +170,7 @@ func Test1_LargeScaleIntegrity() error {
 	total := 50000
 
 	fmt.Printf("写入 %d 点 (每 200 触发 flush)...\n", total)
+	writeTimer := metrics.NewWriteSummary(total)
 	for i := 0; i < total; i++ {
 		p := &types.Point{
 			Database: "db", Measurement: "cpu",
@@ -175,6 +180,8 @@ func Test1_LargeScaleIntegrity() error {
 		}
 		_ = db.Write(context.Background(), p)
 	}
+	writeTimer.Finish()
+	fmt.Printf("%s\n", writeTimer.Format())
 	time.Sleep(300 * time.Millisecond)
 
 	dataDir := getShardDataDir(tmpDir, "db", "cpu")
@@ -355,9 +362,11 @@ func Test4_ConcurrentWriteCompaction() error {
 	pointsPerWorker := 2000
 
 	fmt.Printf("启动 %d 个并发 writer，各写入 %d 点...\n", numWorkers, pointsPerWorker)
+	fmt.Printf("写入开始: %s\n", time.Now().Format("15:04:05.000"))
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, numWorkers)
+	totalWritten := 0
 
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
@@ -375,12 +384,13 @@ func Test4_ConcurrentWriteCompaction() error {
 					errCh <- fmt.Errorf("worker %d write %d: %w", workerID, i, err)
 					return
 				}
+				totalWritten++
 			}
 		}(w)
 	}
 
 	wg.Wait()
-	close(errCh)
+	fmt.Printf("写入结束: %s\n", time.Now().Format("15:04:05.000"))
 	for e := range errCh {
 		return e
 	}
