@@ -13,6 +13,11 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+const (
+	mergeBatchSize = 1000               // 合并写入批量刷盘大小
+	hashSeed       = 0x9e3779b97f4a7c15 // 去重哈希黄金比例常量
+)
+
 // Merge 执行归并操作。
 func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) error {
 	schema, err := cm.ShardAccess.GetSchema()
@@ -104,7 +109,6 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 
 	seen := make(map[uint64]bool)
 	var pointsToWrite []types.InternalPoint
-	const batchSize = 1000
 
 	flushBatch := func() error {
 		if len(pointsToWrite) == 0 {
@@ -127,7 +131,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 		}
 
 		row := merged.Point()
-		key := uint64(row.Timestamp) ^ (row.Sid * 0x9e3779b97f4a7c15)
+		key := uint64(row.Timestamp) ^ (row.Sid * hashSeed)
 
 		if seen[key] {
 			task.DuplicateCount++
@@ -144,7 +148,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 			Sid:       row.Sid,
 		}
 		pointsToWrite = append(pointsToWrite, ip)
-		if len(pointsToWrite) >= batchSize {
+		if len(pointsToWrite) >= mergeBatchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()
 				return err

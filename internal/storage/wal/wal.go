@@ -11,6 +11,12 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
+const (
+	defaultSegmentSize  = 64 * 1024 * 1024 // 默认 segment 大小 64MB
+	writeBufSize        = 64 * 1024        // 写缓冲大小 64KB
+	defaultSyncInterval = time.Second      // 默认同步间隔
+)
+
 // ErrWALClosed 表示 WAL 已关闭。
 var ErrWALClosed = errors.New("wal closed")
 
@@ -36,13 +42,13 @@ type Config struct {
 
 func (c *Config) normalize() {
 	if c.SegmentSize <= 0 {
-		c.SegmentSize = 64 * 1024 * 1024
+		c.SegmentSize = defaultSegmentSize
 	}
 	if c.Logger == nil {
 		c.Logger = slog.Default()
 	}
 	if c.SyncInterval <= 0 {
-		c.SyncInterval = time.Second
+		c.SyncInterval = defaultSyncInterval
 	}
 	// 默认启用压缩
 	if !c.Compressed {
@@ -78,7 +84,7 @@ func Open(cfg Config) (*WAL, error) {
 
 	w := &WAL{
 		dir:        cfg.Dir,
-		buf:        make([]byte, 64*1024), // 64KB 写缓冲
+		buf:        make([]byte, writeBufSize), // 64KB 写缓冲
 		cfg:        cfg,
 		syncDone:   make(chan struct{}),
 		compressed: cfg.Compressed,

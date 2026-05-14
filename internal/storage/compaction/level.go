@@ -349,7 +349,6 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 
 	seen := make(map[uint64]bool)
 	var pointsToWrite []types.InternalPoint
-	const batchSize = 1000
 
 	flushBatch := func() error {
 		if len(pointsToWrite) == 0 {
@@ -371,7 +370,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 		}
 
 		row := merged.Point()
-		key := uint64(row.Timestamp) ^ (row.Sid * 0x9e3779b97f4a7c15)
+		key := uint64(row.Timestamp) ^ (row.Sid * hashSeed)
 
 		if seen[key] {
 			continue
@@ -387,7 +386,7 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 			Sid:       row.Sid,
 		}
 		pointsToWrite = append(pointsToWrite, ip)
-		if len(pointsToWrite) >= batchSize {
+		if len(pointsToWrite) >= mergeBatchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()
 				return err

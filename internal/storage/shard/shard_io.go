@@ -11,6 +11,8 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+const backpressureSleep = time.Millisecond // 背压等待轮询间隔
+
 // Write 写入单个数据点到 Shard。
 //
 // 写入流程：
@@ -36,7 +38,7 @@ func (s *Shard) Write(point *types.Point) error {
 		if !s.memTable.IsFlushing() {
 			s.tryTriggerAsyncFlush()
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(backpressureSleep)
 		if s.closed.Load() {
 			return fmt.Errorf("shard closed during backpressure wait")
 		}
@@ -118,7 +120,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 		if !s.memTable.IsFlushing() {
 			s.tryTriggerAsyncFlush()
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(backpressureSleep)
 		if s.closed.Load() {
 			return 0, fmt.Errorf("shard closed during backpressure wait")
 		}

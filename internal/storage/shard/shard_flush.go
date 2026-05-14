@@ -24,7 +24,7 @@ func (s *Shard) Flush() error {
 	// 等待正在进行的异步 flush 完成，避免 Swap() 合并冲突导致数据重复
 	for s.memTable.IsFlushing() {
 		s.mu.Unlock()
-		time.Sleep(time.Millisecond)
+		time.Sleep(backpressureSleep)
 		s.mu.Lock()
 	}
 
