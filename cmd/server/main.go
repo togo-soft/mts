@@ -87,6 +87,8 @@ func main() {
 	} else if *tlsCert != "" || *tlsKey != "" {
 		logger.Error("both -tls-cert and -tls-key must be specified for TLS")
 		os.Exit(1)
+	} else {
+		logger.Warn("TLS not configured, server is running in insecure mode")
 	}
 
 	s := grpc.NewServer(grpcOpts...)
