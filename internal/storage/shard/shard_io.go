@@ -118,7 +118,13 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	// 二次检查：获取锁期间 memTable 可能已被其他 goroutine 写满
+	if s.memTable.ActiveFull() {
+		s.mu.Unlock()
+		// 递归重试（最多一次，避免栈溢出）
+		return s.WriteBatch(points)
+	}
 
 	// 预序列化所有 point
 	ips := make([]types.InternalPoint, 0, len(points))
@@ -127,9 +133,11 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	for i, point := range points {
 		sid, err := s.seriesStore.AllocateSID(point.Tags)
 		if err != nil {
+			s.mu.Unlock()
 			return i, fmt.Errorf("allocate SID for point %d: %w", i, err)
 		}
 		if err := s.ValidateFieldTypes(point); err != nil {
+			s.mu.Unlock()
 			return i, fmt.Errorf("validate field types for point %d: %w", i, err)
 		}
 		ip := types.PointToInternal(point, sid)
@@ -138,6 +146,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 		if s.wal != nil {
 			data, err := serializeInternalPoint(ip)
 			if err != nil {
+				s.mu.Unlock()
 				return i, fmt.Errorf("serialize point %d: %w", i, err)
 			}
 			walData = append(walData, data)
@@ -147,6 +156,7 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	// 批量写入 WAL
 	if s.wal != nil && len(walData) > 0 {
 		if _, err := s.wal.WriteBatch(walData); err != nil {
+			s.mu.Unlock()
 			return 0, fmt.Errorf("wal write batch: %w", err)
 		}
 	}
@@ -154,14 +164,15 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	// 批量写入 MemTable
 	for i, ip := range ips {
 		if err := s.memTable.Write(ip); err != nil {
+			s.mu.Unlock()
 			return i, fmt.Errorf("write to memtable at %d: %w", i, err)
 		}
 	}
 
-	// 检查是否需要异步 flush
-	shouldFlush := s.memTable.ShouldSwap()
+	s.mu.Unlock()
 
-	if shouldFlush {
+	// 释放锁后触发异步 flush，避免阻塞后续写入
+	if s.memTable.ShouldSwap() {
 		s.tryTriggerAsyncFlush()
 	}
 
