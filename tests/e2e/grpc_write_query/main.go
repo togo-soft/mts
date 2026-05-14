@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -119,7 +120,7 @@ func main() {
 	fmt.Printf("Before query: %s\n", metrics.FormatMemStats(memBeforeRead))
 
 	timer = metrics.NewTimer()
-	queryResp, err := client.QueryRange(context.Background(), &types.QueryRangeRequest{
+	stream, err := client.QueryRange(context.Background(), &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
 		StartTime:   baseTime,
@@ -130,6 +131,18 @@ func main() {
 	if err != nil {
 		fmt.Printf("Query failed: %v\n", err)
 		os.Exit(1)
+	}
+	var queryResp []*types.Row
+	for {
+		row, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			fmt.Printf("Query recv failed: %v\n", err)
+			os.Exit(1)
+		}
+		queryResp = append(queryResp, row)
 	}
 	readElapsed := timer.Elapsed()
 
@@ -144,13 +157,13 @@ func main() {
 	// 验证阶段
 	fmt.Printf("Verifying data integrity...\n")
 
-	if int(queryResp.TotalCount) != count {
-		fmt.Printf("FAIL: expected %d points, got %d\n", count, queryResp.TotalCount)
+	if len(queryResp) != count {
+		fmt.Printf("FAIL: expected %d points, got %d\n", count, len(queryResp))
 		os.Exit(1)
 	}
 
 	errorCount := 0
-	for i, row := range queryResp.Rows {
+	for i, row := range queryResp {
 		expected := expectedPoints[i]
 
 		// 验证 timestamp
@@ -195,7 +208,7 @@ func main() {
 	fmt.Printf("PASS: gRPC E2E test successful!\n")
 	fmt.Printf("  Written: %d points\n", count)
 	fmt.Printf("  Write TPS: %.2f\n", metrics.TPS(count, writeElapsed))
-	fmt.Printf("  Query Rows: %d\n", len(queryResp.Rows))
+	fmt.Printf("  Query Rows: %d\n", len(queryResp))
 
 	// 统计存储
 	dataDir := filepath.Join(tmpDir, "db1", "cpu")

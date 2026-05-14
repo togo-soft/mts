@@ -76,7 +76,7 @@ func main() {
 	fmt.Printf("Before read: %s\n", metrics.FormatMemStats(memBeforeRead))
 
 	readTimer := metrics.NewTimer()
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
 		StartTime:   baseTime,
@@ -88,26 +88,31 @@ func main() {
 		fmt.Printf("Query failed: %v\n", err)
 		os.Exit(1)
 	}
+	defer func() { _ = it.Close() }()
+	var rows []*types.PointRow
+	for it.Next(context.Background()) {
+		rows = append(rows, it.Points())
+	}
 	readElapsed := readTimer.Elapsed()
 
 	metrics.GC()
 	memAfterRead := metrics.ReadMemStats()
 	readDelta := metrics.CalcDelta(memBeforeRead, memAfterRead)
 
-	fmt.Printf("Read completed in %v, TPS: %.2f\n", readElapsed, metrics.TPS(len(resp.Rows), readElapsed))
+	fmt.Printf("Read completed in %v, TPS: %.2f\n", readElapsed, metrics.TPS(len(rows), readElapsed))
 	fmt.Printf("After read: %s\n", metrics.FormatMemStats(memAfterRead))
 	fmt.Printf("Read memory delta: %s\n\n", readDelta.Format())
 
 	// 验证数量
-	if int(resp.TotalCount) != count {
-		fmt.Printf("FAIL: expected %d points, got %d\n", count, resp.TotalCount)
+	if len(rows) != count {
+		fmt.Printf("FAIL: expected %d points, got %d\n", count, len(rows))
 		os.Exit(1)
 	}
 
 	// 逐字段验证
 	fmt.Printf("Verifying data integrity...\n")
 	errorCount := 0
-	for i, row := range resp.Rows {
+	for i, row := range rows {
 		expected := expectedPoints[i]
 
 		// 验证 timestamp

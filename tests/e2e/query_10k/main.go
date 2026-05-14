@@ -82,9 +82,9 @@ func main() {
 	queryDelta := metrics.CalcDelta(memBeforeQuery, memAfterQuery)
 
 	fmt.Printf("=== Query Result ===\n")
-	fmt.Printf("Rows returned:  %d\n", len(resp.Rows))
+	fmt.Printf("Rows returned:  %d\n", len(resp))
 	fmt.Printf("Query latency:  %v\n", elapsed)
-	fmt.Printf("Query TPS:      %.2f\n", metrics.TPS(len(resp.Rows), elapsed))
+	fmt.Printf("Query TPS:      %.2f\n", metrics.TPS(len(resp), elapsed))
 	fmt.Printf("Memory before:  %s\n", metrics.FormatMemStats(memBeforeQuery))
 	fmt.Printf("Memory after:   %s\n", metrics.FormatMemStats(memAfterQuery))
 	fmt.Printf("Memory delta:   %s\n", queryDelta.Format())

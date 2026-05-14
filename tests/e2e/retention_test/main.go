@@ -77,7 +77,7 @@ func main() {
 		fmt.Printf("Query failed: %v\n", err)
 		return
 	}
-	fmt.Printf("\nBefore retention: got %d rows\n", len(resp.Rows))
+	fmt.Printf("\nBefore retention: got %d rows\n", len(resp))
 
 	// 计算 shard 的时间范围
 	shardDurationNs := int64(h.Config().ShardDuration)
@@ -112,12 +112,12 @@ func main() {
 		fmt.Printf("Query after retention failed: %v\n", err)
 		return
 	}
-	fmt.Printf("\nAfter retention: got %d rows\n", len(resp.Rows))
+	fmt.Printf("\nAfter retention: got %d rows\n", len(resp))
 
-	if len(resp.Rows) == 0 {
+	if len(resp) == 0 {
 		fmt.Printf("SUCCESS: Expired data was cleaned up by retention service!\n")
 	} else {
-		fmt.Printf("FAIL: Expected 0 rows after retention, got %d\n", len(resp.Rows))
+		fmt.Printf("FAIL: Expected 0 rows after retention, got %d\n", len(resp))
 		os.Exit(1)
 	}
 }

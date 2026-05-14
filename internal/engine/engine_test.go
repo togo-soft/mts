@@ -118,13 +118,19 @@ func TestEngine_Query(t *testing.T) {
 		EndTime:     now + 2e9,
 	}
 
-	resp, err := engine.Query(t.Context(), req)
+	it, err := engine.QueryIterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Query failed: %v", err)
+		t.Fatalf("QueryIterator failed: %v", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	var rows []*types.PointRow
+	for it.Next(t.Context()) {
+		rows = append(rows, it.Points())
 	}
 
-	if len(resp.Rows) != 2 {
-		t.Errorf("expected 2 rows, got %d", len(resp.Rows))
+	if len(rows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(rows))
 	}
 }
 
@@ -210,17 +216,23 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 		Fields:      []string{"usage", "count"}, // 字段过滤
 	}
 
-	resp, err := engine.Query(t.Context(), req)
+	it, err := engine.QueryIterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Query failed: %v", err)
+		t.Fatalf("QueryIterator failed: %v", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	var rows []*types.PointRow
+	for it.Next(t.Context()) {
+		rows = append(rows, it.Points())
 	}
 
-	if len(resp.Rows) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(resp.Rows))
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 
 	// 验证只有指定字段
-	row := resp.Rows[0]
+	row := rows[0]
 	if _, ok := row.Fields["usage"]; !ok {
 		t.Errorf("expected usage field")
 	}
@@ -280,17 +292,23 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 		Tags:        map[string]string{"host": "server1"}, // Tag 过滤
 	}
 
-	resp, err := engine.Query(t.Context(), req)
+	it, err := engine.QueryIterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Query failed: %v", err)
+		t.Fatalf("QueryIterator failed: %v", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	var rows []*types.PointRow
+	for it.Next(t.Context()) {
+		rows = append(rows, it.Points())
 	}
 
-	if len(resp.Rows) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(resp.Rows))
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 
-	if resp.Rows[0].Tags["host"] != "server1" {
-		t.Errorf("expected host=server1, got host=%s", resp.Rows[0].Tags["host"])
+	if rows[0].Tags["host"] != "server1" {
+		t.Errorf("expected host=server1, got host=%s", rows[0].Tags["host"])
 	}
 }
 
@@ -332,13 +350,20 @@ func TestEngine_Query_Concurrent(t *testing.T) {
 		Limit:       50,
 	}
 
-	resp, err := engine.Query(t.Context(), req)
+	it, err := engine.QueryIterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Query failed: %v", err)
+		t.Fatalf("QueryIterator failed: %v", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	count := 0
+	for it.Next(t.Context()) {
+		_ = it.Points()
+		count++
 	}
 
-	if len(resp.Rows) != 50 {
-		t.Errorf("expected 50 rows, got %d", len(resp.Rows))
+	if count != 50 {
+		t.Errorf("expected 50 rows, got %d", count)
 	}
 }
 
@@ -384,38 +409,40 @@ func TestEngine_Query_Pagination(t *testing.T) {
 		Limit:       10,
 	}
 
-	resp, err := engine.Query(t.Context(), req)
+	it, err := engine.QueryIterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Query failed: %v", err)
+		t.Fatalf("QueryIterator failed: %v", err)
 	}
 
-	if len(resp.Rows) != 10 {
-		t.Errorf("expected 10 rows, got %d", len(resp.Rows))
+	count := 0
+	for it.Next(t.Context()) {
+		_ = it.Points()
+		count++
 	}
+	_ = it.Close()
 
-	// 流式语义下 TotalCount 是已处理的最小估计，不等于实际总数
-	if resp.TotalCount < 10 {
-		t.Errorf("expected TotalCount >= 10, got %d", resp.TotalCount)
-	}
-
-	if !resp.HasMore {
-		t.Errorf("expected HasMore=true")
+	if count != 10 {
+		t.Errorf("expected 10 rows, got %d", count)
 	}
 
 	// 查询第 20-30 条 (offset=20, limit=10)
 	req.Offset = 20
-	resp, err = engine.Query(t.Context(), req)
+	it, err = engine.QueryIterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Query failed: %v", err)
+		t.Fatalf("QueryIterator failed: %v", err)
 	}
+
+	count = 0
+	for it.Next(t.Context()) {
+		_ = it.Points()
+		count++
+	}
+	_ = it.Close()
 
 	// 流式语义下，如果 offset 超过实际数据量，可能返回少于 limit 的行数
 	// 或者返回 0 行表示已到达数据末尾
-	if len(resp.Rows) == 0 {
-		// 数据可能已被完全消费，这是流式查询的已知限制
-		// 跳过验证
-	} else if len(resp.Rows) != 10 {
-		t.Errorf("expected 10 rows, got %d", len(resp.Rows))
+	if count > 0 && count != 10 {
+		t.Errorf("expected 10 rows, got %d", count)
 	}
 }
 
@@ -752,13 +779,9 @@ func TestEngine_Query_NoShards(t *testing.T) {
 		EndTime:     1e9,
 	}
 
-	resp, err := engine.Query(t.Context(), req)
-	if err != nil {
-		t.Fatalf("Query failed: %v", err)
-	}
-
-	if resp.TotalCount != 0 {
-		t.Errorf("expected 0 rows, got %d", resp.TotalCount)
+	_, err = engine.QueryIterator(t.Context(), req)
+	if err == nil {
+		t.Fatalf("expected error for non-existent shard")
 	}
 }
 
@@ -932,9 +955,9 @@ func TestEngine_Query_EmptyDatabase(t *testing.T) {
 		StartTime:   time.Now().UnixNano(),
 		EndTime:     time.Now().UnixNano() + int64(time.Hour),
 	}
-	_, err = engine.Query(t.Context(), req)
-	if err != nil {
-		t.Errorf("expected no error for empty database in query, got %v", err)
+	_, err = engine.QueryIterator(t.Context(), req)
+	if err == nil {
+		t.Errorf("expected error for empty database")
 	}
 }
 
@@ -955,12 +978,9 @@ func TestEngine_Query_NonExistent(t *testing.T) {
 		StartTime:   time.Now().UnixNano(),
 		EndTime:     time.Now().UnixNano() + int64(time.Hour),
 	}
-	resp, err := engine.Query(t.Context(), req)
-	if err != nil {
-		t.Errorf("query should not error for non-existent db/measurement, got %v", err)
-	}
-	if resp.TotalCount != 0 {
-		t.Errorf("expected 0 rows for non-existent db/measurement, got %d", resp.TotalCount)
+	_, err = engine.QueryIterator(t.Context(), req)
+	if err == nil {
+		t.Errorf("expected error for non-existent db/measurement")
 	}
 }
 
@@ -1010,25 +1030,3 @@ func TestEngine_Write_Concurrent(t *testing.T) {
 	}
 }
 
-func TestEngine_AnyToProtoFieldValue(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   any
-		wantErr bool
-	}{
-		{"int64", int64(42), false},
-		{"float64", float64(3.14), false},
-		{"string", "hello", false},
-		{"bool", true, false},
-		{"unsupported", []byte{}, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := anyToProtoFieldValue(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("anyToProtoFieldValue() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}

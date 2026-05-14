@@ -79,7 +79,7 @@ func writePoints(db *microts.DB, dbName, meas string, baseTime int64, count int,
 }
 
 func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int, error) {
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: meas,
 		StartTime:   start,
@@ -88,8 +88,13 @@ func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int
 	if err != nil {
 		return 0, err
 	}
-	seen := make(map[string]bool, len(resp.Rows))
-	for _, row := range resp.Rows {
+	defer func() { _ = it.Close() }()
+	var rows []*types.PointRow
+	for it.Next(context.Background()) {
+		rows = append(rows, it.Points())
+	}
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
 		host := ""
 		if h, ok := row.Tags["host"]; ok {
 			host = h
@@ -99,8 +104,8 @@ func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int
 	return len(seen), nil
 }
 
-func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.Row, error) {
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.PointRow, error) {
+	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: meas,
 		StartTime:   start,
@@ -109,7 +114,12 @@ func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.
 	if err != nil {
 		return nil, err
 	}
-	return resp.Rows, nil
+	defer func() { _ = it.Close() }()
+	var rows []*types.PointRow
+	for it.Next(context.Background()) {
+		rows = append(rows, it.Points())
+	}
+	return rows, nil
 }
 
 func defaultDBConfig(tmpDir string) microts.Config {

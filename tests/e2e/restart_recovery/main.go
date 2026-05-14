@@ -103,7 +103,7 @@ func main() {
 
 	time.Sleep(500 * time.Millisecond)
 
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measurement,
 		StartTime:   baseTime,
@@ -115,8 +115,13 @@ func main() {
 		fmt.Printf("FATAL: 查询失败: %v\n", err)
 		os.Exit(1)
 	}
+	defer func() { _ = it.Close() }()
+	var rows []*types.PointRow
+	for it.Next(context.Background()) {
+		rows = append(rows, it.Points())
+	}
 
-	got := len(resp.Rows)
+	got := len(rows)
 	if got == expectedTotal {
 		fmt.Printf("\n✅ 通过: 累计 %d 条数据，完整无误\n", got)
 	} else {

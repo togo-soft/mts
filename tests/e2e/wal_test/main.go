@@ -107,7 +107,7 @@ func writeTestPoints(db *microts.DB, dbName, measurement string, startTime int64
 
 // queryAndCount 查询数据并返回行数
 func queryAndCount(db *microts.DB, dbName, measurement string, startTime, endTime int64) (int, error) {
-	resp, err := db.QueryRange(context.Background(), &types.QueryRangeRequest{
+	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measurement,
 		StartTime:   startTime,
@@ -118,7 +118,12 @@ func queryAndCount(db *microts.DB, dbName, measurement string, startTime, endTim
 	if err != nil {
 		return 0, err
 	}
-	return len(resp.Rows), nil
+	defer func() { _ = it.Close() }()
+	var count int
+	for it.Next(context.Background()) {
+		count++
+	}
+	return count, nil
 }
 
 // ============================================================================

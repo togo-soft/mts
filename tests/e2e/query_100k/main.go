@@ -71,7 +71,7 @@ func main() {
 
 	const queryLimit = 2000
 	timer := metrics.NewTimer()
-	resp, err := h.DB().QueryRange(context.Background(), &types.QueryRangeRequest{
+	it, err := h.DB().QueryIterator(context.Background(), &types.QueryRangeRequest{
 		Database:    h.Config().DBName,
 		Measurement: h.Config().MeasurementName,
 		StartTime:   baseTime,
@@ -79,21 +79,25 @@ func main() {
 		Offset:      0,
 		Limit:       queryLimit,
 	})
-	elapsed := timer.Elapsed()
-
 	if err != nil {
 		fmt.Printf("FAIL: query: %v\n", err)
 		return
 	}
+	defer func() { _ = it.Close() }()
+	var rows []*types.PointRow
+	for it.Next(context.Background()) {
+		rows = append(rows, it.Points())
+	}
+	elapsed := timer.Elapsed()
 
 	metrics.GC()
 	memAfterQuery := metrics.ReadMemStats()
 	queryDelta := metrics.CalcDelta(memBeforeQuery, memAfterQuery)
 
 	fmt.Printf("=== Query Result (paginated, limit=%d) ===\n", queryLimit)
-	fmt.Printf("Rows returned:  %d\n", len(resp.Rows))
+	fmt.Printf("Rows returned:  %d\n", len(rows))
 	fmt.Printf("Query latency:  %v\n", elapsed)
-	fmt.Printf("Query TPS:      %.2f\n", metrics.TPS(len(resp.Rows), elapsed))
+	fmt.Printf("Query TPS:      %.2f\n", metrics.TPS(len(rows), elapsed))
 	fmt.Printf("Memory before:  %s\n", metrics.FormatMemStats(memBeforeQuery))
 	fmt.Printf("Memory after:   %s\n", metrics.FormatMemStats(memAfterQuery))
 	fmt.Printf("Memory delta:   %s\n", queryDelta.Format())

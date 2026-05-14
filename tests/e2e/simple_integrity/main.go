@@ -35,7 +35,7 @@ func main() {
 		return
 	}
 
-	fmt.Printf("Got %d rows, expected %d\n", len(resp.Rows), count)
+	fmt.Printf("Got %d rows, expected %d\n", len(resp), count)
 
 	if err := h.VerifyDataIntegrity(count, time.Second); err != nil {
 		fmt.Printf("FAIL: %v\n", err)

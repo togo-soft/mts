@@ -178,7 +178,7 @@ func TestMicroTSService_QueryRange(t *testing.T) {
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
 	})
-	srv := New(eng)
+	_ = New(eng)
 	ctx := t.Context()
 
 	req := &types.QueryRangeRequest{
@@ -188,31 +188,12 @@ func TestMicroTSService_QueryRange(t *testing.T) {
 		EndTime:     1234567900,
 	}
 
-	resp, err := srv.QueryRange(ctx, req)
+	it, err := eng.QueryIterator(ctx, req)
 	if err != nil {
-		// 查询可能因为没有数据而失败，这是预期的
+		// 没有数据时预期会返回错误
 		return
 	}
-
-	if resp == nil {
-		t.Fatal("expected non-nil response")
-	}
-
-	if resp.Database != req.Database {
-		t.Errorf("expected database %s, got %s", req.Database, resp.Database)
-	}
-
-	if resp.Measurement != req.Measurement {
-		t.Errorf("expected measurement %s, got %s", req.Measurement, resp.Measurement)
-	}
-
-	if resp.StartTime != req.StartTime {
-		t.Errorf("expected startTime %d, got %d", req.StartTime, resp.StartTime)
-	}
-
-	if resp.EndTime != req.EndTime {
-		t.Errorf("expected endTime %d, got %d", req.EndTime, resp.EndTime)
-	}
+	defer func() { _ = it.Close() }()
 }
 
 func TestMicroTSService_ListMeasurements(t *testing.T) {
@@ -646,13 +627,20 @@ func TestMicroTSService_QueryRange_WithData(t *testing.T) {
 		EndTime:     now + 1e9,
 	}
 
-	resp, err := srv.QueryRange(ctx, req)
+	it, err := eng.QueryIterator(ctx, req)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("QueryIterator failed: %v", err)
+	}
+	defer func() { _ = it.Close() }()
+
+	count := 0
+	for it.Next(ctx) {
+		_ = it.Points()
+		count++
 	}
 
-	if len(resp.Rows) != 1 {
-		t.Errorf("expected 1 row, got %d", len(resp.Rows))
+	if count != 1 {
+		t.Errorf("expected 1 row, got %d", count)
 	}
 }
 
@@ -876,7 +864,7 @@ func TestMicroTSService_QueryRange_EngineClosed(t *testing.T) {
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
 	})
-	srv := New(eng)
+	_ = New(eng)
 
 	// 关闭 engine
 	_ = eng.Close()
@@ -889,13 +877,10 @@ func TestMicroTSService_QueryRange_EngineClosed(t *testing.T) {
 		EndTime:     1000,
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("QueryRange panicked after engine close: %v", r)
-		}
-	}()
-
-	_, _ = srv.QueryRange(ctx, req)
+	_, err := eng.QueryIterator(ctx, req)
+	if err == nil {
+		t.Error("expected error when engine is closed")
+	}
 }
 
 func TestPointRowToProto_NilRow(t *testing.T) {

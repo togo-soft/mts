@@ -148,7 +148,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 	time.Sleep(500 * time.Millisecond)
 
 	fmt.Printf("  Querying after restart...\n")
-	resp, err := db2.QueryRange(context.Background(), &microts.QueryRangeRequest{
+	it, err := db2.QueryIterator(context.Background(), &microts.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measName,
 		StartTime:   startTime,
@@ -162,11 +162,16 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 		fmt.Printf("  FAIL (query): %v\n", err)
 		return false
 	}
+	defer func() { _ = it.Close() }()
+	var rows []*microts.PointRow
+	for it.Next(context.Background()) {
+		rows = append(rows, it.Points())
+	}
 
-	if len(resp.Rows) != writeCount {
+	if len(rows) != writeCount {
 		_ = db2.Close()
 		_ = os.RemoveAll(tmpDir)
-		fmt.Printf("  FAIL: expected %d rows, got %d\n", writeCount, len(resp.Rows))
+		fmt.Printf("  FAIL: expected %d rows, got %d\n", writeCount, len(rows))
 		return false
 	}
 
@@ -199,19 +204,19 @@ func testMultipleFieldTypes(name string, opt func(*framework.Config)) bool {
 
 	time.Sleep(6 * time.Second)
 
-	resp, err := h.QueryRange(context.Background(), h.StartTime(), h.StartTime()+200*int64(time.Millisecond))
+	rows, err := h.QueryRange(context.Background(), h.StartTime(), h.StartTime()+200*int64(time.Millisecond))
 	if err != nil {
 		fmt.Printf("  FAIL (query): %v\n", err)
 		return false
 	}
 
-	if len(resp.Rows) != 200 {
-		fmt.Printf("  FAIL: expected 200 rows, got %d\n", len(resp.Rows))
+	if len(rows) != 200 {
+		fmt.Printf("  FAIL: expected 200 rows, got %d\n", len(rows))
 		return false
 	}
 
 	errors := 0
-	for i, row := range resp.Rows {
+	for i, row := range rows {
 		if row.Fields["usage"] == nil {
 			fmt.Printf("  Row %d: missing 'usage' field\n", i)
 			errors++
