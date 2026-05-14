@@ -130,9 +130,10 @@ func (w *WAL) Write(data []byte) (int, error) {
 
 	// 压缩 payload
 	var payload []byte
+	var releasePayload func()
 	if w.compressed {
 		var err error
-		payload, err = CompressPayload(data)
+		payload, releasePayload, err = CompressPayload(data)
 		if err != nil {
 			return 0, err
 		}
@@ -141,12 +142,24 @@ func (w *WAL) Write(data []byte) (int, error) {
 		payload = data
 	}
 
+	// 编码记录（池化缓冲区避免分配）
 	recordSize := RecordSize(len(payload))
-	record := make([]byte, recordSize)
-	record = EncodeRecord(record, TypePointData, payload)
+	recordBuf := getBuf(recordSize)
+	if cap(recordBuf) < recordSize {
+		recordBuf = make([]byte, recordSize)
+	}
+	record := EncodeRecord(recordBuf[:recordSize], TypePointData, payload)
+
+	// 编码完成后释放压缩缓冲区
+	if releasePayload != nil {
+		releasePayload()
+	}
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
+	defer func() {
+		w.mu.Unlock()
+		putBuf(recordBuf)
+	}()
 
 	if w.seg.size+int64(w.bufPos)+int64(len(record)) > w.cfg.SegmentSize {
 		if err := w.rotateLocked(); err != nil {
@@ -193,12 +206,14 @@ func (w *WAL) WriteBatch(data [][]byte) (int, error) {
 	defer w.mu.Unlock()
 
 	var total int
+	var recordBuf []byte // 跨迭代复用，避免每次分配
 	for _, d := range data {
 		// 压缩 payload
 		var payload []byte
+		var releasePayload func()
 		if w.compressed {
 			var err error
-			payload, err = CompressPayload(d)
+			payload, releasePayload, err = CompressPayload(d)
 			if err != nil {
 				return total, err
 			}
@@ -207,9 +222,17 @@ func (w *WAL) WriteBatch(data [][]byte) (int, error) {
 			payload = d
 		}
 
+		// 编码记录（复用 recordBuf，仅在容量不足时扩容）
 		recordSize := RecordSize(len(payload))
-		record := make([]byte, recordSize)
-		record = EncodeRecord(record, TypePointData, payload)
+		if cap(recordBuf) < recordSize {
+			recordBuf = make([]byte, recordSize)
+		}
+		record := EncodeRecord(recordBuf[:recordSize], TypePointData, payload)
+
+		// 编码完成后释放压缩缓冲区
+		if releasePayload != nil {
+			releasePayload()
+		}
 
 		if w.seg.size+int64(w.bufPos)+int64(len(record)) > w.cfg.SegmentSize {
 			if err := w.rotateLocked(); err != nil {
