@@ -646,7 +646,7 @@ func TestShard_LevelCompaction_NewShard(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		LevelCompactionCfg: &compaction.LevelCompactionConfig{
+		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -681,7 +681,7 @@ func TestShard_LevelCompaction_FlushToL0(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		LevelCompactionCfg: &compaction.LevelCompactionConfig{
+		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -738,7 +738,7 @@ func TestShard_LevelCompaction_Close(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		LevelCompactionCfg: &compaction.LevelCompactionConfig{
+		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled:          true,
 			CheckInterval:    time.Millisecond * 10,
 			Timeout:          time.Minute,
@@ -792,7 +792,7 @@ func TestShard_LevelCompaction_Read(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		LevelCompactionCfg: &compaction.LevelCompactionConfig{
+		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -847,13 +847,13 @@ func TestShard_LevelCompaction_BothConfigs(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount:    10,
 			MaxCompactionBatch: 5,
 			CheckInterval:      time.Minute,
 			Timeout:            time.Minute,
 		},
-		LevelCompactionCfg: &compaction.LevelCompactionConfig{
+		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled:          true,
 			CheckInterval:    time.Minute,
 			Timeout:          time.Minute,
@@ -884,7 +884,7 @@ func TestShard_LevelCompaction_NoLevelConfig(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount:    10,
 			MaxCompactionBatch: 5,
 			CheckInterval:      time.Minute,
@@ -942,7 +942,7 @@ func TestNewShard_LevelCompactionCreationFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 使用一个无效的 level 配置导致创建失败
-	cfg := &compaction.LevelCompactionConfig{
+	cfg := &compaction.LevelConfig{
 		LevelConfigs: nil, // 无效配置
 		Timeout:      time.Hour,
 	}
@@ -1039,7 +1039,7 @@ func TestShard_flushLocked_WithLevelCompaction(t *testing.T) {
 	// 测试带 Level Compaction 的 flush
 	tmpDir := t.TempDir()
 
-	cfg := compaction.DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelConfig()
 	cfg.CheckInterval = time.Hour // 避免自动 compaction
 
 	s := NewShard(ShardConfig{
@@ -1078,7 +1078,7 @@ func TestShard_Close_WithLevelCompaction(t *testing.T) {
 	// 测试带 Level Compaction 的 Close
 	tmpDir := t.TempDir()
 
-	cfg := compaction.DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelConfig()
 	cfg.CheckInterval = time.Hour // 避免自动 compaction
 
 	s := NewShard(ShardConfig{
@@ -1114,7 +1114,7 @@ func TestShard_Close_WithCompaction(t *testing.T) {
 	// 测试带 Compaction 的 Close
 	tmpDir := t.TempDir()
 
-	compactionCfg := compaction.DefaultCompactionConfig()
+	compactionCfg := compaction.DefaultConfig()
 	compactionCfg.CheckInterval = time.Hour // 避免定时触发
 
 	s := NewShard(ShardConfig{
@@ -1570,7 +1570,7 @@ func TestShard_triggerBackgroundCompaction_LevelCompaction(t *testing.T) {
 	// 测试 triggerBackgroundCompaction 触发 level compaction
 	tmpDir := t.TempDir()
 
-	cfg := compaction.DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelConfig()
 	cfg.CheckInterval = time.Hour // 避免自动 compaction 干扰
 
 	s := NewShard(ShardConfig{
@@ -1627,7 +1627,7 @@ func TestShard_triggerBackgroundCompaction_LevelCompactionNoTrigger(t *testing.T
 	// 测试 triggerBackgroundCompaction 在不需要 compaction 时不触发
 	tmpDir := t.TempDir()
 
-	cfg := compaction.DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelConfig()
 	cfg.CheckInterval = time.Hour
 
 	s := NewShard(ShardConfig{

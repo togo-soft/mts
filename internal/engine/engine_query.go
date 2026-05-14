@@ -8,8 +8,8 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// QueryIterator 返回流式查询迭代器。
-func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {
+// Iterator 返回流式查询迭代器。
+func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*query.Iterator, error) {
 	if e.isClosed() {
 		return nil, fmt.Errorf("engine is closed")
 	}
@@ -19,5 +19,5 @@ func (e *Engine) QueryIterator(ctx context.Context, req *types.QueryRangeRequest
 		return nil, fmt.Errorf("no shards found")
 	}
 
-	return query.NewQueryIterator(ctx, shards, req), nil
+	return query.NewIterator(ctx, shards, req), nil
 }

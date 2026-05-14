@@ -91,7 +91,7 @@ func main() {
 	// 查询时间范围：所有累积数据（从 0 到未来一个月）
 	oneMonthLater := time.Now().Add(30 * 24 * time.Hour).UnixNano()
 	fmt.Println("\nStep 2: 查询所有累积数据（从 0 到未来一个月）")
-	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
+	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measurement,
 		StartTime:   0,

@@ -12,14 +12,14 @@ import (
 func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cfg := compaction.DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelConfig()
 	cfg.TombstoneRetention = 1 * time.Hour
 
 	shard := &Shard{
 		dir: tmpDir,
 	}
 
-	lcm, err := compaction.NewLevelCompactionManager(shard, cfg)
+	lcm, err := compaction.NewLevelManager(shard, cfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}
@@ -62,14 +62,14 @@ func TestLevelCompactionManager_CompactTombstones(t *testing.T) {
 func TestLevelCompactionManager_CompactTombstones_PartialRetention(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cfg := compaction.DefaultLevelCompactionConfig()
+	cfg := compaction.DefaultLevelConfig()
 	cfg.TombstoneRetention = 1 * time.Hour
 
 	shard := &Shard{
 		dir: tmpDir,
 	}
 
-	lcm, err := compaction.NewLevelCompactionManager(shard, cfg)
+	lcm, err := compaction.NewLevelManager(shard, cfg)
 	if err != nil {
 		t.Fatalf("NewLevelCompactionManager failed: %v", err)
 	}

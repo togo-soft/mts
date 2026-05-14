@@ -184,7 +184,7 @@ func (h *TestHarness) WritePoints(ctx context.Context, count int, interval time.
 
 // QueryRange 查询指定时间范围的数据（内部使用流式迭代器）
 func (h *TestHarness) QueryRange(ctx context.Context, start, end int64) ([]*types.PointRow, error) {
-	it, err := h.db.QueryIterator(ctx, &types.QueryRangeRequest{
+	it, err := h.db.Iterator(ctx, &types.QueryRangeRequest{
 		Database:    h.cfg.DBName,
 		Measurement: h.cfg.MeasurementName,
 		StartTime:   start,

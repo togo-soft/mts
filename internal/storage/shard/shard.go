@@ -71,8 +71,8 @@ type ShardConfig struct {
 	SeriesStore          SeriesStore
 	SchemaStore          SchemaStore
 	MemTableCfg          *memtable.MemTableConfig
-	CompactionCfg        *compaction.CompactionConfig
-	LevelCompactionCfg   *compaction.LevelCompactionConfig
+	CompactionCfg        *compaction.Config
+	LevelCompactionCfg   *compaction.LevelConfig
 	CompressionAlgorithm sstable.CompressionAlgorithm
 	Logger               *slog.Logger
 }
@@ -134,8 +134,8 @@ type Shard struct {
 	mu              sync.RWMutex
 	sstSeq          uint64 // SSTable序列号，用于生成唯一的文件名
 	sstRefs         *sstRefs
-	compaction      *compaction.CompactionManager
-	levelCompaction *compaction.LevelCompactionManager
+	compaction      *compaction.Manager
+	levelCompaction *compaction.LevelManager
 	compressionAlgo sstable.CompressionAlgorithm
 }
 
@@ -200,16 +200,16 @@ func NewShard(cfg ShardConfig) *Shard {
 		compressionAlgo: cfg.CompressionAlgorithm,
 	}
 
-	// 初始化 CompactionManager（如果配置了）
+	// 初始化 Manager（如果配置了）
 	if cfg.CompactionCfg != nil {
-		shard.compaction = compaction.NewCompactionManager(shard, cfg.CompactionCfg)
+		shard.compaction = compaction.NewManager(shard, cfg.CompactionCfg)
 	}
 
-	// 初始化 LevelCompactionManager（如果配置了）
+	// 初始化 LevelManager（如果配置了）
 	if cfg.LevelCompactionCfg != nil {
-		shard.levelCompaction, err = compaction.NewLevelCompactionManager(shard, cfg.LevelCompactionCfg)
+		shard.levelCompaction, err = compaction.NewLevelManager(shard, cfg.LevelCompactionCfg)
 		if err != nil {
-			slog.Warn("failed to create LevelCompactionManager, level compaction disabled",
+			slog.Warn("failed to create LevelManager, level compaction disabled",
 				"error", err)
 			shard.levelCompaction = nil
 		}

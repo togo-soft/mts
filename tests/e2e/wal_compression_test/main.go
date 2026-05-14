@@ -100,7 +100,7 @@ func writeLargePoints(db *microts.DB, dbName, measurement string, startTime int6
 
 // queryAndCount 查询数据并返回行数
 func queryAndCount(db *microts.DB, dbName, measurement string, startTime, endTime int64) (int, error) {
-	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
+	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measurement,
 		StartTime:   startTime,

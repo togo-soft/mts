@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/framework"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 func main() {
@@ -21,14 +21,22 @@ func main() {
 
 	const count = 100
 
-	gen := data_gen.NewDataGenerator(42)
 	baseTime := h.StartTime()
 
 	timer := metrics.NewWriteSummary(count)
 	fmt.Printf("Writing %d points...\n", count)
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*time.Second.Nanoseconds()
-		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
+		p := &types.Point{
+			Database:    h.Config().DBName,
+			Measurement: h.Config().MeasurementName,
+			Tags:        map[string]string{"host": "server1"},
+			Timestamp:   ts,
+			Fields: map[string]*types.FieldValue{
+				"usage": types.NewFieldValue(float64(i) * 1.5),
+				"count": types.NewFieldValue(int64(i * 10)),
+			},
+		}
 		if err := h.DB().Write(context.Background(), p); err != nil {
 			fmt.Printf("Write failed at %d: %v\n", i, err)
 			return

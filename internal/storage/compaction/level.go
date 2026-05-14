@@ -19,10 +19,10 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// LevelCompactionConfig Level Compaction 配置。
-type LevelCompactionConfig struct {
+// LevelConfig Level Compaction 配置。
+type LevelConfig struct {
 	Enabled             bool
-	LevelConfigs        []LevelConfig
+	LevelConfigs        []LevelSpec
 	L0ToL1SizeThreshold int64
 	MaxCompactionParts  int
 	TombstoneRetention  time.Duration
@@ -31,11 +31,11 @@ type LevelCompactionConfig struct {
 	EnableCheckpoint    bool
 }
 
-// DefaultLevelCompactionConfig 返回默认配置。
-func DefaultLevelCompactionConfig() *LevelCompactionConfig {
-	return &LevelCompactionConfig{
+// DefaultLevelConfig 返回默认配置。
+func DefaultLevelConfig() *LevelConfig {
+	return &LevelConfig{
 		Enabled:             true,
-		LevelConfigs:        DefaultLevelConfigs(),
+		LevelConfigs:        DefaultLevelSpecs(),
 		L0ToL1SizeThreshold: 5 * 1024 * 1024,
 		MaxCompactionParts:  10,
 		TombstoneRetention:  1 * time.Hour,
@@ -45,8 +45,8 @@ func DefaultLevelCompactionConfig() *LevelCompactionConfig {
 	}
 }
 
-// CompactionCheckpoint compaction 进度检查点。
-type CompactionCheckpoint struct {
+// Checkpoint compaction 进度检查点。
+type Checkpoint struct {
 	Version    int      `json:"version"`
 	Level      int      `json:"level"`
 	InputParts []string `json:"input_parts"`
@@ -57,12 +57,12 @@ type CompactionCheckpoint struct {
 	Timestamp  int64    `json:"timestamp"`
 }
 
-func (cp *CompactionCheckpoint) CheckpointPath(dataDir string) string {
+func (cp *Checkpoint) CheckpointPath(dataDir string) string {
 	return filepath.Join(dataDir, "_compaction.cp")
 }
 
 // Save 保存检查点到文件。
-func (cp *CompactionCheckpoint) Save(dataDir string) error {
+func (cp *Checkpoint) Save(dataDir string) error {
 	cp.Timestamp = time.Now().Unix()
 	data, err := json.Marshal(cp)
 	if err != nil {
@@ -78,7 +78,7 @@ func (cp *CompactionCheckpoint) Save(dataDir string) error {
 }
 
 // Load 从文件加载检查点。
-func (cp *CompactionCheckpoint) Load(dataDir string) error {
+func (cp *Checkpoint) Load(dataDir string) error {
 	path := cp.CheckpointPath(dataDir)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -93,7 +93,7 @@ func (cp *CompactionCheckpoint) Load(dataDir string) error {
 }
 
 // Clear 删除检查点文件。
-func (cp *CompactionCheckpoint) Clear(dataDir string) error {
+func (cp *Checkpoint) Clear(dataDir string) error {
 	path := cp.CheckpointPath(dataDir)
 	err := os.Remove(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -102,10 +102,10 @@ func (cp *CompactionCheckpoint) Clear(dataDir string) error {
 	return nil
 }
 
-// LevelCompactionManager 管理 Level Compaction。
-type LevelCompactionManager struct {
+// LevelManager 管理 Level Compaction。
+type LevelManager struct {
 	shard    ShardAccess
-	config   *LevelCompactionConfig
+	config   *LevelConfig
 	Manifest *LevelManifest
 
 	manifestMu        sync.RWMutex
@@ -122,10 +122,10 @@ type LevelCompactionManager struct {
 	cancel context.CancelFunc
 }
 
-// NewLevelCompactionManager 创建 LevelCompactionManager。
-func NewLevelCompactionManager(shard ShardAccess, config *LevelCompactionConfig) (*LevelCompactionManager, error) {
+// NewLevelManager 创建 LevelManager。
+func NewLevelManager(shard ShardAccess, config *LevelConfig) (*LevelManager, error) {
 	if config == nil {
-		config = DefaultLevelCompactionConfig()
+		config = DefaultLevelConfig()
 	}
 
 	dataDir := filepath.Join(shard.Dir(), "data")
@@ -141,7 +141,7 @@ func NewLevelCompactionManager(shard ShardAccess, config *LevelCompactionConfig)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	lcm := &LevelCompactionManager{
+	lcm := &LevelManager{
 		shard:    shard,
 		config:   config,
 		Manifest: manifest,
@@ -154,19 +154,19 @@ func NewLevelCompactionManager(shard ShardAccess, config *LevelCompactionConfig)
 }
 
 // Timeout 返回 level compaction 超时配置。
-func (lcm *LevelCompactionManager) Timeout() time.Duration {
+func (lcm *LevelManager) Timeout() time.Duration {
 	return lcm.config.Timeout
 }
 
 // Context 返回 manager 的可取消 context，Stop() 时会取消。
 // 调用方应使用此 context 创建子 context，以便 Stop() 能打断运行中的 compaction。
-func (lcm *LevelCompactionManager) Context() context.Context {
+func (lcm *LevelManager) Context() context.Context {
 	return lcm.ctx
 }
 
 // SetConfig 运行时更新 Level Compaction 配置。
 // 更新后自动重置 ticker 以使用新的 CheckInterval。
-func (lcm *LevelCompactionManager) SetConfig(config *LevelCompactionConfig) {
+func (lcm *LevelManager) SetConfig(config *LevelConfig) {
 	lcm.manifestMu.Lock()
 	defer lcm.manifestMu.Unlock()
 
@@ -182,7 +182,7 @@ func (lcm *LevelCompactionManager) SetConfig(config *LevelCompactionConfig) {
 }
 
 // Compact 执行 compaction。
-func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []string, error) {
+func (lcm *LevelManager) Compact(ctx context.Context) (string, []string, error) {
 	if !lcm.compactInProgress.CompareAndSwap(0, 1) {
 		return "", nil, nil
 	}
@@ -213,9 +213,9 @@ func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []strin
 	outputSeq := lcm.NextSeq()
 	outputPath := filepath.Join(lcm.Manifest.GetLevelPath(targetLevel+1), fmt.Sprintf("sst_%d.bin", outputSeq))
 
-	var cp *CompactionCheckpoint
+	var cp *Checkpoint
 	if lcm.config.EnableCheckpoint {
-		cp = &CompactionCheckpoint{
+		cp = &Checkpoint{
 			Version:    1,
 			Level:      targetLevel,
 			OutputSeq:  outputSeq,
@@ -299,7 +299,7 @@ func (lcm *LevelCompactionManager) Compact(ctx context.Context) (string, []strin
 }
 
 // merge 执行流式合并。
-func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPaths []string, outputPath string) error {
+func (lcm *LevelManager) merge(ctx context.Context, level int, inputPaths []string, outputPath string) error {
 	schema, err := lcm.shard.GetSchema()
 	if err != nil {
 		return fmt.Errorf("get schema: %w", err)
@@ -419,14 +419,14 @@ func (lcm *LevelCompactionManager) merge(ctx context.Context, level int, inputPa
 }
 
 // NextSeq 返回下一个序列号。
-func (lcm *LevelCompactionManager) NextSeq() uint64 {
+func (lcm *LevelManager) NextSeq() uint64 {
 	lcm.seqMu.Lock()
 	defer lcm.seqMu.Unlock()
 	return lcm.Manifest.NextSeq()
 }
 
 // AddPart 添加 Part 到指定层次。
-func (lcm *LevelCompactionManager) AddPart(level int, part PartInfo) {
+func (lcm *LevelManager) AddPart(level int, part PartInfo) {
 	lcm.manifestMu.Lock()
 	defer lcm.manifestMu.Unlock()
 	lcm.Manifest.AddPart(level, part)
@@ -436,18 +436,18 @@ func (lcm *LevelCompactionManager) AddPart(level int, part PartInfo) {
 }
 
 // SaveManifest 保存 manifest 到磁盘。
-func (lcm *LevelCompactionManager) SaveManifest() error {
+func (lcm *LevelManager) SaveManifest() error {
 	lcm.manifestMu.Lock()
 	defer lcm.manifestMu.Unlock()
 	return lcm.Manifest.Save()
 }
 
 // Config 返回 Level Compaction 配置。
-func (lcm *LevelCompactionManager) Config() *LevelCompactionConfig {
+func (lcm *LevelManager) Config() *LevelConfig {
 	return lcm.config
 }
 
-func (lcm *LevelCompactionManager) LevelMaxSize(level int) int64 {
+func (lcm *LevelManager) LevelMaxSize(level int) int64 {
 	for _, cfg := range lcm.config.LevelConfigs {
 		if cfg.Level == level {
 			return cfg.MaxSize
@@ -460,7 +460,7 @@ func (lcm *LevelCompactionManager) LevelMaxSize(level int) int64 {
 	return base
 }
 
-func (lcm *LevelCompactionManager) ShouldCompactLevel(level int) bool {
+func (lcm *LevelManager) ShouldCompactLevel(level int) bool {
 	l := lcm.Manifest.GetLevel(level)
 	if l == nil {
 		return false
@@ -483,7 +483,7 @@ func (lcm *LevelCompactionManager) ShouldCompactLevel(level int) bool {
 }
 
 // ShouldCompact 检查是否应该触发 compaction。
-func (lcm *LevelCompactionManager) ShouldCompact() bool {
+func (lcm *LevelManager) ShouldCompact() bool {
 	lcm.manifestMu.RLock()
 	defer lcm.manifestMu.RUnlock()
 
@@ -496,7 +496,7 @@ func (lcm *LevelCompactionManager) ShouldCompact() bool {
 	return false
 }
 
-func (lcm *LevelCompactionManager) SelectPartsForMerge(level int) []PartInfo {
+func (lcm *LevelManager) SelectPartsForMerge(level int) []PartInfo {
 	l := lcm.Manifest.GetLevel(level)
 	if l == nil || len(l.Parts) == 0 {
 		return nil
@@ -527,7 +527,7 @@ func HasOverlap(p1, p2 PartInfo) bool {
 	return p1.MinTime <= p2.MaxTime && p2.MinTime <= p1.MaxTime
 }
 
-func (lcm *LevelCompactionManager) CollectOverlapParts(level int, targets []PartInfo) []PartInfo {
+func (lcm *LevelManager) CollectOverlapParts(level int, targets []PartInfo) []PartInfo {
 	var overlaps []PartInfo
 	seen := make(map[string]bool)
 
@@ -557,7 +557,7 @@ func (lcm *LevelCompactionManager) CollectOverlapParts(level int, targets []Part
 }
 
 // StartPeriodicCheck 启动定期检查。
-func (lcm *LevelCompactionManager) StartPeriodicCheck() {
+func (lcm *LevelManager) StartPeriodicCheck() {
 	if lcm.config.CheckInterval <= 0 {
 		return
 	}
@@ -580,7 +580,7 @@ func (lcm *LevelCompactionManager) StartPeriodicCheck() {
 // Stop 停止定期检查。
 // 先 close(stopCh) + cancel context 让运行中的 compaction 感知退出，
 // 再等待 goroutine 退出。
-func (lcm *LevelCompactionManager) Stop() {
+func (lcm *LevelManager) Stop() {
 	lcm.stopOnce.Do(func() {
 		close(lcm.stopCh)
 		lcm.cancel()
@@ -588,7 +588,7 @@ func (lcm *LevelCompactionManager) Stop() {
 	lcm.wg.Wait()
 }
 
-func (lcm *LevelCompactionManager) doPeriodicCompaction() {
+func (lcm *LevelManager) doPeriodicCompaction() {
 	if !lcm.compactInProgress.CompareAndSwap(0, 1) {
 		return
 	}
@@ -608,9 +608,9 @@ func (lcm *LevelCompactionManager) doPeriodicCompaction() {
 }
 
 // Recover 启动时恢复检查。
-func (lcm *LevelCompactionManager) Recover() error {
+func (lcm *LevelManager) Recover() error {
 	dataDir := filepath.Join(lcm.shard.Dir(), "data")
-	cp := &CompactionCheckpoint{}
+	cp := &Checkpoint{}
 
 	if err := cp.Load(dataDir); err != nil {
 		if os.IsNotExist(err) {

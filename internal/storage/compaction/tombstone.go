@@ -109,7 +109,7 @@ func RemoveTombstones(partPath string) error {
 }
 
 // CompactTombstones 清理已过期的 tombstone。
-func (lcm *LevelCompactionManager) CompactTombstones() error {
+func (lcm *LevelManager) CompactTombstones() error {
 	lcm.manifestMu.RLock()
 	defer lcm.manifestMu.RUnlock()
 

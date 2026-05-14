@@ -71,7 +71,7 @@ func main() {
 
 	const queryLimit = 2000
 	timer := metrics.NewTimer()
-	it, err := h.DB().QueryIterator(context.Background(), &types.QueryRangeRequest{
+	it, err := h.DB().Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    h.Config().DBName,
 		Measurement: h.Config().MeasurementName,
 		StartTime:   baseTime,

@@ -118,9 +118,9 @@ func TestEngine_Query(t *testing.T) {
 		EndTime:     now + 2e9,
 	}
 
-	it, err := engine.QueryIterator(t.Context(), req)
+	it, err := engine.Iterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	defer func() { _ = it.Close() }()
 
@@ -216,9 +216,9 @@ func TestEngine_Query_FieldProjection(t *testing.T) {
 		Fields:      []string{"usage", "count"}, // 字段过滤
 	}
 
-	it, err := engine.QueryIterator(t.Context(), req)
+	it, err := engine.Iterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	defer func() { _ = it.Close() }()
 
@@ -292,9 +292,9 @@ func TestEngine_Query_TagFilter(t *testing.T) {
 		Tags:        map[string]string{"host": "server1"}, // Tag 过滤
 	}
 
-	it, err := engine.QueryIterator(t.Context(), req)
+	it, err := engine.Iterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	defer func() { _ = it.Close() }()
 
@@ -350,9 +350,9 @@ func TestEngine_Query_Concurrent(t *testing.T) {
 		Limit:       50,
 	}
 
-	it, err := engine.QueryIterator(t.Context(), req)
+	it, err := engine.Iterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	defer func() { _ = it.Close() }()
 
@@ -409,9 +409,9 @@ func TestEngine_Query_Pagination(t *testing.T) {
 		Limit:       10,
 	}
 
-	it, err := engine.QueryIterator(t.Context(), req)
+	it, err := engine.Iterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 
 	count := 0
@@ -427,9 +427,9 @@ func TestEngine_Query_Pagination(t *testing.T) {
 
 	// 查询第 20-30 条 (offset=20, limit=10)
 	req.Offset = 20
-	it, err = engine.QueryIterator(t.Context(), req)
+	it, err = engine.Iterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 
 	count = 0
@@ -691,7 +691,7 @@ func TestEngine_DropMeasurement(t *testing.T) {
 	}
 }
 
-func TestEngine_QueryIterator(t *testing.T) {
+func TestEngine_Iterator(t *testing.T) {
 	cfg := &Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -728,7 +728,7 @@ func TestEngine_QueryIterator(t *testing.T) {
 		t.Fatalf("WriteBatch failed: %v", err)
 	}
 
-	// 测试 QueryIterator
+	// 测试 Iterator
 	req := &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
@@ -736,9 +736,9 @@ func TestEngine_QueryIterator(t *testing.T) {
 		EndTime:     now + 2e9,
 	}
 
-	it, err := engine.QueryIterator(t.Context(), req)
+	it, err := engine.Iterator(t.Context(), req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	defer func() {
 		_ = it.Close()
@@ -779,7 +779,7 @@ func TestEngine_Query_NoShards(t *testing.T) {
 		EndTime:     1e9,
 	}
 
-	_, err = engine.QueryIterator(t.Context(), req)
+	_, err = engine.Iterator(t.Context(), req)
 	if err == nil {
 		t.Fatalf("expected error for non-existent shard")
 	}
@@ -955,7 +955,7 @@ func TestEngine_Query_EmptyDatabase(t *testing.T) {
 		StartTime:   time.Now().UnixNano(),
 		EndTime:     time.Now().UnixNano() + int64(time.Hour),
 	}
-	_, err = engine.QueryIterator(t.Context(), req)
+	_, err = engine.Iterator(t.Context(), req)
 	if err == nil {
 		t.Errorf("expected error for empty database")
 	}
@@ -978,7 +978,7 @@ func TestEngine_Query_NonExistent(t *testing.T) {
 		StartTime:   time.Now().UnixNano(),
 		EndTime:     time.Now().UnixNano() + int64(time.Hour),
 	}
-	_, err = engine.QueryIterator(t.Context(), req)
+	_, err = engine.Iterator(t.Context(), req)
 	if err == nil {
 		t.Errorf("expected error for non-existent db/measurement")
 	}

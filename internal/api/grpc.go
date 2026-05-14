@@ -213,7 +213,7 @@ func (s *MicroTSService) WriteBatch(ctx context.Context, req *types.WriteBatchRe
 func (s *MicroTSService) QueryRange(req *types.QueryRangeRequest, stream types.MicroTS_QueryRangeServer) error {
 	ctx := stream.Context()
 
-	qit, err := s.engine.QueryIterator(ctx, req)
+	qit, err := s.engine.Iterator(ctx, req)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "no shards found: %v", err)
 	}

@@ -124,7 +124,7 @@ func TestDB_QueryRange(t *testing.T) {
 		Limit:       100,
 	}
 
-	it, err := db.QueryIterator(t.Context(), req)
+	it, err := db.Iterator(t.Context(), req)
 	if err != nil {
 		// No data in DB, expected to fail with no shards
 		return

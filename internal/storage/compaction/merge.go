@@ -19,7 +19,7 @@ const (
 )
 
 // Merge 执行归并操作。
-func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) error {
+func (cm *Manager) Merge(ctx context.Context, task *Task) error {
 	schema, err := cm.ShardAccess.GetSchema()
 	if err != nil {
 		return fmt.Errorf("get schema: %w", err)
@@ -175,7 +175,7 @@ func (cm *CompactionManager) Merge(ctx context.Context, task *CompactionTask) er
 }
 
 // commit 原子性提交 compaction 结果。
-func (cm *CompactionManager) Commit(task *CompactionTask) error {
+func (cm *Manager) Commit(task *Task) error {
 	if err := cm.VerifyOutput(task.OutputPath); err != nil {
 		return fmt.Errorf("verify output: %w", err)
 	}
@@ -218,7 +218,7 @@ func (cm *CompactionManager) Commit(task *CompactionTask) error {
 	return nil
 }
 
-func (cm *CompactionManager) VerifyOutput(path string) error {
+func (cm *Manager) VerifyOutput(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("output path stat: %w", err)
@@ -229,7 +229,7 @@ func (cm *CompactionManager) VerifyOutput(path string) error {
 	return nil
 }
 
-func (cm *CompactionManager) ReportProgress(outputCount int) {
+func (cm *Manager) ReportProgress(outputCount int) {
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 	if cm.CurrentTask == nil {

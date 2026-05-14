@@ -67,9 +67,9 @@ func main() {
 			MaxCount:          100,              // 足够大，避免因条数触发 Flush
 			IdleDurationNanos: int64(10 * time.Second),
 		},
-		LevelCompactionCfg: &compaction.LevelCompactionConfig{
+		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled: true,
-			LevelConfigs: []compaction.LevelConfig{
+			LevelConfigs: []compaction.LevelSpec{
 				{Level: 0, MaxSize: 10 * 1024 * 1024, MaxParts: 4},
 				{Level: 1, MaxSize: 100 * 1024 * 1024, MaxParts: 0},
 				{Level: 2, MaxSize: 1024 * 1024 * 1024, MaxParts: 0},

@@ -215,9 +215,9 @@ func Open(cfg Config) (*DB, error) {
 	}
 
 	// 默认 Compaction 配置
-	var compactionCfg *compaction.CompactionConfig
+	var compactionCfg *compaction.Config
 	if cfg.CompactionCfg != nil {
-		compactionCfg = &compaction.CompactionConfig{
+		compactionCfg = &compaction.Config{
 			MaxSSTableCount:    cfg.CompactionCfg.MaxSSTableCount,
 			MaxCompactionBatch: cfg.CompactionCfg.MaxCompactionBatch,
 			ShardSizeLimit:     cfg.CompactionCfg.ShardSizeLimit,
@@ -327,7 +327,7 @@ func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 // 说明：
 //
 //	底层使用流式迭代器查询，本方法会迭代读取所有数据后返回。
-//	如果需要处理大量数据，建议使用 QueryIterator 直接流式处理，
+//	如果需要处理大量数据，建议使用 Iterator 直接流式处理，
 //	可以避免在内存中累积所有结果。
 //
 // 分页处理：
@@ -359,7 +359,7 @@ func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 //	    fmt.Printf("时间: %d, 字段: %v\n", row.Timestamp, row.Fields)
 //	}
 func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
-	it, err := db.engine.QueryIterator(ctx, req)
+	it, err := db.engine.Iterator(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +383,7 @@ func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*ty
 	}, nil
 }
 
-// QueryIterator 创建流式查询迭代器，用于处理大量数据而不占用大量内存。
+// Iterator 创建流式查询迭代器，用于处理大量数据而不占用大量内存。
 //
 // 流式迭代器只在需要时加载数据，适合处理海量数据查询。
 //
@@ -392,12 +392,12 @@ func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*ty
 //   - req: 查询请求，支持时间范围、字段过滤和标签过滤
 //
 // 返回：
-//   - *query.QueryIterator: 查询迭代器，使用完后必须调用 Close()
+//   - *query.Iterator: 查询迭代器，使用完后必须调用 Close()
 //   - error: 创建失败时返回错误
 //
 // 使用示例：
 //
-//	it, err := db.QueryIterator(ctx, &microts.QueryRangeRequest{
+//	it, err := db.Iterator(ctx, &microts.QueryRangeRequest{
 //	    Database:    "metrics",
 //	    Measurement: "cpu",
 //	    StartTime:   start.UnixNano(),
@@ -412,8 +412,8 @@ func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*ty
 //	    row := it.Points()
 //	    process(row)
 //	}
-func (db *DB) QueryIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.QueryIterator, error) {
-	return db.engine.QueryIterator(ctx, req)
+func (db *DB) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*query.Iterator, error) {
+	return db.engine.Iterator(ctx, req)
 }
 
 // ListMeasurements 列出指定数据库中的所有 Measurement 名称。

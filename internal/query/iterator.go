@@ -1,6 +1,6 @@
 // Package query 实现查询处理和执行。
 //
-// QueryIterator 提供流式查询功能，支持大数据集的高效遍历。
+// Iterator 提供流式查询功能，支持大数据集的高效遍历。
 //
 // 设计模式：
 //
@@ -16,9 +16,9 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// QueryIterator 是流式查询迭代器，支持多 Shard 归并排序和过滤。
+// Iterator 是流式查询迭代器，支持多 Shard 归并排序和过滤。
 //
-// QueryIterator 提供按需加载数据的迭代接口，适合处理超出内存容量的大查询。
+// Iterator 提供按需加载数据的迭代接口，适合处理超出内存容量的大查询。
 // 内部使用最小堆（min-heap）实现多 Shard 数据的归并排序。
 //
 // 字段说明：
@@ -32,7 +32,7 @@ import (
 //
 // 使用模式：
 //
-//	it, err := query.NewQueryIterator(ctx, shards, req)
+//	it, err := query.NewIterator(ctx, shards, req)
 //	if err != nil {
 //	    return err
 //	}
@@ -46,7 +46,7 @@ import (
 // 线程安全：
 //
 //	不是线程安全的，不要从多个 goroutine 并发访问。
-type QueryIterator struct {
+type Iterator struct {
 	req *types.QueryRangeRequest
 
 	// Min-heap 用于多 Shard 归并排序
@@ -91,7 +91,7 @@ func (h *shardHeap) Pop() any {
 	return item
 }
 
-// NewQueryIterator 创建流式查询迭代器。
+// NewIterator 创建流式查询迭代器。
 //
 // 为每个可用的 Shard 创建 ShardIterator，并加入归并排序堆。
 //
@@ -102,15 +102,15 @@ func (h *shardHeap) Pop() any {
 //
 // 返回：
 //
-//   - *QueryIterator: 创建的迭代器
+//   - *Iterator: 创建的迭代器
 //
 // 初始化过程：
 //
 //  1. 为每个 Shard 创建 ShardIterator
 //  2. 如果 Iterator 有当前数据，加入堆
 //  3. 获取第一个有效行
-func NewQueryIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRangeRequest) *QueryIterator {
-	q := &QueryIterator{
+func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRangeRequest) *Iterator {
+	q := &Iterator{
 		req: req,
 	}
 
@@ -141,7 +141,7 @@ func NewQueryIterator(ctx context.Context, shards []*shard.Shard, req *types.Que
 }
 
 // fetchNextValid 获取下一个有效的 row
-func (q *QueryIterator) fetchNextValid() {
+func (q *Iterator) fetchNextValid() {
 	q.currentRow = nil
 	for len(q.heap) > 0 {
 		// 弹出最小 timestamp 的 ShardIterator
@@ -169,7 +169,7 @@ func (q *QueryIterator) fetchNextValid() {
 }
 
 // matchTags 检查 row 是否匹配 tag 过滤条件
-func (q *QueryIterator) matchTags(row *types.PointRow) bool {
+func (q *Iterator) matchTags(row *types.PointRow) bool {
 	for k, v := range q.req.Tags {
 		if row.Tags[k] != v {
 			return false
@@ -179,7 +179,7 @@ func (q *QueryIterator) matchTags(row *types.PointRow) bool {
 }
 
 // projectFields 对 row 进行字段投影
-func (q *QueryIterator) projectFields(row *types.PointRow) *types.PointRow {
+func (q *Iterator) projectFields(row *types.PointRow) *types.PointRow {
 	if len(q.req.Fields) == 0 {
 		return row
 	}
@@ -213,7 +213,7 @@ func (q *QueryIterator) projectFields(row *types.PointRow) *types.PointRow {
 //   - 处理 Limit：当 consumed >= req.Limit 时停止
 //   - 自动检查 context 取消
 //   - 维护 consumed 和 skipped 计数
-func (q *QueryIterator) Next(ctx context.Context) bool {
+func (q *Iterator) Next(ctx context.Context) bool {
 	if q.closed {
 		return false
 	}
@@ -261,7 +261,7 @@ func (q *QueryIterator) Next(ctx context.Context) bool {
 // 注意：
 //
 //	调用 Points() 后会清空 currentRow，下次调用 Next() 会获取下一行。
-func (q *QueryIterator) Points() *types.PointRow {
+func (q *Iterator) Points() *types.PointRow {
 	row := q.currentRow
 	// Points() 被调用后，清空 currentRow，以便 Next() 获取下一行
 	q.currentRow = nil
@@ -277,7 +277,7 @@ func (q *QueryIterator) Points() *types.PointRow {
 //
 //	标记迭代器为已关闭，后续 Next() 调用将返回 false。
 //	建议配合 defer 使用以确保资源释放。
-func (q *QueryIterator) Close() error {
+func (q *Iterator) Close() error {
 	q.closed = true
 	return nil
 }

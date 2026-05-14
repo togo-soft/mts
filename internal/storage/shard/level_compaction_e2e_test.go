@@ -86,10 +86,10 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 创建测试数据 - L0 的两个重叠的 SSTable
@@ -175,10 +175,10 @@ func TestLevelCompactionE2E_L1ToL2(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	points1 := []*types.Point{
@@ -251,7 +251,7 @@ func TestLevelCompactionE2E_CheckpointRecovery(t *testing.T) {
 	_ = shard.Close() // 关闭以便重新创建
 
 	// 手动创建一个 checkpoint
-	cp := &compaction.CompactionCheckpoint{
+	cp := &compaction.Checkpoint{
 		Version:    1,
 		Level:      0,
 		InputParts: []string{"sst_1", "sst_2"},
@@ -274,10 +274,10 @@ func TestLevelCompactionE2E_CheckpointRecovery(t *testing.T) {
 	shard2 := NewShard(cfg)
 	defer func() { _ = shard2.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm2, err := compaction.NewLevelCompactionManager(shard2, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm2, err := compaction.NewLevelManager(shard2, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 执行恢复
@@ -315,10 +315,10 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 创建两个 SSTable，有部分重叠的时间范围
@@ -399,10 +399,10 @@ func TestLevelCompactionE2E_SelectPartsForMerge(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 添加多个不同大小的 parts
@@ -449,10 +449,10 @@ func TestLevelCompactionE2E_HasOverlap(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 添加 L0 parts
@@ -503,15 +503,15 @@ func TestLevelCompactionE2E_PeriodicCompaction(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := &compaction.LevelCompactionConfig{
+	lcmCfg := &compaction.LevelConfig{
 		Enabled:       true,
 		CheckInterval: 10 * time.Millisecond, // 非常短的间隔用于测试
 		Timeout:       time.Minute,
 	}
 
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 启动定期检查
@@ -544,10 +544,10 @@ func TestLevelCompactionE2E_EmptyManifest(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 空状态不应该触发 compaction
@@ -586,10 +586,10 @@ func TestLevelCompactionE2E_MultipleLevels(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	// 验证各层容量配置

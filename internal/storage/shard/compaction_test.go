@@ -19,7 +19,7 @@ import (
 )
 
 func TestNewCompactionManager(t *testing.T) {
-	cfg := &compaction.CompactionConfig{
+	cfg := &compaction.Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
@@ -29,7 +29,7 @@ func TestNewCompactionManager(t *testing.T) {
 
 	shard := &Shard{}
 
-	cm := compaction.NewCompactionManager(shard, cfg)
+	cm := compaction.NewManager(shard, cfg)
 	if cm == nil {
 		t.Fatal("NewCompactionManager should not return nil")
 	}
@@ -43,7 +43,7 @@ func TestNewCompactionManager(t *testing.T) {
 
 func TestNewCompactionManager_NilConfig(t *testing.T) {
 	shard := &Shard{}
-	cm := compaction.NewCompactionManager(shard, nil)
+	cm := compaction.NewManager(shard, nil)
 	if cm == nil {
 		t.Fatal("NewCompactionManager should not return nil with nil config")
 	}
@@ -65,7 +65,7 @@ func TestCompactionManager_ShouldCompact_NoData(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -94,7 +94,7 @@ func TestCompactionManager_ShouldCompact_WithSSTables(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -138,7 +138,7 @@ func TestCompactionManager_ShouldCompactWithLock(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -167,7 +167,7 @@ func TestCompactionManager_CollectSSTables_Empty(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -198,7 +198,7 @@ func TestCompactionManager_CollectSSTables_WithData(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -243,7 +243,7 @@ func TestCompactionManager_IsSSTableInWrite(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -282,7 +282,7 @@ func TestCompactionManager_MarkUnmarkSSTableWriting(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -326,7 +326,7 @@ func TestCompactionManager_MarkSSTableWriting_CreateDir(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -360,7 +360,7 @@ func TestCompactionManager_Compact_NoSSTables(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -393,7 +393,7 @@ func TestCompactionManager_Compact_LessThanTwoSSTables(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -438,7 +438,7 @@ func TestCompactionManager_VerifyOutput_NotExist(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -462,7 +462,7 @@ func TestCompactionManager_VerifyOutput_NotFile(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -490,7 +490,7 @@ func TestCompactionManager_VerifyOutput_EmptyFile(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -520,7 +520,7 @@ func TestCompactionManager_VerifyOutput_Success(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -572,7 +572,7 @@ func TestCompactionManager_TryAcquireReleaseCompactLock(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -602,7 +602,7 @@ func TestCompactionManager_TryAcquireReleaseCompactLock(t *testing.T) {
 
 func TestCompactionManager_ResetTimer(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &compaction.CompactionConfig{
+	cfg := &compaction.Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
@@ -636,7 +636,7 @@ func TestCompactionManager_ResetTimer(t *testing.T) {
 
 func TestCompactionManager_Stop(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &compaction.CompactionConfig{
+	cfg := &compaction.Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
@@ -667,7 +667,7 @@ func TestCompactionManager_Stop(t *testing.T) {
 
 func TestCompactionManager_StartPeriodicCheck_NilInterval(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &compaction.CompactionConfig{
+	cfg := &compaction.Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
@@ -698,7 +698,7 @@ func TestCompactionManager_StartPeriodicCheck_NilInterval(t *testing.T) {
 
 func TestCompactionManager_StartPeriodicCheck(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &compaction.CompactionConfig{
+	cfg := &compaction.Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
@@ -731,7 +731,7 @@ func TestCompactionManager_StartPeriodicCheck(t *testing.T) {
 
 func TestCompactionManager_DoPeriodicCompaction(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &compaction.CompactionConfig{
+	cfg := &compaction.Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
@@ -762,7 +762,7 @@ func TestCompactionManager_DoPeriodicCompaction(t *testing.T) {
 
 func TestCompactionManager_DoPeriodicCompaction_AlreadyRunning(t *testing.T) {
 	tmpDir := t.TempDir()
-	cfg := &compaction.CompactionConfig{
+	cfg := &compaction.Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
@@ -837,7 +837,7 @@ func TestCompactionManager_CalculateShardSize_NoData(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -865,7 +865,7 @@ func TestCompactionManager_CalculateShardSize_WithData(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -941,7 +941,7 @@ func TestCompactionManager_Compact_WithMultipleSSTables(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount:    10,
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     100 * 1024 * 1024,
@@ -1011,7 +1011,7 @@ func TestCompactionManager_Commit(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1047,7 +1047,7 @@ func TestCompactionManager_Commit(t *testing.T) {
 	cm := shard.compaction
 
 	// Create a task with the existing SSTable
-	task := &compaction.CompactionTask{
+	task := &compaction.Task{
 		InputFiles:  []string{sstPath},
 		OutputPath:  sstPath, // reuse same path for simplicity
 		Progress:    0,
@@ -1074,7 +1074,7 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1117,7 +1117,7 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 立即取消
 
-	task := &compaction.CompactionTask{
+	task := &compaction.Task{
 		InputFiles:  []string{sstPath},
 		OutputPath:  filepath.Join(tmpDir, "output"),
 		Progress:    0,
@@ -1291,7 +1291,7 @@ func TestCompactionManager_shouldCompactLocked_True(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount:    2, // 低阈值触发 compaction
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     100 * 1024 * 1024, // 100MB，大于实际大小
@@ -1339,7 +1339,7 @@ func TestCompactionManager_shouldCompactLocked_ShardSizeExceedsLimit(t *testing.
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount:    2,
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     1, // 极小阈值，触发 size 限制
@@ -1389,7 +1389,7 @@ func TestCompactionManager_Merge_Deduplication(t *testing.T) {
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		SchemaStore:   metadata.NewSimpleSchemaStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1515,7 +1515,7 @@ func TestCompactionManager_Merge_Error(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1526,7 +1526,7 @@ func TestCompactionManager_Merge_Error(t *testing.T) {
 	cm := shard.compaction
 
 	// 创建一个 task，inputFiles 包含不存在的路径
-	task := &compaction.CompactionTask{
+	task := &compaction.Task{
 		InputFiles:  []string{"/nonexistent/path"},
 		OutputPath:  filepath.Join(tmpDir, "output"),
 		Progress:    0,
@@ -1551,7 +1551,7 @@ func TestCompactionManager_Compact_MaxBatch(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount:    10,
 			MaxCompactionBatch: 2, // 限制每次最多合并 2 个
 			ShardSizeLimit:     100 * 1024 * 1024,
@@ -1611,7 +1611,7 @@ func TestCompactionManager_ShouldCompact_CollectError(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount: 2,
 			ShardSizeLimit:  100 * 1024 * 1024,
 			CheckInterval:   time.Hour,
@@ -1647,7 +1647,7 @@ func TestCompactionManager_Compact_Concurrent(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount: 10,
 			ShardSizeLimit:  100 * 1024 * 1024,
 			CheckInterval:   time.Hour,
@@ -1717,7 +1717,7 @@ func TestCompactionManager_CollectSSTables_PartialError(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1767,7 +1767,7 @@ func TestCompactionManager_markSSTableWriting_Error(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1810,7 +1810,7 @@ func TestCompactionManager_TryAcquireReleaseCompactLock_AlreadyLocked(t *testing
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1855,7 +1855,7 @@ func TestCompactionManager_doPeriodicCompaction_NotNeeded(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount: 10, // 高阈值，不会触发
 			ShardSizeLimit:  100 * 1024 * 1024,
 			CheckInterval:   time.Hour,
@@ -1903,7 +1903,7 @@ func TestCompactionManager_Compact_VerifyInputFilesDeleted(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
-		CompactionCfg: &compaction.CompactionConfig{
+		CompactionCfg: &compaction.Config{
 			MaxSSTableCount: 10,
 			ShardSizeLimit:  100 * 1024 * 1024,
 			CheckInterval:   time.Hour,
@@ -1972,7 +1972,7 @@ func TestCompactionManager_GetProgress_NoTask(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -1997,7 +1997,7 @@ func TestCompactionManager_reportProgress(t *testing.T) {
 		Dir:           tmpDir,
 		SeriesStore:   metadata.NewSimpleSeriesStore(),
 		MemTableCfg:   memtable.DefaultMemTableConfig(),
-		CompactionCfg: compaction.DefaultCompactionConfig(),
+		CompactionCfg: compaction.DefaultConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -2006,7 +2006,7 @@ func TestCompactionManager_reportProgress(t *testing.T) {
 
 	// Set a mock current task
 	cm.Mu.Lock()
-	cm.CurrentTask = &compaction.CompactionProgress{
+	cm.CurrentTask = &compaction.Progress{
 		Status:   "running",
 		Progress: 0,
 	}

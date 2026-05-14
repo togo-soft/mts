@@ -13,7 +13,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 )
 
-func TestLevelCompactionManager_NewLevelCompactionManager(t *testing.T) {
+func TestLevelCompactionManager_NewLevelManager(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := ShardConfig{
@@ -28,10 +28,10 @@ func TestLevelCompactionManager_NewLevelCompactionManager(t *testing.T) {
 
 	shard := NewShard(cfg)
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, err := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
-		t.Fatalf("NewLevelCompactionManager failed: %v", err)
+		t.Fatalf("NewLevelManager failed: %v", err)
 	}
 
 	if lcm == nil {
@@ -57,8 +57,8 @@ func TestLevelCompactionManager_ShouldCompact_Empty(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 空状态不应该触发 compaction
 	if lcm.ShouldCompact() {
@@ -82,8 +82,8 @@ func TestLevelCompactionManager_Recover_NoCheckpoint(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 没有 checkpoint，恢复应该成功
 	if err := lcm.Recover(); err != nil {
@@ -107,8 +107,8 @@ func TestLevelCompactionManager_LevelMaxSize(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 验证各层容量
 	if size := lcm.LevelMaxSize(0); size != 10*1024*1024 {
@@ -138,8 +138,8 @@ func TestLevelCompactionManager_SelectPartsForMerge(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 添加一些测试 parts
 	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "small", Size: 100, MinTime: 1000, MaxTime: 2000})
@@ -178,8 +178,8 @@ func TestLevelCompactionManager_Compact_NoParts(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	ctx := context.Background()
 	outputPath, deletedFiles, err := lcm.Compact(ctx)
@@ -211,8 +211,8 @@ func TestLevelCompactionManager_Compact_LessThanTwoParts(t *testing.T) {
 	shard := NewShard(cfg)
 
 	// 添加一个 part
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	lcm.Manifest.AddPart(0, compaction.PartInfo{
 		Name:    "sst_00000000000000000001",
@@ -253,8 +253,8 @@ func TestLevelCompactionManager_CollectOverlapParts(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 添加 L0 parts
 	lcm.Manifest.AddPart(0, compaction.PartInfo{Name: "l0_1", Size: 100, MinTime: 1000, MaxTime: 2000})
@@ -292,13 +292,13 @@ func TestLevelCompactionManager_StartStop(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := &compaction.LevelCompactionConfig{
+	lcmCfg := &compaction.LevelConfig{
 		Enabled:       true,
 		CheckInterval: time.Millisecond, // 非常短用于测试
 		Timeout:       time.Minute,
 	}
 
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 启动定期检查
 	lcm.StartPeriodicCheck()
@@ -354,8 +354,8 @@ func TestLevelCompactionManager_LevelMaxSize_Extended(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 验证各层容量
 	if size := lcm.LevelMaxSize(3); size != 10*1024*1024*1024 {
@@ -386,8 +386,8 @@ func TestLevelCompactionManager_ShouldCompactLevel_WithParts(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// L0 有多个 part（超过 MaxParts=10），应该触发 compaction
 	for i := 0; i < 12; i++ {
@@ -420,10 +420,10 @@ func TestLevelCompactionManager_DoPeriodicCompaction(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
+	lcmCfg := compaction.DefaultLevelConfig()
 	lcmCfg.CheckInterval = 10 * time.Millisecond
 
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 添加 12 个 L0 parts 以触发 ShouldCompact
 	for i := 0; i < 12; i++ {
@@ -456,7 +456,7 @@ func TestLevelCompactionManager_Recover_WithCheckpoint(t *testing.T) {
 	_ = os.MkdirAll(dataDir, 0700)
 
 	// 创建一个 checkpoint
-	cp := &compaction.CompactionCheckpoint{
+	cp := &compaction.Checkpoint{
 		Version:    1,
 		Level:      0,
 		InputParts: []string{"sst_1", "sst_2"},
@@ -483,8 +483,8 @@ func TestLevelCompactionManager_Recover_WithCheckpoint(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 恢复
 	if err := lcm.Recover(); err != nil {
@@ -504,7 +504,7 @@ func TestLevelCompactionManager_Recover_WithIncompleteOutput(t *testing.T) {
 	_ = os.MkdirAll(dataDir, 0700)
 
 	// 创建 checkpoint
-	cp := &compaction.CompactionCheckpoint{
+	cp := &compaction.Checkpoint{
 		Version:    1,
 		Level:      0,
 		InputParts: []string{"sst_1", "sst_2"},
@@ -537,8 +537,8 @@ func TestLevelCompactionManager_Recover_WithIncompleteOutput(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 恢复应该清理未完成的输出文件
 	if err := lcm.Recover(); err != nil {
@@ -567,8 +567,8 @@ func TestLevelCompactionManager_NextSeq(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	seq1 := lcm.NextSeq()
 	seq2 := lcm.NextSeq()
@@ -597,8 +597,8 @@ func TestLevelCompactionManager_SaveManifest(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// Add a part
 	lcm.AddPart(0, compaction.PartInfo{
@@ -629,8 +629,8 @@ func TestLevelCompactionManager_Config(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelCompactionConfig()
-	lcm, _ := compaction.NewLevelCompactionManager(shard, lcmCfg)
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// Config should return the same config
 	returnedCfg := lcm.Config()

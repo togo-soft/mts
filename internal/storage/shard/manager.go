@@ -24,7 +24,7 @@ type ShardManager struct {
 	dir                    string
 	shardDuration          time.Duration
 	memTableCfg            *memtable.MemTableConfig
-	compactionCfg          *compaction.CompactionConfig
+	compactionCfg          *compaction.Config
 	compressionAlgo        sstable.CompressionAlgorithm
 	manager                *metadata.Manager
 	shards                 map[string]*Shard
@@ -35,7 +35,7 @@ type ShardManager struct {
 }
 
 // NewShardManager 创建新的 Shard 管理器。
-func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memtable.MemTableConfig, compactionCfg *compaction.CompactionConfig, mgr *metadata.Manager, compressionAlgo sstable.CompressionAlgorithm) *ShardManager {
+func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memtable.MemTableConfig, compactionCfg *compaction.Config, mgr *metadata.Manager, compressionAlgo sstable.CompressionAlgorithm) *ShardManager {
 	sm := &ShardManager{
 		dir:                    dir,
 		shardDuration:          shardDuration,
@@ -353,8 +353,8 @@ func (m *ShardManager) PersistAll() error {
 	return m.manager.Sync()
 }
 
-// SetCompactionConfig 运行时更新所有现有 Shard 的 Compaction 配置。
-func (m *ShardManager) SetCompactionConfig(config *compaction.CompactionConfig) {
+// SetConfig 运行时更新所有现有 Shard 的 Compaction 配置。
+func (m *ShardManager) SetConfig(config *compaction.Config) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

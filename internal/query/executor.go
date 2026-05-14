@@ -5,7 +5,7 @@
 // 组件：
 //
 //	Executor:   查询执行器，负责 SQL 解析和计划生成
-//	QueryIterator: 流式迭代器，用于大数据集查询
+//	Iterator: 流式迭代器，用于大数据集查询
 //
 // 查询流程：
 //
@@ -55,12 +55,12 @@ func NewExecutor(engine any) *Executor {
 //
 // 返回：
 //
-//   - *QueryIterator: 查询迭代器，使用完后必须调用 Close()
+//   - *Iterator: 查询迭代器，使用完后必须调用 Close()
 //
 //   - error: 执行成功时返回 nil
 //
 //     基础框架实现，后续需要与存储引擎集成以实际查询数据。
 //     后续需要与存储引擎集成以实际查询数据。
-func (e *Executor) Execute(ctx context.Context, req *types.QueryRangeRequest) (*QueryIterator, error) {
-	return nil, fmt.Errorf("query executor not implemented: use Engine.QueryIterator instead")
+func (e *Executor) Execute(ctx context.Context, req *types.QueryRangeRequest) (*Iterator, error) {
+	return nil, fmt.Errorf("query executor not implemented: use Engine.Iterator instead")
 }

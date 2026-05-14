@@ -188,7 +188,7 @@ func TestMicroTSService_QueryRange(t *testing.T) {
 		EndTime:     1234567900,
 	}
 
-	it, err := eng.QueryIterator(ctx, req)
+	it, err := eng.Iterator(ctx, req)
 	if err != nil {
 		// 没有数据时预期会返回错误
 		return
@@ -627,9 +627,9 @@ func TestMicroTSService_QueryRange_WithData(t *testing.T) {
 		EndTime:     now + 1e9,
 	}
 
-	it, err := eng.QueryIterator(ctx, req)
+	it, err := eng.Iterator(ctx, req)
 	if err != nil {
-		t.Fatalf("QueryIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	defer func() { _ = it.Close() }()
 
@@ -877,7 +877,7 @@ func TestMicroTSService_QueryRange_EngineClosed(t *testing.T) {
 		EndTime:     1000,
 	}
 
-	_, err := eng.QueryIterator(ctx, req)
+	_, err := eng.Iterator(ctx, req)
 	if err == nil {
 		t.Error("expected error when engine is closed")
 	}

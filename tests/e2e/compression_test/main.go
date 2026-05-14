@@ -148,7 +148,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 	time.Sleep(500 * time.Millisecond)
 
 	fmt.Printf("  Querying after restart...\n")
-	it, err := db2.QueryIterator(context.Background(), &microts.QueryRangeRequest{
+	it, err := db2.Iterator(context.Background(), &microts.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measName,
 		StartTime:   startTime,

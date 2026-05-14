@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-func TestLevelConfig_DefaultLevelConfigs(t *testing.T) {
-	configs := DefaultLevelConfigs()
+func TestLevelSpec_DefaultLevelSpecs(t *testing.T) {
+	configs := DefaultLevelSpecs()
 	if len(configs) != 5 {
 		t.Errorf("expected 5 level configs, got %d", len(configs))
 	}
@@ -221,10 +221,10 @@ func TestLevelManifest_Load_NotExist(t *testing.T) {
 	}
 }
 
-func TestLevelCompactionConfig_DefaultLevelCompactionConfig(t *testing.T) {
-	cfg := DefaultLevelCompactionConfig()
+func TestLevelConfig_DefaultLevelConfig(t *testing.T) {
+	cfg := DefaultLevelConfig()
 	if cfg == nil {
-		t.Fatal("DefaultLevelCompactionConfig should not return nil")
+		t.Fatal("DefaultLevelSpec should not return nil")
 	}
 	if !cfg.Enabled {
 		t.Error("Enabled should be true by default")
@@ -237,10 +237,10 @@ func TestLevelCompactionConfig_DefaultLevelCompactionConfig(t *testing.T) {
 	}
 }
 
-func TestCompactionCheckpoint_SaveClear(t *testing.T) {
+func TestCheckpoint_SaveClear(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cp := &CompactionCheckpoint{
+	cp := &Checkpoint{
 		Version:    1,
 		Level:      0,
 		OutputSeq:  42,
@@ -259,7 +259,7 @@ func TestCompactionCheckpoint_SaveClear(t *testing.T) {
 	}
 
 	// Load into a new checkpoint
-	cp2 := &CompactionCheckpoint{}
+	cp2 := &Checkpoint{}
 	if err := cp2.Load(tmpDir); err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -282,9 +282,9 @@ func TestCompactionCheckpoint_SaveClear(t *testing.T) {
 	}
 }
 
-func TestCompactionCheckpoint_Clear_NotExist(t *testing.T) {
+func TestCheckpoint_Clear_NotExist(t *testing.T) {
 	tmpDir := t.TempDir()
-	cp := &CompactionCheckpoint{}
+	cp := &Checkpoint{}
 	err := cp.Clear(tmpDir)
 	if err != nil {
 		t.Fatalf("Clear should not error for nonexistent file: %v", err)
@@ -333,17 +333,17 @@ func TestPartInfo_HasOverlap(t *testing.T) {
 	}
 }
 
-func TestLevelConfig_Fields(t *testing.T) {
-	lc := LevelConfig{Level: -1, MaxSize: 1024, MaxParts: 10}
+func TestLevelSpec_Fields(t *testing.T) {
+	lc := LevelSpec{Level: -1, MaxSize: 1024, MaxParts: 10}
 	data, err := json.Marshal(lc)
 	if err != nil {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
-	var lc2 LevelConfig
+	var lc2 LevelSpec
 	if err := json.Unmarshal(data, &lc2); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 	if lc2.Level != lc.Level || lc2.MaxSize != lc.MaxSize || lc2.MaxParts != lc.MaxParts {
-		t.Error("LevelConfig round-trip mismatch")
+		t.Error("LevelSpec round-trip mismatch")
 	}
 }

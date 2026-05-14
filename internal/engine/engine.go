@@ -40,7 +40,7 @@ type Config struct {
 	DataDir                string
 	ShardDuration          time.Duration
 	MemTableCfg            *types.MemTableConfig
-	CompactionCfg          *compaction.CompactionConfig
+	CompactionCfg          *compaction.Config
 	CompressionAlgorithm   sstable.CompressionAlgorithm
 	RetentionPeriod        time.Duration
 	RetentionCheckInterval time.Duration
@@ -146,7 +146,7 @@ func (e *Engine) DataDir() string {
 	return e.cfg.DataDir
 }
 
-// SetCompactionConfig 运行时更新所有 Shard 的 Compaction 配置。
-func (e *Engine) SetCompactionConfig(config *compaction.CompactionConfig) {
-	e.shardManager.SetCompactionConfig(config)
+// SetConfig 运行时更新所有 Shard 的 Compaction 配置。
+func (e *Engine) SetConfig(config *compaction.Config) {
+	e.shardManager.SetConfig(config)
 }

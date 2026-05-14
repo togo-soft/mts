@@ -12,7 +12,7 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// mockShardAccess 实现 ShardAccess 接口，用于测试 CompactionManager。
+// mockShardAccess 实现 ShardAccess 接口，用于测试 Manager。
 type mockShardAccess struct {
 	dir    string
 	schema sstable.Schema
@@ -48,10 +48,10 @@ func pointsToInternal(points []*types.Point) []types.InternalPoint {
 	return result
 }
 
-func TestDefaultCompactionConfig(t *testing.T) {
-	cfg := DefaultCompactionConfig()
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
 	if cfg == nil {
-		t.Fatal("DefaultCompactionConfig should not return nil")
+		t.Fatal("DefaultConfig should not return nil")
 	}
 	if cfg.MaxSSTableCount != 4 {
 		t.Errorf("expected MaxSSTableCount=4, got %d", cfg.MaxSSTableCount)
@@ -70,13 +70,13 @@ func TestDefaultCompactionConfig(t *testing.T) {
 	}
 }
 
-func TestNewCompactionTask(t *testing.T) {
+func TestNewTask(t *testing.T) {
 	inputFiles := []string{"/path/to/sst_1", "/path/to/sst_2"}
 	outputPath := "/path/to/output"
 
-	task := NewCompactionTask(inputFiles, outputPath)
+	task := NewTask(inputFiles, outputPath)
 	if task == nil {
-		t.Fatal("NewCompactionTask should not return nil")
+		t.Fatal("NewTask should not return nil")
 	}
 	if len(task.InputFiles) != 2 {
 		t.Errorf("expected 2 input files, got %d", len(task.InputFiles))
@@ -170,9 +170,9 @@ func TestMergeIterator_Empty(t *testing.T) {
 	}
 }
 
-func TestCompactionProgress_Fields(t *testing.T) {
+func TestProgress_Fields(t *testing.T) {
 	now := time.Now()
-	cp := &CompactionProgress{
+	cp := &Progress{
 		InputFiles: []string{"a", "b"},
 		OutputFile: "out",
 		Progress:   50,
@@ -388,7 +388,7 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 	}
 }
 
-func TestCompactionManager_Commit(t *testing.T) {
+func TestManager_Commit(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -408,8 +408,8 @@ func TestCompactionManager_Commit(t *testing.T) {
 		unused: make(map[string]bool),
 	}
 
-	cm := NewCompactionManager(mock, nil)
-	task := NewCompactionTask(nil, outputPath)
+	cm := NewManager(mock, nil)
+	task := NewTask(nil, outputPath)
 	task.MergedFiles = []string{}
 
 	err := cm.Commit(task)
@@ -423,7 +423,7 @@ func TestCompactionManager_Commit(t *testing.T) {
 	}
 }
 
-func TestCompactionManager_Commit_OutputIsDir(t *testing.T) {
+func TestManager_Commit_OutputIsDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -443,8 +443,8 @@ func TestCompactionManager_Commit_OutputIsDir(t *testing.T) {
 		unused: make(map[string]bool),
 	}
 
-	cm := NewCompactionManager(mock, nil)
-	task := NewCompactionTask(nil, dirPath)
+	cm := NewManager(mock, nil)
+	task := NewTask(nil, dirPath)
 	task.MergedFiles = []string{}
 
 	err := cm.Commit(task)
@@ -453,7 +453,7 @@ func TestCompactionManager_Commit_OutputIsDir(t *testing.T) {
 	}
 }
 
-func TestCompactionManager_Commit_MergedFilesNilFallback(t *testing.T) {
+func TestManager_Commit_MergedFilesNilFallback(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	_ = os.MkdirAll(dataDir, 0755)
@@ -469,10 +469,10 @@ func TestCompactionManager_Commit_MergedFilesNilFallback(t *testing.T) {
 		refs:   make(map[string]int32),
 		unused: make(map[string]bool),
 	}
-	cm := NewCompactionManager(mock, DefaultCompactionConfig())
+	cm := NewManager(mock, DefaultConfig())
 
 	// MergedFiles 为 nil 时应回退到 InputFiles
-	task := &CompactionTask{
+	task := &Task{
 		InputFiles:  []string{filepath.Join(dataDir, "input1.bin"), filepath.Join(dataDir, "input2.bin")},
 		MergedFiles: nil,
 		OutputPath:  outputPath,
@@ -490,7 +490,7 @@ func TestCompactionManager_Commit_MergedFilesNilFallback(t *testing.T) {
 	// 关键: Commit 不会 panic，MergedFiles nil 回退到 InputFiles 不会导致崩溃
 }
 
-func TestCompactionManager_Commit_DeferCleanup(t *testing.T) {
+func TestManager_Commit_DeferCleanup(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	_ = os.MkdirAll(dataDir, 0755)
@@ -508,9 +508,9 @@ func TestCompactionManager_Commit_DeferCleanup(t *testing.T) {
 		unused: map[string]bool{inputPath: true},
 	}
 
-	cm := NewCompactionManager(mock, DefaultCompactionConfig())
+	cm := NewManager(mock, DefaultConfig())
 
-	task := &CompactionTask{
+	task := &Task{
 		InputFiles:  []string{inputPath},
 		MergedFiles: []string{inputPath},
 		OutputPath:  outputPath,
@@ -523,7 +523,7 @@ func TestCompactionManager_Commit_DeferCleanup(t *testing.T) {
 	}
 }
 
-func TestCompactionManager_Commit_OutputNotFound(t *testing.T) {
+func TestManager_Commit_OutputNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	_ = os.MkdirAll(dataDir, 0755)
@@ -537,9 +537,9 @@ func TestCompactionManager_Commit_OutputNotFound(t *testing.T) {
 		unused: make(map[string]bool),
 	}
 
-	cm := NewCompactionManager(mock, DefaultCompactionConfig())
+	cm := NewManager(mock, DefaultConfig())
 
-	task := &CompactionTask{
+	task := &Task{
 		InputFiles:  []string{},
 		MergedFiles: []string{},
 		OutputPath:  outputPath,
@@ -551,7 +551,7 @@ func TestCompactionManager_Commit_OutputNotFound(t *testing.T) {
 	}
 }
 
-func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
+func TestManager_Merge_ContextCancel(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 创建 SSTable .bin 文件（包含数据，确保 Merge 进入循环）
@@ -582,9 +582,9 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 	}
 	mock.unused[inputPath] = true
 
-	cm := NewCompactionManager(mock, nil)
+	cm := NewManager(mock, nil)
 
-	task := NewCompactionTask([]string{inputPath}, outputPath)
+	task := NewTask([]string{inputPath}, outputPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 立即取消
@@ -598,10 +598,10 @@ func TestCompactionManager_Merge_ContextCancel(t *testing.T) {
 	_ = os.Remove(outputPath)
 }
 
-func TestCompactionManager_SetConfig(t *testing.T) {
-	cm := NewCompactionManager(nil, DefaultCompactionConfig())
+func TestManager_SetConfig(t *testing.T) {
+	cm := NewManager(nil, DefaultConfig())
 
-	newCfg := &CompactionConfig{
+	newCfg := &Config{
 		MaxSSTableCount:    8,
 		MaxCompactionBatch: 20,
 		ShardSizeLimit:     2 * 1024 * 1024 * 1024,
@@ -621,9 +621,9 @@ func TestCompactionManager_SetConfig(t *testing.T) {
 	}
 }
 
-func TestCompactionManager_SetConfig_NilConfig(t *testing.T) {
-	cfg := DefaultCompactionConfig()
-	cm := NewCompactionManager(nil, cfg)
+func TestManager_SetConfig_NilConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	cm := NewManager(nil, cfg)
 	cm.SetConfig(nil)
 	if cm.Config != cfg {
 		t.Error("config should not change on nil input")

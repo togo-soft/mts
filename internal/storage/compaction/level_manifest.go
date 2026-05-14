@@ -10,16 +10,16 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
-// LevelConfig 层次配置。
-type LevelConfig struct {
+// LevelSpec 层次规格定义。
+type LevelSpec struct {
 	Level    int
 	MaxSize  int64
 	MaxParts int
 }
 
-// DefaultLevelConfigs 返回默认层次配置。
-func DefaultLevelConfigs() []LevelConfig {
-	return []LevelConfig{
+// DefaultLevelSpecs 返回默认层次规格。
+func DefaultLevelSpecs() []LevelSpec {
+	return []LevelSpec{
 		{Level: 0, MaxSize: 10 * 1024 * 1024, MaxParts: 10},
 		{Level: 1, MaxSize: 100 * 1024 * 1024, MaxParts: 0},
 		{Level: 2, MaxSize: 1024 * 1024 * 1024, MaxParts: 0},
@@ -49,16 +49,16 @@ type Level struct {
 type LevelManifest struct {
 	mu           sync.RWMutex
 	levels       map[int]*Level
-	levelConfigs []LevelConfig
+	levelConfigs []LevelSpec
 	nextSeq      uint64
 	manifestPath string
 	dataDir      string
 }
 
 // NewLevelManifest 创建 LevelManifest。
-func NewLevelManifest(dataDir string, configs []LevelConfig) (*LevelManifest, error) {
+func NewLevelManifest(dataDir string, configs []LevelSpec) (*LevelManifest, error) {
 	if configs == nil {
-		configs = DefaultLevelConfigs()
+		configs = DefaultLevelSpecs()
 	}
 
 	levels := make(map[int]*Level)

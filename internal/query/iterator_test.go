@@ -11,14 +11,14 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-func TestQueryIterator_EmptyShardList(t *testing.T) {
+func TestIterator_EmptyShardList(t *testing.T) {
 	ctx := t.Context()
 	req := &types.QueryRangeRequest{
 		StartTime: 0,
 		EndTime:   1000,
 	}
 
-	iter := NewQueryIterator(ctx, nil, req)
+	iter := NewIterator(ctx, nil, req)
 
 	// 空 shard 列表，Next 应该返回 false
 	if iter.Next(ctx) {
@@ -26,7 +26,7 @@ func TestQueryIterator_EmptyShardList(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_SingleShardBasic(t *testing.T) {
+func TestIterator_SingleShardBasic(t *testing.T) {
 	dir := t.TempDir()
 
 	// 创建 Shard
@@ -63,7 +63,7 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 		EndTime:   4000,
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s}, req)
 
 	// 收集所有结果
 	var got []*types.PointRow
@@ -82,7 +82,7 @@ func TestQueryIterator_SingleShardBasic(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
+func TestIterator_MultiShardMergeSort(t *testing.T) {
 	dir := t.TempDir()
 
 	// 创建两个 Shard
@@ -142,7 +142,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 		EndTime:   6000,
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s0, s1}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s0, s1}, req)
 
 	// 期望按时间顺序: 1000, 3000, 4000, 5000
 	expected := []int64{1000, 3000, 4000, 5000}
@@ -163,7 +163,7 @@ func TestQueryIterator_MultiShardMergeSort(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_TagFiltering(t *testing.T) {
+func TestIterator_TagFiltering(t *testing.T) {
 	dir := t.TempDir()
 
 	shardDir := filepath.Join(dir, "shard0")
@@ -202,7 +202,7 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 		Tags:      map[string]string{"region": "us"},
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
 	for iter.Next(ctx) {
@@ -221,7 +221,7 @@ func TestQueryIterator_TagFiltering(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_FieldProjection(t *testing.T) {
+func TestIterator_FieldProjection(t *testing.T) {
 	dir := t.TempDir()
 
 	shardDir := filepath.Join(dir, "shard0")
@@ -258,7 +258,7 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 		Fields:    []string{"field1", "field2"},
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
 	for iter.Next(ctx) {
@@ -283,7 +283,7 @@ func TestQueryIterator_FieldProjection(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_OffsetSkip(t *testing.T) {
+func TestIterator_OffsetSkip(t *testing.T) {
 	dir := t.TempDir()
 
 	shardDir := filepath.Join(dir, "shard0")
@@ -323,7 +323,7 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 		Offset:    2,
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
 	for iter.Next(ctx) {
@@ -343,7 +343,7 @@ func TestQueryIterator_OffsetSkip(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_LimitRestriction(t *testing.T) {
+func TestIterator_LimitRestriction(t *testing.T) {
 	dir := t.TempDir()
 
 	shardDir := filepath.Join(dir, "shard0")
@@ -383,7 +383,7 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 		Limit:     3,
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
 	for iter.Next(ctx) {
@@ -402,7 +402,7 @@ func TestQueryIterator_LimitRestriction(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_OffsetAndLimit(t *testing.T) {
+func TestIterator_OffsetAndLimit(t *testing.T) {
 	dir := t.TempDir()
 
 	shardDir := filepath.Join(dir, "shard0")
@@ -442,7 +442,7 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 		Limit:     3,
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s}, req)
 
 	var got []*types.PointRow
 	for iter.Next(ctx) {
@@ -462,7 +462,7 @@ func TestQueryIterator_OffsetAndLimit(t *testing.T) {
 	}
 }
 
-func TestQueryIterator_Close(t *testing.T) {
+func TestIterator_Close(t *testing.T) {
 	dir := t.TempDir()
 
 	shardDir := filepath.Join(dir, "shard0")
@@ -495,7 +495,7 @@ func TestQueryIterator_Close(t *testing.T) {
 		EndTime:   2000,
 	}
 
-	iter := NewQueryIterator(ctx, []*shard.Shard{s}, req)
+	iter := NewIterator(ctx, []*shard.Shard{s}, req)
 
 	// Close 应该成功
 	if err := iter.Close(); err != nil {

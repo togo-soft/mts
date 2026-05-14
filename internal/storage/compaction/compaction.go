@@ -1,3 +1,7 @@
+// Package compaction 实现 Level Compaction 策略。
+//
+// Compaction 是 LSM 存储引擎的核心维护操作，通过合并旧 SSTable 减少读放大、
+// 控制 SSTable 数量并清理已删除或过期数据。
 package compaction
 
 import (
@@ -17,12 +21,13 @@ import (
 )
 
 const (
+	// ShardSizeLimit 单个 Shard 最大磁盘占用，超过此限制会触发保护性拒绝写入。
 	ShardSizeLimit    = 1 * 1024 * 1024 * 1024 // 1GB
 	twoPhaseThreshold = 10                     // 输入 SSTable 超过此数时启用两阶段合并
 )
 
-// CompactionConfig Compaction 配置。
-type CompactionConfig struct {
+// Config Compaction 配置。
+type Config struct {
 	MaxSSTableCount    int
 	MaxCompactionBatch int
 	ShardSizeLimit     int64
@@ -30,9 +35,9 @@ type CompactionConfig struct {
 	Timeout            time.Duration
 }
 
-// DefaultCompactionConfig 返回默认配置。
-func DefaultCompactionConfig() *CompactionConfig {
-	return &CompactionConfig{
+// DefaultConfig 返回默认配置。
+func DefaultConfig() *Config {
+	return &Config{
 		MaxSSTableCount:    4,
 		MaxCompactionBatch: 0,
 		ShardSizeLimit:     ShardSizeLimit,
@@ -41,8 +46,8 @@ func DefaultCompactionConfig() *CompactionConfig {
 	}
 }
 
-// CompactionTask 描述一次 compaction 任务。
-type CompactionTask struct {
+// Task 描述一次 compaction 任务。
+type Task struct {
 	InputFiles     []string
 	MergedFiles    []string // 实际被合并的文件列表（仅这些文件可在 Commit 时安全删除）
 	OutputPath     string
@@ -52,9 +57,9 @@ type CompactionTask struct {
 	DuplicateCount int
 }
 
-// NewCompactionTask 创建 compaction 任务。
-func NewCompactionTask(inputFiles []string, outputPath string) *CompactionTask {
-	return &CompactionTask{
+// NewTask 创建 compaction 任务。
+func NewTask(inputFiles []string, outputPath string) *Task {
+	return &Task{
 		InputFiles: inputFiles,
 		OutputPath: outputPath,
 		Progress:   0,
@@ -62,8 +67,8 @@ func NewCompactionTask(inputFiles []string, outputPath string) *CompactionTask {
 	}
 }
 
-// CompactionProgress 描述 compaction 进度。
-type CompactionProgress struct {
+// Progress 描述 compaction 进度。
+type Progress struct {
 	InputFiles []string
 	OutputFile string
 	Progress   int // 0-100
@@ -72,10 +77,10 @@ type CompactionProgress struct {
 	Err        error
 }
 
-// CompactionManager 管理 Shard 的 Compaction。
-type CompactionManager struct {
+// Manager 管理 Shard 的 Compaction。
+type Manager struct {
 	ShardAccess ShardAccess
-	Config      *CompactionConfig
+	Config      *Config
 	Mu          sync.Mutex
 
 	Ticker            *time.Ticker
@@ -84,20 +89,20 @@ type CompactionManager struct {
 	wg                sync.WaitGroup
 	lastCompact       time.Time
 	compactMu         sync.Mutex
-	compactInProgress  atomic.Int32
-	CurrentTask       *CompactionProgress
+	compactInProgress atomic.Int32
+	CurrentTask       *Progress
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// NewCompactionManager 创建 CompactionManager。
-func NewCompactionManager(shard ShardAccess, config *CompactionConfig) *CompactionManager {
+// NewManager 创建 Manager。
+func NewManager(shard ShardAccess, config *Config) *Manager {
 	if config == nil {
-		config = DefaultCompactionConfig()
+		config = DefaultConfig()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &CompactionManager{
+	return &Manager{
 		ShardAccess: shard,
 		Config:      config,
 		stopCh:      make(chan struct{}),
@@ -107,19 +112,19 @@ func NewCompactionManager(shard ShardAccess, config *CompactionConfig) *Compacti
 }
 
 // Timeout 返回 compaction 超时配置。
-func (cm *CompactionManager) Timeout() time.Duration {
+func (cm *Manager) Timeout() time.Duration {
 	return cm.Config.Timeout
 }
 
 // Context 返回 manager 的可取消 context，Stop() 时会取消。
 // 调用方应使用此 context 创建子 context，以便 Stop() 能打断运行中的 compaction。
-func (cm *CompactionManager) Context() context.Context {
+func (cm *Manager) Context() context.Context {
 	return cm.ctx
 }
 
 // SetConfig 运行时更新 Compaction 配置。
 // 更新后自动重置 ticker 以使用新的 CheckInterval。
-func (cm *CompactionManager) SetConfig(config *CompactionConfig) {
+func (cm *Manager) SetConfig(config *Config) {
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 
@@ -135,7 +140,7 @@ func (cm *CompactionManager) SetConfig(config *CompactionConfig) {
 }
 
 // Compact 执行 compaction 合并。
-func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, error) {
+func (cm *Manager) Compact(ctx context.Context) (string, []string, error) {
 	// 先尝试获取 compaction 锁，防止并发 compaction
 	if !cm.TryAcquireCompactLock() {
 		return "", nil, nil
@@ -175,7 +180,7 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 	if mergeErr != nil {
 		metrics.Incr(metrics.CompactionErrors, 1)
 		cm.Mu.Lock()
-		cm.CurrentTask = &CompactionProgress{Status: "failed", Err: mergeErr}
+		cm.CurrentTask = &Progress{Status: "failed", Err: mergeErr}
 		cm.Mu.Unlock()
 		cm.ReleaseSSTRefs(sstFiles)
 		return "", nil, fmt.Errorf("merge failed: %w", mergeErr)
@@ -186,9 +191,9 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 
-	task := NewCompactionTask(sstFiles, outputPath)
+	task := NewTask(sstFiles, outputPath)
 	task.MergedFiles = mergedFiles
-	cm.CurrentTask = &CompactionProgress{
+	cm.CurrentTask = &Progress{
 		InputFiles: sstFiles,
 		OutputFile: outputPath,
 		Status:     "completed",
@@ -211,9 +216,9 @@ func (cm *CompactionManager) Compact(ctx context.Context) (string, []string, err
 }
 
 // compactWithTwoPhase 执行合并，当输入文件数超过 twoPhaseThreshold 时使用两阶段合并。
-func (cm *CompactionManager) compactWithTwoPhase(ctx context.Context, inputFiles []string, outputPath string) ([]string, error) {
+func (cm *Manager) compactWithTwoPhase(ctx context.Context, inputFiles []string, outputPath string) ([]string, error) {
 	if len(inputFiles) <= twoPhaseThreshold {
-		task := NewCompactionTask(inputFiles, outputPath)
+		task := NewTask(inputFiles, outputPath)
 		if err := cm.Merge(ctx, task); err != nil {
 			return nil, err
 		}
@@ -229,7 +234,7 @@ func (cm *CompactionManager) compactWithTwoPhase(ctx context.Context, inputFiles
 		intermediateSeq := cm.ShardAccess.NextSSTSeq()
 		intermediatePath := filepath.Join(cm.ShardAccess.DataDir(), fmt.Sprintf("sst_%d.bin", intermediateSeq))
 
-		task := NewCompactionTask(batch, intermediatePath)
+		task := NewTask(batch, intermediatePath)
 		if err := cm.Merge(ctx, task); err != nil {
 			// 清理已创建的中间文件
 			for _, p := range intermediates {
@@ -242,7 +247,7 @@ func (cm *CompactionManager) compactWithTwoPhase(ctx context.Context, inputFiles
 	}
 
 	// 合并中间文件为最终输出
-	task := NewCompactionTask(intermediates, outputPath)
+	task := NewTask(intermediates, outputPath)
 	if err := cm.Merge(ctx, task); err != nil {
 		for _, p := range intermediates {
 			_ = os.Remove(p)
@@ -259,14 +264,14 @@ func (cm *CompactionManager) compactWithTwoPhase(ctx context.Context, inputFiles
 }
 
 // GetProgress 获取当前 compaction 进度，无活跃任务时返回 nil。
-func (cm *CompactionManager) GetProgress() *CompactionProgress {
+func (cm *Manager) GetProgress() *Progress {
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 	return cm.CurrentTask
 }
 
 // MarkWriting 开始写入标记。
-func (cm *CompactionManager) MarkWriting(sstPath string) error {
+func (cm *Manager) MarkWriting(sstPath string) error {
 	writingFlag := sstPath + ".writing"
 	f, err := storage.SafeCreate(writingFlag, 0600)
 	if err != nil {
@@ -276,13 +281,13 @@ func (cm *CompactionManager) MarkWriting(sstPath string) error {
 }
 
 // UnmarkWriting 结束写入标记。
-func (cm *CompactionManager) UnmarkWriting(sstPath string) error {
+func (cm *Manager) UnmarkWriting(sstPath string) error {
 	writingFlag := sstPath + ".writing"
 	return os.Remove(writingFlag)
 }
 
 // ResetTimer 重置定时器。
-func (cm *CompactionManager) ResetTimer() {
+func (cm *Manager) ResetTimer() {
 	cm.compactMu.Lock()
 	cm.lastCompact = time.Now()
 	cm.compactMu.Unlock()
@@ -295,7 +300,7 @@ func (cm *CompactionManager) ResetTimer() {
 // collectSSTables 收集需要 compaction 的 SSTable。
 // 注意：此方法会获取所有文件的引用，防止在 CollectSSTables 和 Merge 之间被删除。
 // 调用者需要在不使用后调用 ReleaseSSTRefs 释放引用。
-func (cm *CompactionManager) collectSSTablesWithRefs() ([]string, error) {
+func (cm *Manager) collectSSTablesWithRefs() ([]string, error) {
 	dataDir := filepath.Join(cm.ShardAccess.Dir(), "data")
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -349,14 +354,14 @@ func (cm *CompactionManager) collectSSTablesWithRefs() ([]string, error) {
 }
 
 // ReleaseSSTRefs 释放 SSTable 引用。
-func (cm *CompactionManager) ReleaseSSTRefs(paths []string) {
+func (cm *Manager) ReleaseSSTRefs(paths []string) {
 	for _, path := range paths {
 		cm.ShardAccess.ReleaseSSTRef(path)
 	}
 }
 
 // collectSSTablesWithoutRefs 收集需要 compaction 的 SSTable（不获取引用，仅用于检查数量）。
-func (cm *CompactionManager) collectSSTablesWithoutRefs() ([]string, error) {
+func (cm *Manager) collectSSTablesWithoutRefs() ([]string, error) {
 	dataDir := filepath.Join(cm.ShardAccess.Dir(), "data")
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -393,7 +398,7 @@ func (cm *CompactionManager) collectSSTablesWithoutRefs() ([]string, error) {
 }
 
 // isSSTableComplete 检查 SSTable 文件是否完整（不在写入中且可读取）。
-func (cm *CompactionManager) isSSTableComplete(sstPath string) bool {
+func (cm *Manager) isSSTableComplete(sstPath string) bool {
 	// 如果正在写入中，不视为完整
 	if cm.IsSSTableInWrite(sstPath) {
 		return false
@@ -408,7 +413,7 @@ func (cm *CompactionManager) isSSTableComplete(sstPath string) bool {
 }
 
 // canOpenSSTable 检查 SSTable 是否可以成功打开（验证文件可访问）。
-func (cm *CompactionManager) canOpenSSTable(sstPath string) bool {
+func (cm *Manager) canOpenSSTable(sstPath string) bool {
 	file, err := os.Open(sstPath)
 	if err != nil {
 		return false
@@ -419,25 +424,25 @@ func (cm *CompactionManager) canOpenSSTable(sstPath string) bool {
 
 // CollectSSTables 收集需要 compaction 的 SSTable（公开方法，供测试和外部调用）。
 // 注意：此方法会获取引用，调用者需要在不使用后调用 ReleaseSSTRefs 释放。
-func (cm *CompactionManager) CollectSSTables() ([]string, error) {
+func (cm *Manager) CollectSSTables() ([]string, error) {
 	return cm.collectSSTablesWithRefs()
 }
 
-func (cm *CompactionManager) IsSSTableInWrite(sstPath string) bool {
+func (cm *Manager) IsSSTableInWrite(sstPath string) bool {
 	writingFlag := sstPath + ".writing"
 	_, err := os.Stat(writingFlag)
 	return err == nil
 }
 
 // ShouldCompact 检查是否应该触发 compaction。
-func (cm *CompactionManager) ShouldCompact() bool {
+func (cm *Manager) ShouldCompact() bool {
 	cm.Mu.Lock()
 	defer cm.Mu.Unlock()
 
 	return cm.ShouldCompactLocked()
 }
 
-func (cm *CompactionManager) ShouldCompactLocked() bool {
+func (cm *Manager) ShouldCompactLocked() bool {
 	files, err := cm.collectSSTablesWithoutRefs()
 	if err != nil {
 		slog.Warn("failed to collect sstables for compaction check", "error", err)
@@ -466,11 +471,11 @@ func (cm *CompactionManager) ShouldCompactLocked() bool {
 }
 
 // ShouldCompactWithLock 检查是否应该触发 compaction（调用者需持有锁）。
-func (cm *CompactionManager) ShouldCompactWithLock() bool {
+func (cm *Manager) ShouldCompactWithLock() bool {
 	return cm.ShouldCompactLocked()
 }
 
-func (cm *CompactionManager) CalculateShardSize() (int64, error) {
+func (cm *Manager) CalculateShardSize() (int64, error) {
 	dataDir := filepath.Join(cm.ShardAccess.Dir(), "data")
 	var totalSize int64
 
@@ -512,7 +517,7 @@ func DirSize(path string) (int64, error) {
 }
 
 // StartPeriodicCheck 启动定期检查。
-func (cm *CompactionManager) StartPeriodicCheck() {
+func (cm *Manager) StartPeriodicCheck() {
 	if cm.Config.CheckInterval <= 0 {
 		return
 	}
@@ -535,7 +540,7 @@ func (cm *CompactionManager) StartPeriodicCheck() {
 // Stop 停止定期检查。
 // 先 close(stopCh) + cancel context 让运行中的 compaction 感知退出，
 // 再等待 goroutine 退出。
-func (cm *CompactionManager) Stop() {
+func (cm *Manager) Stop() {
 	cm.stopOnce.Do(func() {
 		close(cm.stopCh)
 		cm.cancel()
@@ -543,7 +548,7 @@ func (cm *CompactionManager) Stop() {
 	cm.wg.Wait()
 }
 
-func (cm *CompactionManager) DoPeriodicCompaction() {
+func (cm *Manager) DoPeriodicCompaction() {
 	if !cm.TryAcquireCompactLock() {
 		return
 	}
@@ -564,10 +569,10 @@ func (cm *CompactionManager) DoPeriodicCompaction() {
 	cm.ResetTimer()
 }
 
-func (cm *CompactionManager) TryAcquireCompactLock() bool {
+func (cm *Manager) TryAcquireCompactLock() bool {
 	return cm.compactInProgress.CompareAndSwap(0, 1)
 }
 
-func (cm *CompactionManager) ReleaseCompactLock() {
+func (cm *Manager) ReleaseCompactLock() {
 	cm.compactInProgress.Store(0)
 }

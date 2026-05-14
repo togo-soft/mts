@@ -107,7 +107,7 @@ func main() {
 
 	time.Sleep(500 * time.Millisecond)
 
-	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
+	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measurement,
 		StartTime:   baseTime,

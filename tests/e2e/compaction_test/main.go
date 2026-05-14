@@ -83,7 +83,7 @@ func writePoints(db *microts.DB, dbName, meas string, baseTime int64, count int,
 }
 
 func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int, error) {
-	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
+	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: meas,
 		StartTime:   start,
@@ -109,7 +109,7 @@ func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int
 }
 
 func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.PointRow, error) {
-	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
+	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: meas,
 		StartTime:   start,

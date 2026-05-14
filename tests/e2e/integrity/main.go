@@ -77,7 +77,7 @@ func main() {
 	fmt.Printf("Before read: %s\n", metrics.FormatMemStats(memBeforeRead))
 
 	readTimer := metrics.NewTimer()
-	it, err := db.QueryIterator(context.Background(), &types.QueryRangeRequest{
+	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
 		StartTime:   baseTime,
