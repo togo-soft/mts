@@ -18,14 +18,26 @@ type Tombstone struct {
 
 // TombstoneSet 表示一组删除标记。
 type TombstoneSet struct {
-	Tombstones []Tombstone `json:"tombstones"`
+	Tombstones []Tombstone          `json:"tombstones"`
+	index      map[uint64][]Tombstone // SID → 匹配的 tombstones（运行时索引，不入盘）
 }
 
 // ShouldDelete 检查给定的 (sid, timestamp) 是否应被删除。
 func (ts *TombstoneSet) ShouldDelete(sid uint64, timestamp int64) bool {
-	for i := range ts.Tombstones {
-		t := &ts.Tombstones[i]
-		if t.SID == sid && timestamp >= t.MinTime && timestamp <= t.MaxTime {
+	if ts.index == nil {
+		// 未构建索引，回退线性扫描（测试兼容）
+		for i := range ts.Tombstones {
+			t := &ts.Tombstones[i]
+			if t.SID == sid && timestamp >= t.MinTime && timestamp <= t.MaxTime {
+				return true
+			}
+		}
+		return false
+	}
+	list := ts.index[sid]
+	for i := range list {
+		t := &list[i]
+		if timestamp >= t.MinTime && timestamp <= t.MaxTime {
 			return true
 		}
 	}
@@ -35,6 +47,19 @@ func (ts *TombstoneSet) ShouldDelete(sid uint64, timestamp int64) bool {
 // HasTombstones 是否有删除标记。
 func (ts *TombstoneSet) HasTombstones() bool {
 	return ts != nil && len(ts.Tombstones) > 0
+}
+
+// BuildIndex 构建 SID 索引，用于加速 ShouldDelete 查找。
+// 调用方在 collectInputTombstones 之后必须调用此方法。
+func (ts *TombstoneSet) BuildIndex() {
+	if len(ts.Tombstones) == 0 {
+		ts.index = nil
+		return
+	}
+	ts.index = make(map[uint64][]Tombstone, len(ts.Tombstones))
+	for _, t := range ts.Tombstones {
+		ts.index[t.SID] = append(ts.index[t.SID], t)
+	}
 }
 
 func LoadTombstones(partPath string) (*TombstoneSet, error) {
