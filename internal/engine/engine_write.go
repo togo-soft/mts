@@ -79,6 +79,7 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 	}
 
 	// 验证并自动创建 database/measurement，按 *Shard 分组
+	cat := e.manager.Catalog()
 	groups := make(map[*shard.Shard][]*types.Point)
 
 	for _, p := range points {
@@ -95,7 +96,6 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 			return ErrInvalidTimestamp
 		}
 
-		cat := e.manager.Catalog()
 		if !cat.DatabaseExists(p.Database) {
 			if err := cat.CreateDatabase(p.Database); err != nil {
 				slog.Warn("auto-create database failed", "database", p.Database, "error", err)
@@ -126,6 +126,10 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 		n, err := s.WriteBatch(group)
 		if err != nil {
 			return fmt.Errorf("write batch to shard: wrote %d/%d: %w", n, len(group), err)
+		}
+		if n != len(group) {
+			slog.Warn("write batch to shard: partial write with nil error",
+				"written", n, "expected", len(group))
 		}
 	}
 
