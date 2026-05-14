@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/micro-ts/mts/internal/storage"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -68,13 +69,8 @@ func (cp *CompactionCheckpoint) Save(dataDir string) error {
 	}
 
 	path := cp.CheckpointPath(dataDir)
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := storage.SafeWriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("write checkpoint: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("rename checkpoint: %w", err)
 	}
 
 	return nil

@@ -352,3 +352,47 @@ func TestIsPathSafe(t *testing.T) {
 		})
 	}
 }
+
+func TestSafeWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	data := []byte("hello world")
+
+	if err := SafeWriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	read, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(read) != "hello world" {
+		t.Errorf("got %q, want %q", string(read), "hello world")
+	}
+
+	info, _ := os.Stat(path)
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("expected 0600, got %o", info.Mode().Perm())
+	}
+}
+
+func TestSafeWriteFile_AutoCreateParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a", "b", "test.txt")
+
+	if err := SafeWriteFile(path, []byte("nested"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	info, _ := os.Stat(filepath.Join(dir, "a", "b"))
+	if !info.IsDir() || info.Mode().Perm() != 0700 {
+		t.Errorf("parent dir permission = %o, want 0700", info.Mode().Perm())
+	}
+}
+
+func TestSafeWriteFile_PathTraversal(t *testing.T) {
+	err := SafeWriteFile("../../etc/passwd", []byte("bad"), 0600)
+	if err == nil {
+		t.Error("expected error for path traversal")
+	}
+}

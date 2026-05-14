@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
 const (
@@ -244,19 +246,8 @@ func (cm *CompactionManager) GetProgress() *CompactionProgress {
 // MarkWriting 开始写入标记。
 func (cm *CompactionManager) MarkWriting(sstPath string) error {
 	writingFlag := sstPath + ".writing"
-	f, err := os.Create(writingFlag)
+	f, err := storage.SafeCreate(writingFlag, 0600)
 	if err != nil {
-		// 如果父目录不存在，先创建父目录再重试
-		if os.IsNotExist(err) {
-			if mkdirErr := os.MkdirAll(filepath.Dir(sstPath), 0700); mkdirErr != nil {
-				return mkdirErr
-			}
-			f, err = os.Create(writingFlag)
-			if err != nil {
-				return err
-			}
-			return f.Close()
-		}
 		return err
 	}
 	return f.Close()
