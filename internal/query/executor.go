@@ -47,20 +47,19 @@ func NewExecutor(engine any) *Executor {
 	return &Executor{}
 }
 
-// Execute 执行查询请求。
+// Execute 执行查询请求，返回流式迭代器。
 //
 // 参数：
 //   - ctx: 上下文，用于取消查询
 //   - req: 查询请求
 //
 // 返回：
-//   - *types.QueryRangeResponse: 查询结果（当前为空结果）
+//   - *QueryIterator: 查询迭代器，使用完后必须调用 Close()
 //   - error: 执行成功时返回 nil
 //
-// 当前实现：
 //
-//	基础实现仅返回空结果，不报错。
+//	基础框架实现，后续需要与存储引擎集成以实际查询数据。
 //	后续需要与存储引擎集成以实际查询数据。
-func (e *Executor) Execute(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
-	return nil, fmt.Errorf("query executor not implemented: use Engine.Query instead")
+func (e *Executor) Execute(ctx context.Context, req *types.QueryRangeRequest) (*QueryIterator, error) {
+	return nil, fmt.Errorf("query executor not implemented: use Engine.QueryIterator instead")
 }

@@ -93,12 +93,6 @@ type (
 	//	}
 	QueryRangeRequest = types.QueryRangeRequest
 
-	// QueryRangeResponse 返回范围查询的结果。
-	//
-	// 包含查询元数据和实际的行数据。
-	// HasMore 表示是否还有更多数据，用于分页处理。
-	QueryRangeResponse = types.QueryRangeResponse
-
 	// MemTableConfig 配置内存表的行为。
 	//
 	// 控制 MemTable 的大小、条目数和空闲时间，当达到任一阈值时会触发刷盘。
@@ -314,57 +308,9 @@ func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 	return db.engine.WriteBatch(ctx, points)
 }
 
-// QueryRange 执行范围查询，返回指定时间范围内的数据点。
-//
-// 查询会自动合并 MemTable（内存数据）和 SSTable（磁盘数据）的结果。
-// 数据按时间戳升序返回。
-//
-// 参数：
-//   - ctx: 上下文，可用于取消查询
-//   - req: 查询请求，包含时间范围、字段列表、标签过滤和分页参数
-//
-// 返回：
-//   - *QueryRangeResponse: 包含查询结果行、总数和是否有更多数据
-//   - error: 查询失败时返回错误
-//
-// 分页处理：
-//
-//	使用 Offset 和 Limit 进行分页。当 HasMore 为 true 时，
-//	可以通过设置 Offset = 已返回行数 来获取下一页。
-//
-// 字段过滤：
-//
-//	如果 Fields 为空，返回所有字段。
-//	如果指定字段，只返回这些字段的值。
-//
-// 使用示例：
-//
-//	resp, err := db.QueryRange(ctx, &microts.QueryRangeRequest{
-//	    Database:    "metrics",
-//	    Measurement: "cpu",
-//	    StartTime:   start.UnixNano(),
-//	    EndTime:     end.UnixNano(),
-//	    Fields:      []string{"usage", "temperature"},
-//	    Tags:        map[string]string{"host": "server1"},
-//	    Offset:      0,
-//	    Limit:       1000,
-//	})
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	for _, row := range resp.Rows {
-//	    fmt.Printf("时间: %d, 字段: %v\n", row.Timestamp, row.Fields)
-//	}
-//	if resp.HasMore {
-//	    // 获取下一页
-//	}
-func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*types.QueryRangeResponse, error) {
-	return db.engine.Query(ctx, req)
-}
-
 // QueryIterator 创建流式查询迭代器，用于处理大量数据而不占用大量内存。
 //
-// 相比 QueryRange，流式迭代器只在需要时加载数据，适合处理海量数据查询。
+// 流式迭代器只在需要时加载数据，适合处理海量数据查询。
 //
 // 参数：
 //   - ctx: 上下文，可用于取消迭代
