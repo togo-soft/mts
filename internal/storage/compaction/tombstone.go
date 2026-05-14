@@ -19,7 +19,7 @@ type Tombstone struct {
 // TombstoneSet 表示一组删除标记。
 type TombstoneSet struct {
 	Tombstones []Tombstone          `json:"tombstones"`
-	index      map[uint64][]Tombstone // SID → 匹配的 tombstones（运行时索引，不入盘）
+	index      map[uint64][]*Tombstone // SID → 匹配的 tombstones（运行时索引，不入盘）
 }
 
 // ShouldDelete 检查给定的 (sid, timestamp) 是否应被删除。
@@ -35,8 +35,7 @@ func (ts *TombstoneSet) ShouldDelete(sid uint64, timestamp int64) bool {
 		return false
 	}
 	list := ts.index[sid]
-	for i := range list {
-		t := &list[i]
+	for _, t := range list {
 		if timestamp >= t.MinTime && timestamp <= t.MaxTime {
 			return true
 		}
@@ -56,8 +55,9 @@ func (ts *TombstoneSet) BuildIndex() {
 		ts.index = nil
 		return
 	}
-	ts.index = make(map[uint64][]Tombstone, len(ts.Tombstones))
-	for _, t := range ts.Tombstones {
+	ts.index = make(map[uint64][]*Tombstone)
+	for i := range ts.Tombstones {
+		t := &ts.Tombstones[i]
 		ts.index[t.SID] = append(ts.index[t.SID], t)
 	}
 }
