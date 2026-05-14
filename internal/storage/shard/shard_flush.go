@@ -10,6 +10,7 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
+	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -256,6 +257,14 @@ func (s *Shard) executeAsyncFlush() {
 	if s.wal != nil {
 		if walErr := s.wal.TruncateCurrent(); walErr != nil {
 			slog.Warn("failed to truncate WAL after async flush", "error", walErr)
+		}
+		// 写入 checkpoint，记录当前已持久化的 WAL 位置
+		cp := &wal.Checkpoint{
+			Generation: s.wal.Generation(),
+			Segment:    s.wal.SegmentNum(),
+		}
+		if cpErr := cp.Save(filepath.Join(s.dir, "wal")); cpErr != nil {
+			slog.Warn("failed to save WAL checkpoint", "error", cpErr)
 		}
 	}
 

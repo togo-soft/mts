@@ -12,6 +12,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
+	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -1870,5 +1871,52 @@ func TestShard_WriteBatch_EmptyInput(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("wrote %d, want 0", n)
+	}
+}
+
+func TestAsyncFlush_WritesCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+
+	s := NewShard(ShardConfig{
+		DB:          "testdb",
+		Measurement: "testmeas",
+		StartTime:   0,
+		EndTime:     1 << 62,
+		Dir:         dir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		MemTableCfg: &memtable.MemTableConfig{
+			MaxSize:           64 * 1024 * 1024,
+			MaxCount:          500,
+			IdleDurationNanos: 0,
+		},
+	})
+	defer func() { _ = s.Close() }()
+
+	// 写入足够数据触发 async flush
+	now := time.Now().UnixNano()
+	for i := 0; i < 1000; i++ {
+		_ = s.Write(&types.Point{
+			Tags:      map[string]string{"host": "a"},
+			Timestamp: now + int64(i),
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		})
+	}
+
+	// 等待 async flush 完成
+	time.Sleep(time.Second)
+
+	// 验证 checkpoint 文件存在
+	cp, err := wal.LoadCheckpoint(filepath.Join(dir, "wal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp == nil {
+		t.Fatal("expected checkpoint to exist after async flush")
+	}
+	if cp.Generation == 0 {
+		t.Error("expected non-zero generation in checkpoint")
+	}
+	if cp.Segment == 0 {
+		t.Error("expected non-zero segment in checkpoint")
 	}
 }
