@@ -217,15 +217,17 @@ func (q *QueryIterator) Next(ctx context.Context) bool {
 	if q.closed {
 		return false
 	}
+	// 若调用方未调用 Points() 消费上一行数据，自动跳过
+	if q.consumed > 0 && q.currentRow != nil {
+		q.currentRow = nil
+	}
 	for {
-		// 检查 context 取消
 		select {
 		case <-ctx.Done():
 			return false
 		default:
 		}
 
-		// 如果没有当前行，获取下一个
 		if q.currentRow == nil {
 			q.fetchNextValid()
 			if q.currentRow == nil {
@@ -233,13 +235,11 @@ func (q *QueryIterator) Next(ctx context.Context) bool {
 			}
 		}
 
-		// 应用 offset
 		if q.skipped < q.req.Offset {
 			q.skipped++
 			q.currentRow = nil
 			continue
 		}
-		// 应用 limit
 		if q.req.Limit > 0 && q.consumed >= q.req.Limit {
 			return false
 		}
