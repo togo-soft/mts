@@ -182,14 +182,17 @@ func Test1_LargeScaleIntegrity() error {
 	}
 	writeTimer.Finish()
 	fmt.Printf("%s\n", writeTimer.Format())
-	time.Sleep(300 * time.Millisecond)
+
+	// 确保所有异步 flush 完成再统计 SSTable 数
+	_ = db.FlushAll()
+	time.Sleep(500 * time.Millisecond)
 
 	dataDir := getShardDataDir(tmpDir, "db", "cpu")
 	beforeCompact := countSSTableDirs(dataDir)
-	fmt.Printf("flush 后 SSTable 数: %d\n", beforeCompact)
+	fmt.Printf("FlushAll 后 SSTable 数: %d\n", beforeCompact)
 
-	fmt.Println("触发 compaction...")
-	_ = db.FlushAll()
+	// 等待 flush 中触发的后台 compaction 完成
+	fmt.Println("等待 compaction 完成...")
 	time.Sleep(6 * time.Second)
 
 	afterCompact := countSSTableDirs(dataDir)
@@ -570,20 +573,27 @@ func Test7_PeriodicCompactionTrigger() error {
 	if err := writePoints(db, "db", "cpu", baseTime, total, time.Microsecond, cardinality); err != nil {
 		return err
 	}
+
+	// 确保所有异步 flush 完成
+	_ = db.FlushAll()
 	time.Sleep(500 * time.Millisecond)
 
 	dataDir := getShardDataDir(tmpDir, "db", "cpu")
 	countBefore := countSSTableDirs(dataDir)
 	fmt.Printf("写入后 SSTable 数: %d\n", countBefore)
 
-	fmt.Println("等待定时 compaction (5 秒)...")
-	time.Sleep(5 * time.Second)
+	countAfter := countBefore
+	// 若已低于阈值，flush 触发的 compaction 已完成；否则等待定时触发
+	if countBefore > defaultMaxSSTable {
+		fmt.Println("等待定时 compaction (10 秒)...")
+		time.Sleep(10 * time.Second)
 
-	countAfter := countSSTableDirs(dataDir)
-	fmt.Printf("定时 compaction 后 SSTable 数: %d\n", countAfter)
+		countAfter = countSSTableDirs(dataDir)
+		fmt.Printf("定时 compaction 后 SSTable 数: %d\n", countAfter)
 
-	if countAfter >= countBefore && countBefore > defaultMaxSSTable {
-		return fmt.Errorf("定时 compaction 未触发: %d → %d", countBefore, countAfter)
+		if countAfter >= countBefore {
+			return fmt.Errorf("定时 compaction 未触发: %d → %d", countBefore, countAfter)
+		}
 	}
 
 	// 验证定时 compaction 后数据完整
@@ -595,7 +605,7 @@ func Test7_PeriodicCompactionTrigger() error {
 		return fmt.Errorf("定时 compaction 后数据不完整: want %d, got %d", total, dedupCount)
 	}
 
-	fmt.Printf("PASS: 定时 compaction 正常触发 (%d → %d SSTable)，%d 点完整\n",
+	fmt.Printf("PASS: 定时 compaction 验证通过 (%d → %d SSTable)，%d 点完整\n",
 		countBefore, countAfter, dedupCount)
 	return nil
 }

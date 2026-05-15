@@ -47,7 +47,7 @@ func (s *Shard) Close() error {
 		}
 		s.compactionWg.Wait()
 
-		slog.Info("Shard.Close: completed")
+		slog.Debug("Shard.Close: completed")
 	})
 	return err
 }
@@ -70,7 +70,7 @@ func (s *Shard) closeWithLock() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	slog.Info("Shard.Close: starting", "db", s.db, "measurement", s.measurement, "dir", s.dir)
+	slog.Debug("Shard.Close: starting", "db", s.db, "measurement", s.measurement, "dir", s.dir)
 
 	// 先等待正在进行的异步 flush 完成，然后最终同步刷盘
 	for s.memTable.IsFlushing() {
@@ -93,7 +93,7 @@ func (s *Shard) closeWithLock() error {
 	}
 
 	// WAL 清理
-	slog.Info("Shard.Close: flushed, about to close and purge WAL", "wal", s.wal != nil)
+	slog.Debug("Shard.Close: flushed, about to close and purge WAL", "wal", s.wal != nil)
 	if s.wal != nil {
 		if closeErr := s.wal.Close(); closeErr != nil {
 			slog.Warn("failed to close WAL", "error", closeErr)
@@ -101,7 +101,7 @@ func (s *Shard) closeWithLock() error {
 		if purgeErr := s.wal.Purge(); purgeErr != nil {
 			slog.Warn("failed to purge WAL", "error", purgeErr)
 		}
-		slog.Info("Shard.Close: WAL closed and purged")
+		slog.Debug("Shard.Close: WAL closed and purged")
 	}
 
 	// 标记关闭，阻止新的后台 compaction 触发
