@@ -1,25 +1,25 @@
 // Package shard 实现分片存储管理。
 //
-// Shard 是数据管理的基本单元，负责：
-//   - 管理时间窗口内的数据写入（WAL + MemTable）
-//   - 提供数据读取（合并 MemTable 和 SSTable）
-//   - 控制 MemTable 刷盘到 SSTable
+// Shard 是 SSTable 的容器，负责：
+//   - 管理时间窗口内的 SSTable 文件
+//   - 提供数据读取（合并 SSTable）
+//   - 控制 Compaction
 //
 // 数据流：
 //
-//	写入 → WAL → MemTable → SSTable
-//	读取 → SSTable + MemTable → 归并排序 → 结果
+//	写入 → Writer (WAL + MemTable)
+//	Flush → ShardManager → Shard.WriteSSTable
+//	读取 → SSTable 归并排序 → 结果
 //
 // 核心组件：
 //
-//	Shard:          分片数据容器
-//	ShardManager:   管理所有 Shard 的创建和获取
-//	MemTable:       内存写入缓冲区
-//	WAL:            预写日志，保证持久化
-//	SSTable:        持久化的列式存储
+//	Shard:         SSTable 容器
+//	ShardManager: 管理所有 Shard 的创建和获取
+//	SSTable:      持久化的列式存储
 package shard
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,21 +30,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
-	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 // SeriesStore 是 Shard 所需的 Series 操作接口。
 //
-// 通过接口解耦，Shard 不直接依赖 measurement.MeasurementMetaStore 具体类型。
+// 通过接口解耦，Shard 不直接依赖具体类型。
+// 与 metadata.SeriesStore 兼容（通过 Go 隐式接口满足）。
 type SeriesStore interface {
-	AllocateSID(tags map[string]string) (uint64, error)
-	GetTagsBySID(sid uint64) (map[string]string, bool)
+	AllocateSID(database, measurement string, tags map[string]string) (uint64, error)
+	GetTags(database, measurement string, sid uint64) (map[string]string, bool)
 }
 
 // ===================================
@@ -57,15 +55,10 @@ type ShardConfig struct {
 	Dir                  string
 	SeriesStore          SeriesStore
 	SchemaStore          SchemaStore
-	MemTableCfg          *memtable.MemTableConfig
 	CompactionCfg        *compaction.Config
 	LevelCompactionCfg   *compaction.LevelConfig
 	CompressionAlgorithm sstable.CompressionAlgorithm
 	Logger               *slog.Logger
-
-	// DiskOnly 为 true 时，Shard 仅管理 SSTable 文件，不创建 WAL 和 MemTable。
-	// 用于新架构中 MeasurementWriter 统一管理写入的场景。
-	DiskOnly bool
 }
 
 // SchemaStore 是 schema 的存储接口。
@@ -74,56 +67,32 @@ type SchemaStore interface {
 	SetSchema(db, measurement string, s *metadata.Schema) error
 }
 
-// Shard 是数据存储的基本单元，管理一个时间窗口内的所有数据。
+// Shard 是数据存储的基本单元，管理一个时间窗口内的所有 SSTable。
 //
 // 每个 Shard 包含：
 //
-//   - MemTable: 内存写入缓冲区（活跃数据）
-//   - WAL:      预写日志（持久化恢复）
-//   - SSTable:  磁盘数据文件（已刷盘数据）
+//   - SSTable: 磁盘数据文件
 //
 // 生命周期：
 //
-//	创建 → 写入 → 刷盘 → 读取 → 关闭
+//	创建 → 写入 SSTable → 读取 → 关闭
 //
 // 并发安全：
 //
 //	所有公共方法都是线程安全的，使用读写锁保护。
-//	读操作可以并发，写操作会阻塞其他写。
-//
-// 字段说明：
-//
-//   - db, measurement: 标识信息
-//   - startTime, endTime: 时间窗口边界
-//   - dir: 数据存储目录
-//   - memTable: 内存表
-//   - wal: 预写日志
-//   - seriesStore: Series ID 分配与查询
-//   - mu: 读写锁
-//   - sstSeq: SSTable 序列号（文件名生成）
-//   - compaction: Compaction 管理器
-//   - levelCompaction: Level Compaction 管理器（可选）
 type Shard struct {
 	db              string
 	measurement     string
 	startTime       int64
 	endTime         int64
 	dir             string
-	memTable        *memtable.MemTable
-	wal             *wal.WAL
-	flushDone       chan struct{} // MemTable 定期刷盘停止信号
-	flushTicker     *time.Ticker
-	flushWg         sync.WaitGroup
 	compactionWg    sync.WaitGroup // 等待后台 compaction goroutine 完成
 	closeOnce       sync.Once      // 防止 Close 重复调用
 	closed          atomic.Bool    // 标记 Shard 已关闭
-	replaying       bool           // 表示当前是否正在 replay WAL
 	seriesStore     SeriesStore
 	schemaStore     SchemaStore
-	schema          *metadata.Schema // 内存 schema 缓存
-	schemaMu        sync.RWMutex     // 保护 schema
 	mu              sync.RWMutex
-	sstSeq          uint64 // SSTable序列号，用于生成唯一的文件名
+	sstSeq          uint64 // SSTable 序列号，用于生成唯一的文件名
 	sstRefs         *sstRefs
 	compaction      *compaction.Manager
 	levelCompaction *compaction.LevelManager
@@ -140,22 +109,9 @@ type Shard struct {
 //
 // 初始化过程：
 //
-//  1. 创建 WAL（如果失败，wal 设为 nil，继续运行）
-//  2. 从 WAL 恢复数据到 MemTable（如果 WAL 存在）
-//  3. 创建空的 MemTable
-//
-// 错误处理：
-//
-//	WAL 创建失败不会阻止 Shard 创建，数据可能仅保存在内存中。
-//	这种情况下，系统重启后 MemTable 数据会丢失。
-//
-//	WAL 恢复失败会记录日志，但继续启动 Shard（可能丢失部分数据）。
+//  1. 恢复 SSTable 序列号
+//  2. 初始化 Compaction
 func NewShard(cfg ShardConfig) *Shard {
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-
 	shard := &Shard{
 		db:              cfg.DB,
 		measurement:     cfg.Measurement,
@@ -171,49 +127,12 @@ func NewShard(cfg ShardConfig) *Shard {
 	// 恢复 SSTable 序列号
 	shard.sstSeq = recoverSSTSeq(cfg.Dir)
 
-	if cfg.DiskOnly {
-		shard.initCompaction(cfg)
-		return shard
-	}
-
-	// ========== 以下为完整模式（含 WAL + MemTable）==========
-
-	// 创建 WAL
-	walDir := filepath.Join(cfg.Dir, "wal")
-	w, err := wal.Open(wal.Config{
-		Dir:          walDir,
-		SegmentSize:  64 * 1024 * 1024,
-		MaxSegments:  5,
-		SyncMode:     wal.SyncPeriodic,
-		SyncInterval: time.Minute,
-		Logger:       logger,
-	})
-	if err != nil {
-		w = nil
-		logger.Warn("failed to open WAL, writes will not be durable",
-			"walDir", walDir, "error", err)
-	}
-
-	shard.wal = w
-	shard.memTable = memtable.NewMemTable(cfg.MemTableCfg)
-	shard.flushDone = make(chan struct{})
-
 	shard.initCompaction(cfg)
-
-	// 从 boltDB 加载初始 schema
-	if shard.schemaStore != nil {
-		if metaSchema, err := shard.schemaStore.GetSchema(cfg.DB, cfg.Measurement); err == nil {
-			shard.schema = metaSchema
-		}
-	}
-
-	// 启动 MemTable 定期刷盘检查
-	shard.startPeriodicFlushCheck()
 
 	return shard
 }
 
-// initCompaction 初始化 compaction manager（两种模式共用）。
+// initCompaction 初始化 compaction manager。
 func (s *Shard) initCompaction(cfg ShardConfig) {
 	if cfg.CompactionCfg != nil {
 		s.compaction = compaction.NewManager(s, cfg.CompactionCfg)
@@ -228,6 +147,122 @@ func (s *Shard) initCompaction(cfg ShardConfig) {
 		} else {
 			s.levelCompaction.StartPeriodicCheck()
 		}
+	}
+}
+
+// WriteSSTable 将 MemPoint 写入 SSTable 文件。
+func (s *Shard) WriteSSTable(points []types.MemPoint) (sstPath string, sstSeq uint64, minTime, maxTime int64, err error) {
+	s.mu.Lock()
+	sstSeq = s.sstSeq
+	s.sstSeq++
+	s.mu.Unlock()
+
+	dataDir := s.DataDir()
+	if mkdirErr := os.MkdirAll(dataDir, 0700); mkdirErr != nil {
+		return "", 0, 0, 0, fmt.Errorf("create data dir: %w", mkdirErr)
+	}
+
+	sstPath = filepath.Join(dataDir, fmt.Sprintf("sst_%d.bin", sstSeq))
+
+	w, wErr := sstable.NewWriter(s.dir, sstSeq, 0, s.compressionAlgo)
+	if wErr != nil {
+		return "", 0, 0, 0, fmt.Errorf("create sstable writer: %w", wErr)
+	}
+
+	if wErr := w.WriteMemPoints(points); wErr != nil {
+		_ = w.Close()
+		return "", 0, 0, 0, fmt.Errorf("write mempoints: %w", wErr)
+	}
+
+	if closeErr := w.Close(); closeErr != nil {
+		return "", 0, 0, 0, fmt.Errorf("close sstable writer: %w", closeErr)
+	}
+
+	srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))
+	if srcPath != sstPath {
+		if renameErr := os.Rename(srcPath, sstPath); renameErr != nil {
+			_ = os.Remove(srcPath)
+			return "", 0, 0, 0, fmt.Errorf("move sstable: %w", renameErr)
+		}
+	}
+
+	minTime, maxTime = calcTimeRange(points)
+	return sstPath, sstSeq, minTime, maxTime, nil
+}
+
+// calcTimeRange 计算 points 的时间范围。
+func calcTimeRange(points []types.MemPoint) (int64, int64) {
+	var minTime, maxTime int64
+	for i, p := range points {
+		if i == 0 || p.Timestamp < minTime {
+			minTime = p.Timestamp
+		}
+		if i == 0 || p.Timestamp > maxTime {
+			maxTime = p.Timestamp
+		}
+	}
+	return minTime, maxTime
+}
+
+// RegisterSSTable 注册新写入的 SSTable 到 Shard 的 compaction 系统。
+// 用于 ShardManager flush 后注册 SSTable。
+func (s *Shard) RegisterSSTable(sstSeq uint64, minTime, maxTime int64, size int64) {
+	if s.levelCompaction != nil {
+		s.levelCompaction.AddPart(0, compaction.PartInfo{
+			Name:    fmt.Sprintf("sst_%d", sstSeq),
+			Size:    size,
+			MinTime: minTime,
+			MaxTime: maxTime,
+		})
+	}
+}
+
+// TriggerCompaction 在后台触发 compaction，成功后会级联检查是否仍有文件需要合并。
+func (s *Shard) TriggerCompaction() {
+	if s.closed.Load() {
+		return
+	}
+
+	if s.levelCompaction != nil && s.levelCompaction.ShouldCompact() {
+		s.compactionWg.Go(func() {
+			if s.closed.Load() {
+				return
+			}
+			ctx, cancel := context.WithTimeout(s.levelCompaction.Context(), s.levelCompaction.Timeout())
+			defer cancel()
+			_, _, err := s.levelCompaction.Compact(ctx)
+			if err != nil {
+				if !s.closed.Load() {
+					slog.Error("background level compaction failed", "error", err)
+				}
+				return
+			}
+			// 级联：如果仍有文件需要合并，立即触发下一轮
+			if !s.closed.Load() && s.levelCompaction.ShouldCompact() {
+				s.TriggerCompaction()
+			}
+		})
+	} else if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
+		s.compactionWg.Go(func() {
+			if s.closed.Load() {
+				return
+			}
+			ctx, cancel := context.WithTimeout(s.compaction.Context(), s.compaction.Timeout())
+			defer cancel()
+			_, _, err := s.compaction.Compact(ctx)
+			if err != nil {
+				if !s.closed.Load() {
+					slog.Error("background compaction failed", "error", err)
+				}
+				return
+			}
+			s.compaction.ResetTimer()
+
+			// 级联：如果仍有文件需要合并，立即触发下一轮
+			if !s.closed.Load() && s.compaction.ShouldCompactWithLock() {
+				s.TriggerCompaction()
+			}
+		})
 	}
 }
 
@@ -281,17 +316,11 @@ func recoverSSTSeq(shardDir string) uint64 {
 }
 
 // StartTime 返回 Shard 时间窗口的起始时间。
-//
-// 返回：
-//   - int64: 起始时间戳（纳秒，包含）
 func (s *Shard) StartTime() int64 {
 	return s.startTime
 }
 
 // EndTime 返回 Shard 时间窗口的结束时间。
-//
-// 返回：
-//   - int64: 结束时间戳（纳秒，不包含）
 func (s *Shard) EndTime() int64 {
 	return s.endTime
 }
@@ -328,82 +357,6 @@ func (s *Shard) GetSchema() (sstable.Schema, error) {
 	return MetadataSchemaToSSTableSchema(metaSchema), nil
 }
 
-// ValidateFieldTypes 验证 point 的字段类型与当前 schema 是否一致。
-// 如果字段类型不匹配，返回错误。
-// 新字段会被添加到内存 schema 中。
-func (s *Shard) ValidateFieldTypes(point *types.Point) error {
-	s.schemaMu.Lock()
-	defer s.schemaMu.Unlock()
-
-	// 初始化 schema 如果为空
-	if s.schema == nil {
-		s.schema = &metadata.Schema{
-			Version:   1,
-			Fields:    make([]metadata.FieldDef, 0),
-			TagKeys:   nil,
-			UpdatedAt: time.Now().UnixNano(),
-		}
-	}
-
-	for name, fieldValue := range point.Fields {
-		if fieldValue == nil || fieldValue.Value == nil {
-			continue
-		}
-
-		newType := DetectFieldType(fieldValue)
-		existingIdx := -1
-		for i, f := range s.schema.Fields {
-			if f.Name == name {
-				existingIdx = i
-				break
-			}
-		}
-
-		if existingIdx == -1 {
-			// 新字段，添加到 schema
-			s.schema.Fields = append(s.schema.Fields, metadata.FieldDef{
-				Name: name,
-				Type: SSTableFieldTypeToMetadataFieldType(newType),
-			})
-			continue
-		}
-
-		existingType := MetadataFieldTypeToSSTableFieldType(s.schema.Fields[existingIdx].Type)
-		if newType != existingType {
-			return fmt.Errorf("field type mismatch: field %q has type %s, cannot accept %s",
-				name, existingType, newType)
-		}
-	}
-
-	return nil
-}
-
-// UpdateSchemaInMemory 更新内存中的 schema 缓存。
-func (s *Shard) UpdateSchemaInMemory(schema *metadata.Schema) {
-	s.schemaMu.Lock()
-	defer s.schemaMu.Unlock()
-	s.schema = schema
-}
-
-// DetectFieldType 从 FieldValue 检测字段类型。
-func DetectFieldType(fv *types.FieldValue) sstable.FieldType {
-	if fv == nil || fv.Value == nil {
-		return sstable.FieldTypeFloat64
-	}
-	switch fv.Value.(type) {
-	case *types.FieldValue_FloatValue:
-		return sstable.FieldTypeFloat64
-	case *types.FieldValue_IntValue:
-		return sstable.FieldTypeInt64
-	case *types.FieldValue_StringValue:
-		return sstable.FieldTypeString
-	case *types.FieldValue_BoolValue:
-		return sstable.FieldTypeBool
-	default:
-		return sstable.FieldTypeFloat64
-	}
-}
-
 // MetadataSchemaToSSTableSchema 将 metadata.Schema 转换为 sstable.Schema。
 func MetadataSchemaToSSTableSchema(metaSchema *metadata.Schema) sstable.Schema {
 	fields := make(map[string]sstable.FieldType)
@@ -437,124 +390,14 @@ func MetadataFieldTypeToSSTableFieldType(t int32) sstable.FieldType {
 	}
 }
 
-// SSTableFieldTypeToMetadataFieldType 将 sstable 字段类型转换为 metadata 字段类型。
-func SSTableFieldTypeToMetadataFieldType(t sstable.FieldType) int32 {
-	switch t {
-	case sstable.FieldTypeFloat64:
-		return 1
-	case sstable.FieldTypeInt64:
-		return 2
-	case sstable.FieldTypeString:
-		return 3
-	case sstable.FieldTypeBool:
-		return 4
-	default:
-		return 1
-	}
-}
-
-// SSTableSchemaToMetadataSchema 将 sstable.Schema 转换为 metadata.Schema。
-func SSTableSchemaToMetadataSchema(sstSchema sstable.Schema) *metadata.Schema {
-	fields := make([]metadata.FieldDef, 0, len(sstSchema.Fields))
-	for name, fieldType := range sstSchema.Fields {
-		fields = append(fields, metadata.FieldDef{
-			Name: name,
-			Type: SSTableFieldTypeToMetadataFieldType(fieldType),
-		})
-	}
-	return &metadata.Schema{
-		Version:   1,
-		Fields:    fields,
-		TagKeys:   nil,
-		UpdatedAt: time.Now().UnixNano(),
-	}
-}
-
 // ContainsTime 检查给定时间戳是否在 Shard 的时间窗口内。
-//
-// 参数：
-//   - ts: 时间戳（纳秒）
-//
-// 返回：
-//   - bool: true 表示在范围内（startTime <= ts < endTime）
 func (s *Shard) ContainsTime(ts int64) bool {
 	return ts >= s.startTime && ts < s.endTime
 }
 
 // Duration 返回 Shard 时间窗口的持续时间。
-//
-// 返回：
-//   - time.Duration: 时间窗口长度
 func (s *Shard) Duration() time.Duration {
 	return time.Duration(s.endTime - s.startTime)
-}
-
-// startPeriodicFlushCheck 启动 MemTable 定期刷盘检查。
-//
-// 检查逻辑：
-//
-//   - 定期检查 MemTable 是否满足刷盘条件
-//   - 检查间隔为 IdleDuration/2，最小为 100ms，最大为 30 秒
-//   - 如果 IdleDuration 为 0，使用默认间隔 10 秒
-//
-// 注意：
-//
-//	此方法在 Shard 启动时自动调用，无需手动调用。
-func (s *Shard) startPeriodicFlushCheck() {
-	idleDuration := s.memTable.IdleTimeout()
-	var interval time.Duration
-	if idleDuration > 0 {
-		interval = idleDuration / 2
-		// 确保间隔在合理范围内
-		if interval < 100*time.Millisecond {
-			interval = 100 * time.Millisecond
-		} else if interval > 30*time.Second {
-			interval = 30 * time.Second
-		}
-	} else {
-		// 默认间隔
-		interval = 10 * time.Second
-	}
-
-	s.flushTicker = time.NewTicker(interval)
-	s.flushWg.Go(func() {
-		for {
-			select {
-			case <-s.flushTicker.C:
-				s.doPeriodicFlush()
-			case <-s.flushDone:
-				s.flushTicker.Stop()
-				return
-			}
-		}
-	})
-}
-
-// doPeriodicFlush 定时执行的 MemTable 刷盘检查（异步，不阻塞写入）。
-func (s *Shard) doPeriodicFlush() {
-	if s.memTable != nil && s.memTable.ShouldSwap() {
-		s.tryTriggerAsyncFlush()
-	}
-}
-
-// RegisterSSTable 注册新写入的 SSTable 到 Shard 的 compaction 系统。
-// 用于 MeasurementWriter flush 后注册 SSTable。
-func (s *Shard) RegisterSSTable(seq uint64, minTime, maxTime int64, size int64) {
-	if s.levelCompaction != nil {
-		name := fmt.Sprintf("sst_%d", seq)
-		s.levelCompaction.AddPart(0, compaction.PartInfo{
-			Name:    name,
-			Size:    size,
-			MinTime: minTime,
-			MaxTime: maxTime,
-		})
-	}
-	// 对于 flat compaction，SSTable 通过文件系统发现，无需显式注册
-}
-
-// TriggerCompaction 触发后台 compaction（公开方法，由 ShardStore 调用）。
-func (s *Shard) TriggerCompaction() {
-	s.triggerBackgroundCompaction()
 }
 
 // SSTSeq 返回当前 SSTable 序列号（不递增，公开给 ShardStore）。
@@ -562,60 +405,4 @@ func (s *Shard) SSTSeq() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.sstSeq
-}
-
-// ReplayWAL 重放 WAL 数据恢复到 MemTable。
-// 应在 Shard 构建后由 ShardManager 调用。
-//
-// 设计说明：
-// WAL replay 时 MemTable entry 携带 SID，flush 时直接输出。
-// Read() 会在合并结果时对 MemTable 数据进行基于 timestamp 的去重。
-func (s *Shard) ReplayWAL() error {
-	if s.wal == nil {
-		return nil
-	}
-
-	// 设置 replaying 标志，直到 replay 相关的所有 flush 操作完成
-	s.replaying = true
-
-	err := s.wal.Replay(func(data []byte) error {
-		mp, err := deserializeFromWAL(data)
-		if err != nil {
-			slog.Warn("WAL replay: failed to deserialize point, skipping", "error", err)
-			return nil
-		}
-
-		// 预热 SeriesStore 缓存（Tags 已在原始写入时通过 AllocateSID 持久化到 boltDB）
-		if s.seriesStore != nil {
-			s.seriesStore.GetTagsBySID(mp.Sid)
-		}
-
-		if err := s.memTable.Write(mp); err != nil {
-			return fmt.Errorf("WAL replay: write to memtable: %w", err)
-		}
-
-		// replay 过程中检查是否需要 flush，避免 MemTable 过度堆积
-		if s.memTable.ShouldFlush() {
-			if err := s.flushLocked(); err != nil {
-				slog.Warn("WAL replay: flush failed", "error", err)
-			}
-		}
-
-		return nil
-	})
-
-	// replay 完成后，确保 MemTable 数据有序
-	s.memTable.Sort()
-
-	// replay 完成后，如果 MemTable 还有数据，flush 到 SSTable
-	if s.memTable.Count() > 0 {
-		if err := s.flushLocked(); err != nil {
-			slog.Warn("WAL replay final flush failed", "error", err)
-		}
-	}
-
-	metrics.Incr(metrics.WALReplayTotal, 1)
-
-	s.replaying = false
-	return err
 }

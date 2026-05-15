@@ -1,6 +1,6 @@
 // Package shard 实现分片存储管理。
 //
-// ShardManager 是核心协调组件，管理所有 Shard 的生命周期。
+// ShardManager 管理所有 Shard 的生命周期，提供 Flusher 风格的方法。
 package shard
 
 import (
@@ -14,62 +14,51 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
-	"codeberg.org/micro-ts/mts/internal/storage/writer"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // ShardManager 管理所有 Shard 的生命周期。
 type ShardManager struct {
-	dir                    string
-	shardDuration          time.Duration
-	memTableCfg            *memtable.MemTableConfig
-	compactionCfg          *compaction.Config
-	compressionAlgo        sstable.CompressionAlgorithm
-	manager                *metadata.Manager
-	shards                 map[string]*Shard
-	writers                map[string]*writerEntry
-	discoveredMeasurements map[string]bool
-	mu                     sync.RWMutex
-	discoveryDone          chan struct{}
-	discoveryWg            sync.WaitGroup
+	dir             string
+	shardDuration   time.Duration
+	compactionCfg   *compaction.Config
+	compressionAlgo sstable.CompressionAlgorithm
+	catalog         metadata.Catalog
+	seriesStore     metadata.SeriesStore
+	shardIndex      metadata.ShardIndex
+	shards          map[string]*Shard
+	mu              sync.RWMutex
 }
 
 // NewShardManager 创建新的 Shard 管理器。
-func NewShardManager(dir string, shardDuration time.Duration, memTableCfg *memtable.MemTableConfig, compactionCfg *compaction.Config, mgr *metadata.Manager, compressionAlgo sstable.CompressionAlgorithm) *ShardManager {
-	sm := &ShardManager{
-		dir:                    dir,
-		shardDuration:          shardDuration,
-		memTableCfg:            memTableCfg,
-		compactionCfg:          compactionCfg,
-		compressionAlgo:        compressionAlgo,
-		manager:                mgr,
-		shards:                 make(map[string]*Shard),
-		discoveredMeasurements: make(map[string]bool),
-		discoveryDone:          make(chan struct{}),
+func NewShardManager(
+	dir string,
+	shardDuration time.Duration,
+	compactionCfg *compaction.Config,
+	compressionAlgo sstable.CompressionAlgorithm,
+	catalog metadata.Catalog,
+	seriesStore metadata.SeriesStore,
+	shardIndex metadata.ShardIndex,
+) *ShardManager {
+	return &ShardManager{
+		dir:             dir,
+		shardDuration:   shardDuration,
+		compactionCfg:   compactionCfg,
+		compressionAlgo: compressionAlgo,
+		catalog:         catalog,
+		seriesStore:     seriesStore,
+		shardIndex:      shardIndex,
+		shards:          make(map[string]*Shard),
 	}
-
-	// 后台触发主动发现，不阻塞构造函数
-	sm.discoveryWg.Go(func() {
-		if err := sm.discoverAndReplayWAL(); err != nil {
-			slog.Warn("failed to discover and replay WAL", "error", err)
-		}
-		close(sm.discoveryDone)
-	})
-
-	return sm
 }
 
 // GetShard 获取或创建指定时间戳对应的 Shard。
 func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*Shard, error) {
-	// 防止路径遍历注入
 	if !isNameSafe(db) || !isNameSafe(measurementName) {
 		return nil, fmt.Errorf("invalid database or measurement name")
 	}
-
-	// 等待 discovery 完成，避免在 discovery 完成前创建重复的 Shard
-	m.discoveryWg.Wait()
 
 	startTime := m.calcShardStart(timestamp)
 	endTime := startTime + int64(m.shardDuration)
@@ -91,9 +80,6 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		return s, nil
 	}
 
-	// 通过 Manager 获取或创建 SeriesStore
-	seriesStore := m.manager.GetOrCreateSeriesStore(db, measurementName)
-
 	shardDir := filepath.Join(m.dir, db, measurementName, formatTimeRange(startTime, endTime))
 	s = NewShard(ShardConfig{
 		DB:                   db,
@@ -101,19 +87,14 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		StartTime:            startTime,
 		EndTime:              endTime,
 		Dir:                  shardDir,
-		SeriesStore:          seriesStore,
-		SchemaStore:          m.manager.Catalog(),
-		MemTableCfg:          m.memTableCfg,
+		SeriesStore:          m.seriesStore,
+		SchemaStore:          m.catalog,
 		CompactionCfg:        m.compactionCfg,
 		CompressionAlgorithm: m.compressionAlgo,
 	})
-	if err := s.ReplayWAL(); err != nil {
-		slog.Warn("failed to replay WAL for new shard", "key", key, "error", err)
-	}
 	m.shards[key] = s
 
-	// 注册到 shardIndex
-	if err := m.manager.Shards().RegisterShard(db, measurementName, metadata.ShardInfo{
+	if err := m.shardIndex.RegisterShard(db, measurementName, metadata.ShardInfo{
 		ID:        key,
 		StartTime: startTime,
 		EndTime:   endTime,
@@ -130,13 +111,7 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 	if !isNameSafe(db) || !isNameSafe(measurementName) {
 		return nil
 	}
-	m.mu.RLock()
-	alreadyDiscovered := m.discoveredMeasurements[db+"/"+measurementName]
-	m.mu.RUnlock()
-
-	if !alreadyDiscovered {
-		m.discoverShardsLocked(db, measurementName)
-	}
+	m.discoverShardsLocked(db, measurementName)
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -160,20 +135,15 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 	if !isNameSafe(db) || !isNameSafe(measurementName) {
 		return
 	}
-	metaKey := db + "/" + measurementName
 
 	m.mu.Lock()
-	m.discoveredMeasurements[metaKey] = true
-	m.mu.Unlock()
+	defer m.mu.Unlock()
 
 	measurementDir := filepath.Join(m.dir, db, measurementName)
 	entries, err := os.ReadDir(measurementDir)
 	if err != nil {
 		return
 	}
-
-	// 通过 Manager 获取或创建 SeriesStore
-	seriesStore := m.manager.GetOrCreateSeriesStore(db, measurementName)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -207,132 +177,88 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 			StartTime:            startTime,
 			EndTime:              endTime,
 			Dir:                  shardDir,
-			SeriesStore:          seriesStore,
-			MemTableCfg:          m.memTableCfg,
+			SeriesStore:          m.seriesStore,
+			SchemaStore:          m.catalog,
 			CompactionCfg:        m.compactionCfg,
 			CompressionAlgorithm: m.compressionAlgo,
 		})
-		if err := shard.ReplayWAL(); err != nil {
-			slog.Warn("failed to replay WAL for discovered shard", "key", key, "error", err)
-		}
 		m.shards[key] = shard
 	}
 }
 
-func (m *ShardManager) discoverAndReplayWAL() error {
-	databases := m.manager.ListAllDatabases()
-	for _, db := range databases {
-		measurements, err := m.manager.ListMeasurements(db)
+// Flush 将 MemPoint 按时间窗口分组写入对应 Shard 的 SSTable。
+func (m *ShardManager) Flush(db, measurement string, points []types.MemPoint) error {
+	if len(points) == 0 {
+		return nil
+	}
+	if !isNameSafe(db) || !isNameSafe(measurement) {
+		return fmt.Errorf("invalid database or measurement name")
+	}
+
+	groups := m.groupByShard(db, measurement, points)
+
+	for _, g := range groups {
+		sstPath, sstSeq, minTime, maxTime, err := g.shard.WriteSSTable(g.points)
 		if err != nil {
-			slog.Warn("failed to list measurements", "db", db, "error", err)
+			return fmt.Errorf("write sstable: %w", err)
 		}
-		for _, meas := range measurements {
-			metaKey := db + "/" + meas
 
-			// 1. 重放 measurement 级别 WAL（新架构 Writer）
-			m.replayWriterWAL(db, meas)
-
-			// 2. 查询 shardIndex 获取已注册 shard（旧架构 shard 级别 WAL）
-			shards := m.manager.Shards().ListShards(db, meas)
-			for _, info := range shards {
-				s := m.loadShardFromIndex(db, meas, info)
-				if s != nil {
-					key := m.makeKey(db, meas, info.StartTime)
-					m.mu.Lock()
-					if _, ok := m.shards[key]; ok {
-						m.mu.Unlock()
-						continue
-					}
-					if err := s.ReplayWAL(); err != nil {
-						slog.Warn("failed to replay WAL for discovered shard", "key", info.ID, "error", err)
-					}
-					m.shards[key] = s
-					m.mu.Unlock()
-				}
-			}
-			m.mu.Lock()
-			m.discoveredMeasurements[metaKey] = true
-			m.mu.Unlock()
+		var size int64
+		if fi, statErr := os.Stat(sstPath); statErr == nil {
+			size = fi.Size()
 		}
+		g.shard.RegisterSSTable(sstSeq, minTime, maxTime, size)
+		g.shard.TriggerCompaction()
 	}
 	return nil
 }
 
-// replayWriterWAL 重放 measurement 级别的 WAL（新架构）。
-func (m *ShardManager) replayWriterWAL(db, meas string) {
-	measDir := filepath.Join(m.dir, db, meas)
-	walDir := filepath.Join(measDir, "wal")
-	if _, err := os.Stat(walDir); os.IsNotExist(err) {
-		return
+type flushGroup struct {
+	shard  *Shard
+	points []types.MemPoint
+}
+
+func (m *ShardManager) groupByShard(db, measurement string, points []types.MemPoint) []flushGroup {
+	shardDur := int64(m.shardDuration)
+	groupMap := make(map[int64]*flushGroup)
+	var groupOrder []int64
+
+	for _, mp := range points {
+		startTime := (mp.Timestamp / shardDur) * shardDur
+		g, ok := groupMap[startTime]
+		if !ok {
+			shard, err := m.GetShard(db, measurement, mp.Timestamp)
+			if err != nil {
+				continue
+			}
+			g = &flushGroup{shard: shard, points: make([]types.MemPoint, 0, 1024)}
+			groupMap[startTime] = g
+			groupOrder = append(groupOrder, startTime)
+		}
+		g.points = append(g.points, mp)
 	}
 
-	w, err := m.GetWriter(db, meas)
-	if err != nil {
-		slog.Warn("failed to create writer for WAL replay", "db", db, "meas", meas, "error", err)
-		return
+	result := make([]flushGroup, 0, len(groupOrder))
+	for _, ts := range groupOrder {
+		result = append(result, *groupMap[ts])
 	}
+	return result
+}
 
-	if err := w.ReplayWAL(); err != nil {
-		slog.Warn("failed to replay measurement WAL", "db", db, "meas", meas, "error", err)
+// Compact 触发指定 shard 的后台 compaction。
+func (m *ShardManager) Compact(db, measurement string, startTime int64) error {
+	key := m.makeKey(db, measurement, m.calcShardStart(startTime))
+	m.mu.RLock()
+	shard, ok := m.shards[key]
+	m.mu.RUnlock()
+	if !ok {
+		return nil
 	}
+	shard.TriggerCompaction()
+	return nil
 }
 
-func (m *ShardManager) loadShardFromIndex(db, measurement string, info metadata.ShardInfo) *Shard {
-	seriesStore := m.manager.GetOrCreateSeriesStore(db, measurement)
-	return NewShard(ShardConfig{
-		DB:                   db,
-		Measurement:          measurement,
-		StartTime:            info.StartTime,
-		EndTime:              info.EndTime,
-		Dir:                  info.DataDir,
-		SeriesStore:          seriesStore,
-		SchemaStore:          m.manager.Catalog(),
-		MemTableCfg:          m.memTableCfg,
-		CompactionCfg:        m.compactionCfg,
-		CompressionAlgorithm: m.compressionAlgo,
-	})
-}
-
-func (m *ShardManager) WaitForDiscovery() {
-	m.discoveryWg.Wait()
-}
-
-func (m *ShardManager) calcShardStart(timestamp int64) int64 {
-	shardDuration := int64(m.shardDuration)
-	if shardDuration <= 0 {
-		return 0
-	}
-	return (timestamp / shardDuration) * shardDuration
-}
-
-func (m *ShardManager) makeKey(db, measurementName string, startTime int64) string {
-	return db + "/" + measurementName + "/" + formatInt64(startTime)
-}
-
-func formatTimeRange(start, end int64) string {
-	return formatInt64(start) + "_" + formatInt64(end)
-}
-
-func formatInt64(n int64) string {
-	return strconv.FormatInt(n, 10)
-}
-
-// isNameSafe 检查数据库名/measurement 名不包含路径遍历字符。
-func isNameSafe(name string) bool {
-	if name == "" || name == "." || name == ".." {
-		return false
-	}
-	cleaned := filepath.Clean(name)
-	if cleaned == "." || cleaned == ".." {
-		return false
-	}
-	if strings.Contains(cleaned, string(os.PathSeparator)) {
-		return false
-	}
-	return true
-}
-
-// FlushAll 刷新所有 Shard 的 MemTable 到 SSTable。
+// FlushAll 刷新所有 Shard。
 func (m *ShardManager) FlushAll() error {
 	m.mu.RLock()
 	shards := make([]*Shard, 0, len(m.shards))
@@ -341,13 +267,10 @@ func (m *ShardManager) FlushAll() error {
 	}
 	m.mu.RUnlock()
 
-	var firstErr error
 	for _, s := range shards {
-		if err := s.Flush(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+		s.TriggerCompaction()
 	}
-	return firstErr
+	return nil
 }
 
 // CloseAll 关闭所有 Shard，释放资源。
@@ -368,9 +291,10 @@ func (m *ShardManager) CloseAll() error {
 	return firstErr
 }
 
-// PersistAll 持久化所有元数据到磁盘（通过 Manager）。
+// PersistAll 持久化所有元数据到磁盘。
 func (m *ShardManager) PersistAll() error {
-	return m.manager.Sync()
+	// ShardManager 不再直接持有 Manager，持久化由调用方负责
+	return nil
 }
 
 // SetConfig 运行时更新所有现有 Shard 的 Compaction 配置。
@@ -406,10 +330,6 @@ func (m *ShardManager) DeleteShard(key string) error {
 		return nil
 	}
 
-	if err := shard.Flush(); err != nil {
-		return fmt.Errorf("flush shard: %w", err)
-	}
-
 	if err := shard.Close(); err != nil {
 		return fmt.Errorf("close shard: %w", err)
 	}
@@ -425,246 +345,42 @@ func (m *ShardManager) DeleteShard(key string) error {
 	return nil
 }
 
-// ===================================
-// ShardStore 接口实现（供 MeasurementWriter 使用）
-// ===================================
-
-// GetOrCreateDiskShard 获取或创建磁盘模式的 Shard（无 WAL/MemTable）。
-func (m *ShardManager) GetOrCreateDiskShard(db, measurement string, startTime int64) (*writer.ShardInfo, error) {
-	if !isNameSafe(db) || !isNameSafe(measurement) {
-		return nil, fmt.Errorf("invalid database or measurement name")
-	}
-
-	endTime := startTime + int64(m.shardDuration)
-	key := m.makeKey(db, measurement, startTime)
-
-	m.mu.RLock()
-	s, ok := m.shards[key]
-	m.mu.RUnlock()
-
-	if ok {
-		return &writer.ShardInfo{
-			StartTime: s.startTime,
-			EndTime:   s.endTime,
-			Dir:       s.dir,
-			DataDir:   s.DataDir(),
-			Internal:  s,
-		}, nil
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if s, ok = m.shards[key]; ok {
-		return &writer.ShardInfo{
-			StartTime: s.startTime,
-			EndTime:   s.endTime,
-			Dir:       s.dir,
-			DataDir:   s.DataDir(),
-			Internal:  s,
-		}, nil
-	}
-
-	seriesStore := m.manager.GetOrCreateSeriesStore(db, measurement)
-
-	shardDir := filepath.Join(m.dir, db, measurement, formatTimeRange(startTime, endTime))
-	s = NewShard(ShardConfig{
-		DB:                   db,
-		Measurement:          measurement,
-		StartTime:            startTime,
-		EndTime:              endTime,
-		Dir:                  shardDir,
-		SeriesStore:          seriesStore,
-		SchemaStore:          m.manager.Catalog(),
-		CompactionCfg:        m.compactionCfg,
-		CompressionAlgorithm: m.compressionAlgo,
-		DiskOnly:             true,
-	})
-	m.shards[key] = s
-
-	if err := m.manager.Shards().RegisterShard(db, measurement, metadata.ShardInfo{
-		ID:        key,
-		StartTime: startTime,
-		EndTime:   endTime,
-		DataDir:   shardDir,
-	}); err != nil {
-		slog.Warn("failed to register shard", "key", key, "error", err)
-	}
-
-	return &writer.ShardInfo{
-		StartTime: s.startTime,
-		EndTime:   s.endTime,
-		Dir:       s.dir,
-		DataDir:   s.DataDir(),
-		Internal:  s,
-	}, nil
+// WaitForDiscovery 等待初始发现完成（无操作，保留兼容）。
+func (m *ShardManager) WaitForDiscovery() {
+	// ShardManager 不再需要 WAL replay 发现
 }
 
-// NextSSTSeqForShard 获取 shard 的下一个 SSTable 序列号。
-func (m *ShardManager) NextSSTSeqForShard(info *writer.ShardInfo) uint64 {
-	s, ok := info.Internal.(*Shard)
-	if !ok {
+func (m *ShardManager) calcShardStart(timestamp int64) int64 {
+	shardDuration := int64(m.shardDuration)
+	if shardDuration <= 0 {
 		return 0
 	}
-	return s.NextSSTSeq()
+	return (timestamp / shardDuration) * shardDuration
 }
 
-// RegisterSSTableInShard 在 shard 中注册新写入的 SSTable。
-func (m *ShardManager) RegisterSSTableInShard(info *writer.ShardInfo, sstSeq uint64, path string, minTime, maxTime int64, size int64) {
-	s, ok := info.Internal.(*Shard)
-	if !ok {
-		return
-	}
-	_ = path
-	s.RegisterSSTable(sstSeq, minTime, maxTime, size)
+func (m *ShardManager) makeKey(db, measurementName string, startTime int64) string {
+	return db + "/" + measurementName + "/" + formatInt64(startTime)
 }
 
-// TriggerCompactionInShard 触发 shard 的后台 compaction。
-func (m *ShardManager) TriggerCompactionInShard(info *writer.ShardInfo) {
-	s, ok := info.Internal.(*Shard)
-	if !ok {
-		return
-	}
-	s.TriggerCompaction()
+func formatTimeRange(start, end int64) string {
+	return formatInt64(start) + "_" + formatInt64(end)
 }
 
-// writerShardStore 是 writer.ShardStore 接口的适配器，将 ShardManager 方法映射到 writer 接口。
-type writerShardStore struct {
-	m *ShardManager
+func formatInt64(n int64) string {
+	return strconv.FormatInt(n, 10)
 }
 
-func (a *writerShardStore) GetOrCreateShard(db, measurement string, startTime int64) (*writer.ShardInfo, error) {
-	return a.m.GetOrCreateDiskShard(db, measurement, startTime)
-}
-
-func (a *writerShardStore) NextSSTSeq(info *writer.ShardInfo) uint64 {
-	return a.m.NextSSTSeqForShard(info)
-}
-
-func (a *writerShardStore) RegisterSSTable(info *writer.ShardInfo, sstSeq uint64, path string, minTime, maxTime int64, size int64) {
-	a.m.RegisterSSTableInShard(info, sstSeq, path, minTime, maxTime, size)
-}
-
-func (a *writerShardStore) TriggerCompaction(info *writer.ShardInfo) {
-	a.m.TriggerCompactionInShard(info)
-}
-
-// NewShardStore 创建符合 writer.ShardStore 接口的适配器。
-func NewShardStore(m *ShardManager) writer.ShardStore {
-	return &writerShardStore{m: m}
-}
-
-// ===================================
-// MeasurementWriter 管理
-// ===================================
-
-// writerEntry 保存 writer 及其 shard store 适配器。
-type writerEntry struct {
-	writer     *writer.MeasurementWriter
-	shardStore writer.ShardStore
-}
-
-// GetWriter 获取或创建指定 db.measurement 的 MeasurementWriter。
-func (m *ShardManager) GetWriter(db, measurement string) (*writer.MeasurementWriter, error) {
-	if !isNameSafe(db) || !isNameSafe(measurement) {
-		return nil, fmt.Errorf("invalid database or measurement name")
+// isNameSafe 检查数据库名/measurement 名不包含路径遍历字符。
+func isNameSafe(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
 	}
-
-	key := db + "/" + measurement
-
-	// 先检查缓存（需要初始化 writersMu）
-	m.mu.Lock()
-	if m.writers == nil {
-		m.writers = make(map[string]*writerEntry)
+	cleaned := filepath.Clean(name)
+	if cleaned == "." || cleaned == ".." {
+		return false
 	}
-	if entry, ok := m.writers[key]; ok {
-		m.mu.Unlock()
-		return entry.writer, nil
+	if strings.Contains(cleaned, string(os.PathSeparator)) {
+		return false
 	}
-	m.mu.Unlock()
-
-	// 创建 writer
-	store := NewShardStore(m)
-	measDir := filepath.Join(m.dir, db, measurement)
-
-	mw, err := writer.New(writer.Config{
-		DB:                   db,
-		Measurement:          measurement,
-		Dir:                  measDir,
-		ShardDuration:        int64(m.shardDuration),
-		SeriesStore:          m.manager.GetOrCreateSeriesStore(db, measurement),
-		SchemaStore:          m.manager.Catalog(),
-		ShardStore:           store,
-		MemTableCfg:          m.memTableCfg,
-		CompactionCfg:        m.compactionCfg,
-		CompressionAlgorithm: m.compressionAlgo,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create writer: %w", err)
-	}
-
-	m.mu.Lock()
-	// 双检查
-	if entry, ok := m.writers[key]; ok {
-		m.mu.Unlock()
-		_ = mw.Close()
-		return entry.writer, nil
-	}
-	m.writers[key] = &writerEntry{writer: mw, shardStore: store}
-	m.mu.Unlock()
-
-	return mw, nil
-}
-
-// CloseAllWriters 关闭所有 MeasurementWriter。
-func (m *ShardManager) CloseAllWriters() error {
-	m.mu.Lock()
-	writers := make([]*writer.MeasurementWriter, 0, len(m.writers))
-	for _, entry := range m.writers {
-		writers = append(writers, entry.writer)
-	}
-	m.mu.Unlock()
-
-	var firstErr error
-	for _, w := range writers {
-		if err := w.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-// FlushAllWriters 刷新所有 MeasurementWriter 的 MemTable。
-func (m *ShardManager) FlushAllWriters() error {
-	m.mu.RLock()
-	writers := make([]*writer.MeasurementWriter, 0, len(m.writers))
-	for _, entry := range m.writers {
-		writers = append(writers, entry.writer)
-	}
-	m.mu.RUnlock()
-
-	var firstErr error
-	for _, w := range writers {
-		if err := w.Flush(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-// GetWriterIfExists 获取已存在的 writer，不创建新的。
-func (m *ShardManager) GetWriterIfExists(db, measurement string) *writer.MeasurementWriter {
-	if !isNameSafe(db) || !isNameSafe(measurement) {
-		return nil
-	}
-	key := db + "/" + measurement
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.writers == nil {
-		return nil
-	}
-	if entry, ok := m.writers[key]; ok {
-		return entry.writer
-	}
-	return nil
+	return true
 }

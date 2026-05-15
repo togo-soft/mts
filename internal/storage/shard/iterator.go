@@ -23,9 +23,11 @@ import (
 //	可以在多个 goroutine 之间共享同一个 ShardIterator。
 //	内部使用读写锁保护所有状态操作，允许多个并发读。
 type ShardIterator struct {
-	shard     *Shard
-	startTime int64 // 查询起始时间（包含）
-	endTime   int64 // 查询结束时间（不包含）
+	shard       *Shard
+	db          string
+	measurement string
+	startTime   int64 // 查询起始时间（包含）
+	endTime     int64 // 查询结束时间（不包含）
 
 	memIter *memtable.MemTableIterator // MemTable 迭代器
 	sstIter *sstable.MergeIterator     // SSTable 流式归并迭代器
@@ -65,11 +67,20 @@ func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *Shar
 }
 
 // NewShardIteratorWithMemTable 创建 Shard 迭代器，可指定外部 MemTable 和 SeriesStore。
-// externalMT 为 nil 时使用 shard 自带的 MemTable。
+// externalMT 为 nil 时使用 shard 自带的 MemTable（已废弃，不再提供）。
 // extSeriesStore 用于 nil shard 场景下 SID→Tags 解析。
 func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, extSeriesStore SeriesStore, startTime, endTime int64, maxRows int) *ShardIterator {
+	db := ""
+	measurement := ""
+	if shard != nil {
+		db = shard.db
+		measurement = shard.measurement
+	}
+
 	si := &ShardIterator{
 		shard:          shard,
+		db:             db,
+		measurement:    measurement,
 		startTime:      startTime,
 		endTime:        endTime,
 		maxRows:        maxRows,
@@ -77,8 +88,9 @@ func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, e
 	}
 
 	mt := externalMT
-	if mt == nil {
-		mt = shard.memTable
+	if mt == nil && shard != nil {
+		// Shard 不再持有 MemTable，当 shard 非 nil 且未提供外部 MemTable 时跳过 MemTable 迭代
+		mt = nil
 	}
 	// 创建 MemTable 迭代器
 	if mt != nil {
@@ -117,9 +129,9 @@ func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, e
 func (si *ShardIterator) pointToRow(ip types.InternalPoint) *types.PointRow {
 	tags := make(map[string]string)
 	if si.shard != nil && si.shard.seriesStore != nil {
-		tags, _ = si.shard.seriesStore.GetTagsBySID(ip.Sid)
+		tags, _ = si.shard.seriesStore.GetTags(si.shard.db, si.shard.measurement, ip.Sid)
 	} else if si.extSeriesStore != nil {
-		tags, _ = si.extSeriesStore.GetTagsBySID(ip.Sid)
+		tags, _ = si.extSeriesStore.GetTags(si.db, si.measurement, ip.Sid)
 	}
 	return &types.PointRow{
 		Sid:       ip.Sid,
