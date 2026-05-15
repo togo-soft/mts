@@ -7,6 +7,7 @@ package compaction
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,6 +19,8 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/internal/storage"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 const (
@@ -26,23 +29,17 @@ const (
 	twoPhaseThreshold = 10                     // 输入 SSTable 超过此数时启用两阶段合并
 )
 
-// Config Compaction 配置。
-type Config struct {
-	MaxSSTableCount    int
-	MaxCompactionBatch int
-	ShardSizeLimit     int64
-	CheckInterval      time.Duration
-	Timeout            time.Duration
-}
+// CompactionConfig 配置别名，复用 proto 定义的类型。
+type Config = types.CompactionConfig
 
 // DefaultConfig 返回默认配置。
 func DefaultConfig() *Config {
 	return &Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 0,
 		ShardSizeLimit:     ShardSizeLimit,
-		CheckInterval:      1 * time.Hour,
-		Timeout:            30 * time.Minute,
+		CheckIntervalNanos: int64(time.Hour),
+		TimeoutNanos:       int64(30 * time.Minute),
 	}
 }
 
@@ -113,7 +110,7 @@ func NewManager(shard ShardAccess, config *Config) *Manager {
 
 // Timeout 返回 compaction 超时配置。
 func (cm *Manager) Timeout() time.Duration {
-	return cm.Config.Timeout
+	return time.Duration(cm.Config.TimeoutNanos)
 }
 
 // Context 返回 manager 的可取消 context，Stop() 时会取消。
@@ -134,8 +131,8 @@ func (cm *Manager) SetConfig(config *Config) {
 
 	cm.Config = config
 
-	if cm.Ticker != nil && config.CheckInterval > 0 {
-		cm.Ticker.Reset(config.CheckInterval)
+	if cm.Ticker != nil && config.CheckIntervalNanos > 0 {
+		cm.Ticker.Reset(time.Duration(config.CheckIntervalNanos))
 	}
 }
 
@@ -162,7 +159,7 @@ func (cm *Manager) Compact(ctx context.Context) (string, []string, error) {
 		return "", nil, nil
 	}
 
-	batchLimit := cm.Config.MaxCompactionBatch
+	batchLimit := int(cm.Config.MaxCompactionBatch)
 	if batchLimit <= 0 {
 		batchLimit = twoPhaseThreshold
 	}
@@ -295,7 +292,7 @@ func (cm *Manager) ResetTimer() {
 	cm.compactMu.Unlock()
 
 	if cm.Ticker != nil {
-		cm.Ticker.Reset(cm.Config.CheckInterval)
+		cm.Ticker.Reset(time.Duration(cm.Config.CheckIntervalNanos))
 	}
 }
 
@@ -399,7 +396,7 @@ func (cm *Manager) collectSSTablesWithoutRefs() ([]string, error) {
 	return sstFiles, nil
 }
 
-// isSSTableComplete 检查 SSTable 文件是否完整（不在写入中且可读取）。
+// isSSTableComplete 检查 SSTable 文件是否完整（不在写入中、可读、魔数正确）。
 func (cm *Manager) isSSTableComplete(sstPath string) bool {
 	// 如果正在写入中，不视为完整
 	if cm.IsSSTableInWrite(sstPath) {
@@ -411,7 +408,22 @@ func (cm *Manager) isSSTableComplete(sstPath string) bool {
 	if err != nil {
 		return false
 	}
-	return fi.Mode().IsRegular() && fi.Size() > 0
+	if !fi.Mode().IsRegular() || fi.Size() == 0 {
+		return false
+	}
+
+	// 验证文件头魔数，防止正在写入的零填充文件被误认为完整
+	f, err := os.Open(sstPath)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	var magic [8]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil {
+		return false
+	}
+	return magic == sstable.Magic
 }
 
 // canOpenSSTable 检查 SSTable 是否可以成功打开（验证文件可访问）。
@@ -451,7 +463,7 @@ func (cm *Manager) ShouldCompactLocked() bool {
 		return false
 	}
 
-	if len(files) < cm.Config.MaxSSTableCount {
+	if len(files) < int(cm.Config.MaxSstableCount) {
 		return false
 	}
 
@@ -520,11 +532,11 @@ func DirSize(path string) (int64, error) {
 
 // StartPeriodicCheck 启动定期检查。
 func (cm *Manager) StartPeriodicCheck() {
-	if cm.Config.CheckInterval <= 0 {
+	if cm.Config.CheckIntervalNanos <= 0 {
 		return
 	}
 
-	cm.Ticker = time.NewTicker(cm.Config.CheckInterval)
+	cm.Ticker = time.NewTicker(time.Duration(cm.Config.CheckIntervalNanos))
 	ticker := cm.Ticker
 	cm.wg.Go(func() {
 		for {
@@ -554,14 +566,17 @@ func (cm *Manager) DoPeriodicCompaction() {
 	if !cm.TryAcquireCompactLock() {
 		return
 	}
-	defer cm.ReleaseCompactLock()
 
-	ctx, cancel := context.WithTimeout(cm.ctx, cm.Config.Timeout)
+	ctx, cancel := context.WithTimeout(cm.ctx, time.Duration(cm.Config.TimeoutNanos))
 	defer cancel()
 
 	if !cm.ShouldCompactLocked() {
+		cm.ReleaseCompactLock()
 		return
 	}
+
+	// 释放锁后调用 Compact()，避免 Compact() 内部的 TryAcquireCompactLock 自死锁
+	cm.ReleaseCompactLock()
 
 	_, _, err := cm.Compact(ctx)
 	if err != nil {

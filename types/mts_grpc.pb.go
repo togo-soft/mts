@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             (unknown)
-// source: microts.proto
+// source: mts.proto
 
 package types
 
@@ -567,5 +567,5 @@ var MicroTS_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "microts.proto",
+	Metadata: "mts.proto",
 }

@@ -26,6 +26,13 @@ func main() {
 			MaxCount:          3000,
 			IdleDurationNanos: int64(10 * time.Second),
 		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSstableCount:    4,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckIntervalNanos: int64(10 * time.Second),
+			TimeoutNanos:       int64(30 * time.Second),
+		},
 	}
 
 	db, err := microts.Open(cfg)

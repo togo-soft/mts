@@ -51,6 +51,13 @@ func main() {
 			MaxCount:          pointsPerCycle, // 边界：等于写入数量，每次都会触发刷盘
 			IdleDurationNanos: int64(5 * time.Second),
 		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSstableCount:    4,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckIntervalNanos: int64(10 * time.Second),
+			TimeoutNanos:       int64(30 * time.Second),
+		},
 	}
 
 	var baseTime int64

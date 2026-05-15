@@ -1027,9 +1027,9 @@ func TestShard_Close_WithActiveCompaction(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount: 2,
-			CheckInterval:   10 * time.Millisecond, // 快速触发
-			Timeout:         30 * time.Second,
+			MaxSstableCount: 2,
+			CheckIntervalNanos:   int64(10 * time.Millisecond), // 快速触发
+			TimeoutNanos:         int64(30 * time.Second),
 		},
 	}
 

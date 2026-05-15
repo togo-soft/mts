@@ -26,10 +26,10 @@ option go_package = "codeberg.org/micro-ts/mts/types;types";
 //	查询时根据实际存储的类型返回相应值。
 message FieldValue {
   oneof value {
-    int64  int_value    = 1;
-    double float_value  = 2;
+    int64 int_value = 1;
+    double float_value = 2;
     string string_value = 3;
-    bool   bool_value   = 4;
+    bool bool_value = 4;
   }
 }
 
@@ -41,7 +41,7 @@ message FieldValue {
 //   - 更低的内存开销（无哈希表元数据）
 //   - 更好的缓存局部性
 message FieldEntry {
-  string     key   = 1;
+  string key = 1;
   FieldValue value = 2;
 }
 
@@ -121,11 +121,11 @@ message PointRow {
 
 // 写入请求
 message WriteRequest {
-  string                  database    = 1;
-  string                  measurement = 2;
-  map<string, string>     tags        = 3;
-  int64                   timestamp   = 4;
-  map<string, FieldValue> fields      = 5;
+  string database = 1;
+  string measurement = 2;
+  map<string, string> tags = 3;
+  int64 timestamp = 4;
+  map<string, FieldValue> fields = 5;
 }
 
 // 批量写入请求
@@ -135,42 +135,42 @@ message WriteBatchRequest {
 
 // 写入响应
 message WriteResponse {
-  bool   success = 1;
-  string error   = 2;
+  bool success = 1;
+  string error = 2;
 }
 
 // 批量写入响应
 message WriteBatchResponse {
-  bool   success = 1;
-  string error   = 2;
-  int32  count   = 3;
+  bool success = 1;
+  string error = 2;
+  int32 count = 3;
 }
 
 // 范围查询请求
 message QueryRangeRequest {
-  string              database    = 1;
-  string              measurement = 2;
-  int64               start_time  = 3;
-  int64               end_time    = 4;
-  repeated string     fields      = 5;
-  map<string, string> tags        = 6;
-  int64               offset      = 7;
-  int64               limit       = 8;
+  string database = 1;
+  string measurement = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  repeated string fields = 5;
+  map<string, string> tags = 6;
+  int64 offset = 7;
+  int64 limit = 8;
 }
 
 // 范围查询响应
 //
 // 封装范围查询的结果，包含所有查询到的数据行。
 message QueryRangeResponse {
-  repeated Row rows   = 1;
-  bool        has_more = 2;
+  repeated Row rows = 1;
+  bool has_more = 2;
 }
 
 // 一行数据（用于查询响应）
 message Row {
-  int64               timestamp = 1;
-  map<string, string> tags      = 2;
-  repeated FieldEntry fields    = 3;
+  int64 timestamp = 1;
+  map<string, string> tags = 2;
+  repeated FieldEntry fields = 3;
 }
 
 // 列出 Measurement 请求
@@ -185,31 +185,30 @@ message ListMeasurementsResponse {
 
 // 创建 Measurement 请求
 message CreateMeasurementRequest {
-  string database    = 1;
+  string database = 1;
   string measurement = 2;
 }
 
 // 创建 Measurement 响应
 message CreateMeasurementResponse {
-  bool   success = 1;
-  string error   = 2;
+  bool success = 1;
+  string error = 2;
 }
 
 // 删除 Measurement 请求
 message DropMeasurementRequest {
-  string database    = 1;
+  string database = 1;
   string measurement = 2;
 }
 
 // 删除 Measurement 响应
 message DropMeasurementResponse {
-  bool   success = 1;
-  string error   = 2;
+  bool success = 1;
+  string error = 2;
 }
 
 // 列出数据库请求
-message ListDatabasesRequest {
-}
+message ListDatabasesRequest {}
 
 // 列出数据库响应
 message ListDatabasesResponse {
@@ -223,8 +222,8 @@ message CreateDatabaseRequest {
 
 // 创建数据库响应
 message CreateDatabaseResponse {
-  bool   success = 1;
-  string error   = 2;
+  bool success = 1;
+  string error = 2;
 }
 
 // 删除数据库请求
@@ -234,17 +233,16 @@ message DropDatabaseRequest {
 
 // 删除数据库响应
 message DropDatabaseResponse {
-  bool   success = 1;
-  string error   = 2;
+  bool success = 1;
+  string error = 2;
 }
 
 // 健康检查请求
-message HealthRequest {
-}
+message HealthRequest {}
 
 // 健康检查响应
 message HealthResponse {
-  bool   healthy = 1;
+  bool healthy = 1;
   string version = 2;
 }
 
@@ -272,17 +270,52 @@ message HealthResponse {
 // 默认值：
 //
 //   - max_size: 64MB
-//   - max_count: 3000
+//   - max_count: 10000
 //   - idle_duration_nanos: 60秒（60000000000纳秒）
 message MemTableConfig {
   // 最大内存大小（字节），默认 64MB
   int64 max_size = 1;
 
-  // 最大条目数，默认 3000
+  // 最大条目数，默认 10000
   int32 max_count = 2;
 
   // 空闲时间阈值（纳秒），默认 60秒
   int64 idle_duration_nanos = 3;
+}
+
+// Compaction 配置
+//
+// CompactionConfig 控制 SSTable 合并（compaction）行为。
+// Compaction 是 LSM 存储引擎的核心维护操作，通过合并多个 SSTable 减少文件数量、
+// 提升查询性能并清理过期或已删除数据。
+//
+// 触发条件：
+//
+//   - SSTable 数量达到 max_sstable_count 阈值
+//   - 定时检查间隔 check_interval_nanos
+//
+// 默认值：
+//
+//   - max_sstable_count: 4
+//   - max_compaction_batch: 0（不限制）
+//   - shard_size_limit: 1GB
+//   - check_interval_nanos: 1 小时（3600000000000 纳秒）
+//   - timeout_nanos: 30 分钟（1800000000000 纳秒）
+message CompactionConfig {
+  // 最大 SSTable 数量，超过此值触发 compaction
+  int32 max_sstable_count = 1;
+
+  // 单次 compaction 最大文件数（0 表示不限制）
+  int32 max_compaction_batch = 2;
+
+  // 单个 Shard 数据大小上限（字节），超过后不参与 compaction
+  int64 shard_size_limit = 3;
+
+  // 定时触发间隔（纳秒），0 表示禁用定时触发
+  int64 check_interval_nanos = 4;
+
+  // Compaction 超时时间（纳秒）
+  int64 timeout_nanos = 5;
 }
 
 // 引擎配置

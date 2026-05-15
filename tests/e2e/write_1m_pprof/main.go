@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,9 +12,150 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 )
+
+// countSSTables 递归统计 dataDir 下所有有效 SSTable 文件数（验证魔数过滤零填充文件）。
+func countSSTables(dataDir string) int {
+	count := 0
+	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() || filepath.Ext(info.Name()) != ".bin" {
+			return nil
+		}
+		if !isValidSSTable(path) {
+			return nil
+		}
+		count++
+		return nil
+	})
+	return count
+}
+
+// isValidSSTable 验证文件是否为有效的 SSTable（魔数检查）。
+func isValidSSTable(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	var magic [8]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil {
+		return false
+	}
+	return magic == sstable.Magic
+}
+
+// waitForCompaction 等待 compaction 完成，每个 shard 的有效 SSTable ≤ maxSSTPerShard 或总计数稳定。
+func waitForCompaction(dataDir string) {
+	const pollInterval = 2 * time.Second
+	const stableRounds = 3
+	const maxSSTPerShard = 4 // 与 CompactionConfig.MaxSstableCount 一致
+
+	// 先等待所有后台 flush 完全结束
+	time.Sleep(3 * time.Second)
+
+	printShardBreakdown(dataDir)
+
+	var prevCount int
+	stableCount := 0
+
+	for round := 0; round < 60; round++ {
+		time.Sleep(pollInterval)
+		current := countSSTables(dataDir)
+		elapsed := time.Duration(round+1)*pollInterval + 3*time.Second
+		allSettled := allShardsSettled(dataDir, maxSSTPerShard)
+
+		if current == prevCount && allSettled {
+			stableCount++
+			fmt.Printf("  [%v] SSTables: %d (stable %d/%d, all shards settled)\n",
+				elapsed.Round(100*time.Millisecond), current, stableCount, stableRounds)
+			if stableCount >= stableRounds {
+				fmt.Printf("Compaction settled: %d SSTables after %v\n", current, elapsed.Round(100*time.Millisecond))
+				printShardBreakdown(dataDir)
+				return
+			}
+		} else if current == prevCount {
+			stableCount++
+			fmt.Printf("  [%v] SSTables: %d (stable %d/%d)\n",
+				elapsed.Round(100*time.Millisecond), current, stableCount, stableRounds)
+			if stableCount >= stableRounds && allSettled {
+				fmt.Printf("Compaction settled: %d SSTables after %v\n", current, elapsed.Round(100*time.Millisecond))
+				printShardBreakdown(dataDir)
+				return
+			}
+		} else {
+			stableCount = 0
+			delta := ""
+			if prevCount > 0 {
+				delta = fmt.Sprintf(" (was %d)", prevCount)
+			}
+			fmt.Printf("  [%v] SSTables: %d%s\n", elapsed.Round(100*time.Millisecond), current, delta)
+			printShardBreakdown(dataDir)
+		}
+		prevCount = current
+	}
+
+	fmt.Println("Warning: compaction did not settle within timeout")
+	printShardBreakdown(dataDir)
+}
+
+// allShardsSettled 检查所有 shard 的有效 SSTable 是否均不超过 maxFiles。
+func allShardsSettled(dataDir string, maxFiles int) bool {
+	entries, _ := os.ReadDir(dataDir)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		shardDir := filepath.Join(dataDir, e.Name())
+		dataSubDir := filepath.Join(shardDir, "data")
+		if info, err := os.Stat(dataSubDir); err != nil || !info.IsDir() {
+			continue
+		}
+		if countSSTables(shardDir) > maxFiles {
+			return false
+		}
+	}
+	return true
+}
+
+// printShardBreakdown 输出每个 shard 的有效 SSTable 文件数。
+func printShardBreakdown(dataDir string) {
+	entries, _ := os.ReadDir(dataDir)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		shardDir := filepath.Join(dataDir, e.Name())
+		dataSubDir := filepath.Join(shardDir, "data")
+		if info, err := os.Stat(dataSubDir); err != nil || !info.IsDir() {
+			continue
+		}
+		count := countSSTables(shardDir)
+		total := countAllBin(shardDir)
+		fmt.Printf("    shard %s: %d valid / %d total .bin files\n", e.Name(), count, total)
+	}
+}
+
+// countAllBin 计数所有 .bin 文件（含无效文件）。
+func countAllBin(dataDir string) int {
+	count := 0
+	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && filepath.Ext(info.Name()) == ".bin" {
+			count++
+		}
+		return nil
+	})
+	return count
+}
 
 func main() {
 	// 开启 pprof
@@ -36,6 +178,13 @@ func main() {
 			MaxCount:          3000,
 			IdleDurationNanos: int64(10 * time.Second),
 		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSstableCount:    4,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckIntervalNanos: int64(10 * time.Second),
+			TimeoutNanos:       int64(30 * time.Second),
+		},
 	}
 
 	db, err := microts.Open(cfg)
@@ -55,7 +204,7 @@ func main() {
 
 	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
-		ts := baseTime + int64(i)*int64(time.Second)
+		ts := baseTime + int64(i)*int64(10*time.Millisecond)
 		p := gen.GeneratePoint("db1", "cpu", ts)
 		if err := db.Write(context.Background(), p); err != nil {
 			fmt.Printf("Write failed at %d: %v\n", i, err)
@@ -68,9 +217,17 @@ func main() {
 	writeTimer.Finish()
 	fmt.Printf("\n%s\n", writeTimer.Format())
 
+	// 等待 compaction 完成
+	fmt.Println("\nFlushing MemTable...")
+	if err := db.FlushAll(); err != nil {
+		fmt.Printf("FlushAll failed: %v\n", err)
+	}
+	fmt.Println("Waiting for compaction to settle...")
+	waitForCompaction(filepath.Join(tmpDir, "db1", "cpu"))
+
 	metrics.GC()
 	memAfter := metrics.ReadMemStats()
-	fmt.Printf("\nAfter write: %s\n", metrics.FormatMemStats(memAfter))
+	fmt.Printf("\nAfter write+compaction: %s\n", metrics.FormatMemStats(memAfter))
 
 	// 写入堆 profile
 	runtime.GC() // 先 GC 获得更准确的 profile

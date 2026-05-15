@@ -376,7 +376,7 @@ func (s *Shard) calcPointTimeRange(points []types.MemPoint) (int64, int64) {
 	return minTime, maxTime
 }
 
-// triggerBackgroundCompaction 在后台触发 compaction。
+// triggerBackgroundCompaction 在后台触发 compaction，成功后会级联检查是否仍有文件需要合并。
 func (s *Shard) triggerBackgroundCompaction() {
 	if s.closed.Load() {
 		return
@@ -389,10 +389,16 @@ func (s *Shard) triggerBackgroundCompaction() {
 			}
 			ctx, cancel := context.WithTimeout(s.levelCompaction.Context(), s.levelCompaction.Timeout())
 			defer cancel()
-			if _, _, err := s.levelCompaction.Compact(ctx); err != nil {
+			_, _, err := s.levelCompaction.Compact(ctx)
+			if err != nil {
 				if !s.closed.Load() {
 					slog.Error("background level compaction failed", "error", err)
 				}
+				return
+			}
+			// 级联：如果仍有文件需要合并，立即触发下一轮
+			if !s.closed.Load() && s.levelCompaction.ShouldCompact() {
+				s.triggerBackgroundCompaction()
 			}
 		})
 	} else if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
@@ -402,12 +408,18 @@ func (s *Shard) triggerBackgroundCompaction() {
 			}
 			ctx, cancel := context.WithTimeout(s.compaction.Context(), s.compaction.Timeout())
 			defer cancel()
-			if _, _, err := s.compaction.Compact(ctx); err != nil {
+			_, _, err := s.compaction.Compact(ctx)
+			if err != nil {
 				if !s.closed.Load() {
 					slog.Error("background compaction failed", "error", err)
 				}
-			} else {
-				s.compaction.ResetTimer()
+				return
+			}
+			s.compaction.ResetTimer()
+
+			// 级联：如果仍有文件需要合并，立即触发下一轮
+			if !s.closed.Load() && s.compaction.ShouldCompactWithLock() {
+				s.triggerBackgroundCompaction()
 			}
 		})
 	}

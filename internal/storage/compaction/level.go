@@ -586,11 +586,14 @@ func (lcm *LevelManager) doPeriodicCompaction() {
 	if !lcm.compactInProgress.CompareAndSwap(0, 1) {
 		return
 	}
-	defer lcm.compactInProgress.Store(0)
 
 	if !lcm.ShouldCompact() {
+		lcm.compactInProgress.Store(0)
 		return
 	}
+
+	// 释放锁后调用 Compact()，避免 Compact() 内部的 CAS 自死锁
+	lcm.compactInProgress.Store(0)
 
 	ctx, cancel := context.WithTimeout(lcm.ctx, lcm.config.Timeout)
 	defer cancel()

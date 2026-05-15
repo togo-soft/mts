@@ -136,9 +136,9 @@ func defaultDBConfig(tmpDir string) microts.Config {
 			IdleDurationNanos: int64(200 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
-			MaxSSTableCount: defaultMaxSSTable,
-			CheckInterval:   time.Hour,
-			Timeout:         defaultTimeout,
+			MaxSstableCount: defaultMaxSSTable,
+			CheckIntervalNanos: int64(time.Hour),
+			TimeoutNanos:       int64(defaultTimeout),
 			ShardSizeLimit:  1 * 1024 * 1024 * 1024,
 		},
 	}
@@ -157,7 +157,7 @@ func Test1_LargeScaleIntegrity() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 	cfg.CompactionCfg.MaxCompactionBatch = 1000
 
 	db, err := microts.Open(cfg)
@@ -351,8 +351,8 @@ func Test4_ConcurrentWriteCompaction() error {
 	cfg := defaultDBConfig(tmpDir)
 	cfg.MemTableCfg.MaxCount = 100 // 更频繁 flush
 	cfg.MemTableCfg.MaxSize = 32 * 1024
-	cfg.CompactionCfg.MaxSSTableCount = 4
-	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+	cfg.CompactionCfg.MaxSstableCount = 4
+	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 
 	db, err := microts.Open(cfg)
 	if err != nil {
@@ -443,7 +443,7 @@ func Test5_RestartRecovery() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 	cfg.CompactionCfg.MaxCompactionBatch = 1000
 
 	db1, err := microts.Open(cfg)
@@ -557,7 +557,7 @@ func Test7_PeriodicCompactionTrigger() error {
 
 	cfg := defaultDBConfig(tmpDir)
 	cfg.MemTableCfg.MaxCount = 100
-	cfg.CompactionCfg.CheckInterval = 2 * time.Second
+	cfg.CompactionCfg.CheckIntervalNanos = int64(2 * time.Second)
 
 	db, err := microts.Open(cfg)
 	if err != nil {
@@ -625,8 +625,8 @@ func Test8_SSTableReductionEfficiency() error {
 	cfg := defaultDBConfig(tmpDir)
 	cfg.MemTableCfg.MaxCount = 120
 	cfg.MemTableCfg.MaxSize = 16 * 1024
-	cfg.CompactionCfg.MaxSSTableCount = 4
-	cfg.CompactionCfg.CheckInterval = 3 * time.Second
+	cfg.CompactionCfg.MaxSstableCount = 4
+	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 
 	db, err := microts.Open(cfg)
 	if err != nil {

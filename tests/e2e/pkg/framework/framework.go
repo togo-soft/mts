@@ -75,11 +75,11 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 	var compCfg *types.CompactionConfig
 	if cfg.CompactionMaxParts > 0 {
 		compCfg = &types.CompactionConfig{
-			MaxSSTableCount:    cfg.CompactionMaxParts,
+			MaxSstableCount:    int32(cfg.CompactionMaxParts),
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
-			CheckInterval:      cfg.CompactionCheckInterval,
-			Timeout:            30 * time.Minute,
+			CheckIntervalNanos: int64(cfg.CompactionCheckInterval),
+			TimeoutNanos:       int64(30 * time.Minute),
 		}
 	}
 

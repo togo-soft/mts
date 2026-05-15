@@ -3,6 +3,7 @@ package microts
 
 import (
 	"testing"
+	"time"
 
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -152,5 +153,40 @@ func TestDB_ListMeasurements(t *testing.T) {
 
 	if measurements == nil {
 		t.Fatalf("expected non-nil measurements slice")
+	}
+}
+
+func TestDefaultCompactionConfig(t *testing.T) {
+	cfg := DefaultCompactionConfig()
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if cfg.MaxSstableCount != 4 {
+		t.Errorf("expected MaxSstableCount 4, got %d", cfg.MaxSstableCount)
+	}
+	if cfg.MaxCompactionBatch != 0 {
+		t.Errorf("expected MaxCompactionBatch 0, got %d", cfg.MaxCompactionBatch)
+	}
+	if cfg.ShardSizeLimit != 1*1024*1024*1024 {
+		t.Errorf("expected ShardSizeLimit 1GB, got %d", cfg.ShardSizeLimit)
+	}
+	if cfg.CheckIntervalNanos != int64(time.Hour) {
+		t.Errorf("expected CheckIntervalNanos 1h, got %d", cfg.CheckIntervalNanos)
+	}
+	if cfg.TimeoutNanos != int64(30*time.Minute) {
+		t.Errorf("expected TimeoutNanos 30min, got %d", cfg.TimeoutNanos)
+	}
+}
+
+func TestCompactionConfig_ZeroValues(t *testing.T) {
+	cfg := &CompactionConfig{}
+	if cfg.MaxSstableCount != 0 {
+		t.Errorf("expected zero MaxSstableCount, got %d", cfg.MaxSstableCount)
+	}
+	if cfg.MaxCompactionBatch != 0 {
+		t.Errorf("expected zero MaxCompactionBatch, got %d", cfg.MaxCompactionBatch)
+	}
+	if cfg.ShardSizeLimit != 0 {
+		t.Errorf("expected zero ShardSizeLimit, got %d", cfg.ShardSizeLimit)
 	}
 }

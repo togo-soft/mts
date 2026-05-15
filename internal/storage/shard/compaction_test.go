@@ -20,11 +20,11 @@ import (
 
 func TestNewCompactionManager(t *testing.T) {
 	cfg := &compaction.Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
-		CheckInterval:      time.Minute,
-		Timeout:            5 * time.Minute,
+		CheckIntervalNanos:      int64(time.Minute),
+		TimeoutNanos:            int64(5 * time.Minute),
 	}
 
 	shard := &Shard{}
@@ -50,8 +50,8 @@ func TestNewCompactionManager_NilConfig(t *testing.T) {
 	if cm.Config == nil {
 		t.Fatal("config should not be nil when using default")
 	}
-	if cm.Config.MaxSSTableCount != 4 {
-		t.Errorf("expected default MaxSSTableCount=4, got %d", cm.Config.MaxSSTableCount)
+	if cm.Config.MaxSstableCount != 4 {
+		t.Errorf("expected default MaxSstableCount=4, got %d", cm.Config.MaxSstableCount)
 	}
 }
 
@@ -122,7 +122,7 @@ func TestCompactionManager_ShouldCompact_WithSSTables(t *testing.T) {
 	_ = shard.Flush()
 
 	cm := shard.compaction
-	// With 5 SSTables and MaxSSTableCount=4, should compact
+	// With 5 SSTables and MaxSstableCount=4, should compact
 	if !cm.ShouldCompact() {
 		t.Log("ShouldCompact returned false, may need more SSTables or shard size check")
 	}
@@ -603,11 +603,11 @@ func TestCompactionManager_TryAcquireReleaseCompactLock(t *testing.T) {
 func TestCompactionManager_ResetTimer(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &compaction.Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
-		CheckInterval:      time.Millisecond, // Very short for testing
-		Timeout:            5 * time.Minute,
+		CheckIntervalNanos:      int64(time.Millisecond), // Very short for testing
+		TimeoutNanos:            int64(5 * time.Minute),
 	}
 
 	shardCfg := ShardConfig{
@@ -637,11 +637,11 @@ func TestCompactionManager_ResetTimer(t *testing.T) {
 func TestCompactionManager_Stop(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &compaction.Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
-		CheckInterval:      time.Millisecond,
-		Timeout:            5 * time.Minute,
+		CheckIntervalNanos:      int64(time.Millisecond),
+		TimeoutNanos:            int64(5 * time.Minute),
 	}
 
 	shardCfg := ShardConfig{
@@ -668,11 +668,11 @@ func TestCompactionManager_Stop(t *testing.T) {
 func TestCompactionManager_StartPeriodicCheck_NilInterval(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &compaction.Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
-		CheckInterval:      0, // Disabled
-		Timeout:            5 * time.Minute,
+		CheckIntervalNanos:      0, // Disabled
+		TimeoutNanos:            int64(5 * time.Minute),
 	}
 
 	shardCfg := ShardConfig{
@@ -699,11 +699,11 @@ func TestCompactionManager_StartPeriodicCheck_NilInterval(t *testing.T) {
 func TestCompactionManager_StartPeriodicCheck(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &compaction.Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
-		CheckInterval:      10 * time.Millisecond,
-		Timeout:            5 * time.Minute,
+		CheckIntervalNanos:      int64(10 * time.Millisecond),
+		TimeoutNanos:            int64(5 * time.Minute),
 	}
 
 	shardCfg := ShardConfig{
@@ -732,11 +732,11 @@ func TestCompactionManager_StartPeriodicCheck(t *testing.T) {
 func TestCompactionManager_DoPeriodicCompaction(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &compaction.Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
-		CheckInterval:      10 * time.Millisecond,
-		Timeout:            5 * time.Minute,
+		CheckIntervalNanos:      int64(10 * time.Millisecond),
+		TimeoutNanos:            int64(5 * time.Minute),
 	}
 
 	shardCfg := ShardConfig{
@@ -763,11 +763,11 @@ func TestCompactionManager_DoPeriodicCompaction(t *testing.T) {
 func TestCompactionManager_DoPeriodicCompaction_AlreadyRunning(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &compaction.Config{
-		MaxSSTableCount:    4,
+		MaxSstableCount:    4,
 		MaxCompactionBatch: 2,
 		ShardSizeLimit:     1 * 1024 * 1024,
-		CheckInterval:      10 * time.Millisecond,
-		Timeout:            5 * time.Minute,
+		CheckIntervalNanos:      int64(10 * time.Millisecond),
+		TimeoutNanos:            int64(5 * time.Minute),
 	}
 
 	shardCfg := ShardConfig{
@@ -942,11 +942,11 @@ func TestCompactionManager_Compact_WithMultipleSSTables(t *testing.T) {
 		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount:    10,
+			MaxSstableCount:    10,
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     100 * 1024 * 1024,
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			CheckIntervalNanos:      int64(time.Hour),
+			TimeoutNanos:            int64(30 * time.Minute),
 		},
 	}
 
@@ -1292,11 +1292,11 @@ func TestCompactionManager_shouldCompactLocked_True(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount:    2, // 低阈值触发 compaction
+			MaxSstableCount:    2, // 低阈值触发 compaction
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     100 * 1024 * 1024, // 100MB，大于实际大小
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			CheckIntervalNanos:      int64(time.Hour),
+			TimeoutNanos:            int64(30 * time.Minute),
 		},
 	}
 
@@ -1325,7 +1325,7 @@ func TestCompactionManager_shouldCompactLocked_True(t *testing.T) {
 	// shouldCompactLocked 应该返回 true
 	result := cm.ShouldCompactLocked()
 	if !result {
-		t.Error("shouldCompactLocked should return true when SSTable count >= MaxSSTableCount")
+		t.Error("shouldCompactLocked should return true when SSTable count >= MaxSstableCount")
 	}
 }
 
@@ -1340,11 +1340,11 @@ func TestCompactionManager_shouldCompactLocked_ShardSizeExceedsLimit(t *testing.
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount:    2,
+			MaxSstableCount:    2,
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     1, // 极小阈值，触发 size 限制
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			CheckIntervalNanos:      int64(time.Hour),
+			TimeoutNanos:            int64(30 * time.Minute),
 		},
 	}
 
@@ -1552,11 +1552,11 @@ func TestCompactionManager_Compact_MaxBatch(t *testing.T) {
 		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount:    10,
+			MaxSstableCount:    10,
 			MaxCompactionBatch: 2, // 限制每次最多合并 2 个
 			ShardSizeLimit:     100 * 1024 * 1024,
-			CheckInterval:      time.Hour,
-			Timeout:            30 * time.Minute,
+			CheckIntervalNanos:      int64(time.Hour),
+			TimeoutNanos:            int64(30 * time.Minute),
 		},
 	}
 
@@ -1612,10 +1612,10 @@ func TestCompactionManager_ShouldCompact_CollectError(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount: 2,
+			MaxSstableCount: 2,
 			ShardSizeLimit:  100 * 1024 * 1024,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Minute,
+			CheckIntervalNanos:   int64(time.Hour),
+			TimeoutNanos:         int64(30 * time.Minute),
 		},
 	}
 
@@ -1648,10 +1648,10 @@ func TestCompactionManager_Compact_Concurrent(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount: 10,
+			MaxSstableCount: 10,
 			ShardSizeLimit:  100 * 1024 * 1024,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Minute,
+			CheckIntervalNanos:   int64(time.Hour),
+			TimeoutNanos:         int64(30 * time.Minute),
 		},
 	}
 
@@ -1856,10 +1856,10 @@ func TestCompactionManager_doPeriodicCompaction_NotNeeded(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount: 10, // 高阈值，不会触发
+			MaxSstableCount: 10, // 高阈值，不会触发
 			ShardSizeLimit:  100 * 1024 * 1024,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Minute,
+			CheckIntervalNanos:   int64(time.Hour),
+			TimeoutNanos:         int64(30 * time.Minute),
 		},
 	}
 
@@ -1904,10 +1904,10 @@ func TestCompactionManager_Compact_VerifyInputFilesDeleted(t *testing.T) {
 		SchemaStore: metadata.NewSimpleSchemaStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount: 10,
+			MaxSstableCount: 10,
 			ShardSizeLimit:  100 * 1024 * 1024,
-			CheckInterval:   time.Hour,
-			Timeout:         30 * time.Minute,
+			CheckIntervalNanos:   int64(time.Hour),
+			TimeoutNanos:         int64(30 * time.Minute),
 		},
 	}
 

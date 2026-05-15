@@ -848,10 +848,10 @@ func TestShard_LevelCompaction_BothConfigs(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount:    10,
+			MaxSstableCount:    10,
 			MaxCompactionBatch: 5,
-			CheckInterval:      time.Minute,
-			Timeout:            time.Minute,
+			CheckIntervalNanos: int64(time.Minute),
+			TimeoutNanos:       int64(time.Minute),
 		},
 		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled:          true,
@@ -885,10 +885,10 @@ func TestShard_LevelCompaction_NoLevelConfig(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
-			MaxSSTableCount:    10,
+			MaxSstableCount:    10,
 			MaxCompactionBatch: 5,
-			CheckInterval:      time.Minute,
-			Timeout:            time.Minute,
+			CheckIntervalNanos: int64(time.Minute),
+			TimeoutNanos:       int64(time.Minute),
 		},
 	}
 
@@ -1115,7 +1115,7 @@ func TestShard_Close_WithCompaction(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	compactionCfg := compaction.DefaultConfig()
-	compactionCfg.CheckInterval = time.Hour // 避免定时触发
+	compactionCfg.CheckIntervalNanos = int64(time.Hour) // 避免定时触发
 
 	s := NewShard(ShardConfig{
 		DB:            "db1",

@@ -38,7 +38,6 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/internal/query"
-	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -144,7 +143,7 @@ type Config struct {
 //
 // 默认配置：
 //   - MaxSize: 64MB，内存表最大内存占用
-//   - MaxCount: 50000，最大条目数
+//   - MaxCount: 10000，最大条目数
 //   - IdleDuration: 1分钟，空闲时间阈值
 //
 // 返回：
@@ -160,8 +159,19 @@ type Config struct {
 func DefaultMemTableConfig() *types.MemTableConfig {
 	return &types.MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          50000,
+		MaxCount:          10000,
 		IdleDurationNanos: int64(time.Minute),
+	}
+}
+
+// DefaultCompactionConfig 返回默认的 Compaction 配置。
+func DefaultCompactionConfig() *CompactionConfig {
+	return &CompactionConfig{
+		MaxSstableCount:    4,
+		MaxCompactionBatch: 0,
+		ShardSizeLimit:     1 * 1024 * 1024 * 1024, // 1GB
+		CheckIntervalNanos: int64(time.Hour),
+		TimeoutNanos:       int64(30 * time.Minute),
 	}
 }
 
@@ -215,15 +225,8 @@ func Open(cfg Config) (*DB, error) {
 	}
 
 	// 默认 Compaction 配置
-	var compactionCfg *compaction.Config
-	if cfg.CompactionCfg != nil {
-		compactionCfg = &compaction.Config{
-			MaxSSTableCount:    cfg.CompactionCfg.MaxSSTableCount,
-			MaxCompactionBatch: cfg.CompactionCfg.MaxCompactionBatch,
-			ShardSizeLimit:     cfg.CompactionCfg.ShardSizeLimit,
-			CheckInterval:      cfg.CompactionCfg.CheckInterval,
-			Timeout:            cfg.CompactionCfg.Timeout,
-		}
+	if cfg.CompactionCfg == nil || cfg.CompactionCfg.MaxSstableCount == 0 {
+		cfg.CompactionCfg = types.DefaultCompactionConfig()
 	}
 
 	// 确保数据目录存在
@@ -237,7 +240,7 @@ func Open(cfg Config) (*DB, error) {
 		DataDir:                cfg.DataDir,
 		ShardDuration:          shardDuration,
 		MemTableCfg:            memTableCfg,
-		CompactionCfg:          compactionCfg,
+		CompactionCfg:          cfg.CompactionCfg,
 		CompressionAlgorithm:   cfg.CompressionAlgorithm,
 		RetentionPeriod:        cfg.RetentionPeriod,
 		RetentionCheckInterval: cfg.RetentionCheckInterval,

@@ -53,8 +53,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("DefaultConfig should not return nil")
 	}
-	if cfg.MaxSSTableCount != 4 {
-		t.Errorf("expected MaxSSTableCount=4, got %d", cfg.MaxSSTableCount)
+	if cfg.MaxSstableCount != 4 {
+		t.Errorf("expected MaxSstableCount=4, got %d", cfg.MaxSstableCount)
 	}
 	if cfg.MaxCompactionBatch != 0 {
 		t.Errorf("expected MaxCompactionBatch=0, got %d", cfg.MaxCompactionBatch)
@@ -62,11 +62,11 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.ShardSizeLimit != ShardSizeLimit {
 		t.Errorf("expected ShardSizeLimit=%d, got %d", ShardSizeLimit, cfg.ShardSizeLimit)
 	}
-	if cfg.CheckInterval != time.Hour {
-		t.Errorf("expected CheckInterval=1h, got %v", cfg.CheckInterval)
+	if cfg.CheckIntervalNanos != int64(time.Hour) {
+		t.Errorf("expected CheckIntervalNanos=1h, got %d", cfg.CheckIntervalNanos)
 	}
-	if cfg.Timeout != 30*time.Minute {
-		t.Errorf("expected Timeout=30m, got %v", cfg.Timeout)
+	if cfg.TimeoutNanos != int64(30*time.Minute) {
+		t.Errorf("expected TimeoutNanos=30m, got %d", cfg.TimeoutNanos)
 	}
 }
 
@@ -602,16 +602,16 @@ func TestManager_SetConfig(t *testing.T) {
 	cm := NewManager(nil, DefaultConfig())
 
 	newCfg := &Config{
-		MaxSSTableCount:    8,
+		MaxSstableCount:    8,
 		MaxCompactionBatch: 20,
 		ShardSizeLimit:     2 * 1024 * 1024 * 1024,
-		CheckInterval:      30 * time.Minute,
-		Timeout:            15 * time.Minute,
+		CheckIntervalNanos: int64(30 * time.Minute),
+		TimeoutNanos:       int64(15 * time.Minute),
 	}
 	cm.SetConfig(newCfg)
 
-	if cm.Config.MaxSSTableCount != 8 {
-		t.Errorf("MaxSSTableCount = %d, want 8", cm.Config.MaxSSTableCount)
+	if cm.Config.MaxSstableCount != 8 {
+		t.Errorf("MaxSstableCount = %d, want 8", cm.Config.MaxSstableCount)
 	}
 	if cm.Config.MaxCompactionBatch != 20 {
 		t.Errorf("MaxCompactionBatch = %d, want 20", cm.Config.MaxCompactionBatch)

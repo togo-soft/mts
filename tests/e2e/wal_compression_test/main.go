@@ -135,6 +135,13 @@ func Test1_WALCompressionVerify() error {
 			MaxCount:          100000,
 			IdleDurationNanos: int64(time.Hour),
 		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSstableCount:    4,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckIntervalNanos: int64(10 * time.Second),
+			TimeoutNanos:       int64(30 * time.Second),
+		},
 	}
 
 	dbName := "testdb"
@@ -202,6 +209,13 @@ func Test2_WALCompressionReplay() error {
 			MaxSize:           64 * 1024 * 1024,
 			MaxCount:          100000,
 			IdleDurationNanos: int64(time.Hour),
+		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSstableCount:    4,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckIntervalNanos: int64(10 * time.Second),
+			TimeoutNanos:       int64(30 * time.Second),
 		},
 	}
 
@@ -300,6 +314,13 @@ func Test3_WALCompressionRate() error {
 			MaxCount:          1000000,
 			IdleDurationNanos: int64(time.Hour),
 		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSstableCount:    4,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckIntervalNanos: int64(10 * time.Second),
+			TimeoutNanos:       int64(30 * time.Second),
+		},
 	}
 
 	dbName := "testdb"
@@ -362,6 +383,13 @@ func Test4_WALCompressionSmallData() error {
 			MaxSize:           64 * 1024 * 1024,
 			MaxCount:          1000,
 			IdleDurationNanos: int64(time.Hour),
+		},
+		CompactionCfg: &microts.CompactionConfig{
+			MaxSstableCount:    4,
+			MaxCompactionBatch: 0,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
+			CheckIntervalNanos: int64(10 * time.Second),
+			TimeoutNanos:       int64(30 * time.Second),
 		},
 	}
 
