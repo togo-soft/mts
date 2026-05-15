@@ -168,6 +168,26 @@ func (cm *Manager) Merge(ctx context.Context, task *Task) error {
 	return SaveTombstones(task.OutputPath, tombstones)
 }
 
+// retryDelete 带重试的文件删除，处理 Windows 下文件被短暂锁定的场景（杀软、搜索索引等）。
+func retryDelete(path string) error {
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*attempt) * 50 * time.Millisecond)
+		}
+		// 文件可能已被其他 compaction 删除
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return nil
+		}
+		if err := os.Remove(path); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
 // commit 原子性提交 compaction 结果。
 func (cm *Manager) Commit(task *Task) error {
 	if err := cm.VerifyOutput(task.OutputPath); err != nil {
@@ -177,23 +197,17 @@ func (cm *Manager) Commit(task *Task) error {
 	// 只删除实际被合并的文件，防止删除未参与合并的 SSTable
 	filesToDelete := task.MergedFiles
 	if filesToDelete == nil {
-		// 如果没有 MergedFiles 记录（不应该发生），退回使用 InputFiles 但会检查引用
 		filesToDelete = task.InputFiles
 	}
 
-	var lastErr error
 	for _, oldFile := range filesToDelete {
 		if !cm.ShardAccess.IsSSTUnused(oldFile) {
 			slog.Warn("sstable still in use, deferring cleanup", "path", oldFile)
 			continue
 		}
-		// 检查文件是否仍然存在，可能被其他 compaction 的 Commit 已删除
-		if _, err := os.Stat(oldFile); os.IsNotExist(err) {
-			continue
-		}
-		if err := os.Remove(oldFile); err != nil {
-			slog.Warn("failed to remove old sstable", "path", oldFile, "error", err)
-			lastErr = err
+		if err := retryDelete(oldFile); err != nil {
+			// 删除失败不阻塞 Commit：输出文件是有效的，旧文件残留可被后续 compaction 清理
+			slog.Warn("failed to remove old sstable after retries, deferring cleanup", "path", oldFile, "error", err)
 		}
 		// 清理关联的 tombstones 文件
 		tombstonePath := oldFile + ".tombstones"
@@ -206,9 +220,6 @@ func (cm *Manager) Commit(task *Task) error {
 	cm.lastCompact = time.Now()
 	cm.compactMu.Unlock()
 
-	if lastErr != nil {
-		return fmt.Errorf("remove old sstable files: %w", lastErr)
-	}
 	return nil
 }
 
