@@ -459,15 +459,6 @@ func TestShardManager_flushLocked_NotCalled(t *testing.T) {
 	_ = s.Close()
 }
 
-func newTestMgr(t *testing.T, dir string) *metadata.Manager {
-	t.Helper()
-	mgr, err := metadata.NewManager(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return mgr
-}
-
 // newTestShardManager 创建一个测试用的 ShardManager。
 func newTestShardManager(t *testing.T, dir string, shardDur time.Duration) *ShardManager {
 	t.Helper()

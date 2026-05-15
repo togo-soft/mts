@@ -920,13 +920,11 @@ func TestShard_Close_WithActiveCompaction(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
 		}
-		shardWrite(t, s, p)
-		if i%50 == 0 {
-			// Flush removed - shardWrite already writes to SSTable
+			shardWrite(t, s, p)
+			_ = i % 50 // flush removed: shardWrite writes to SSTable directly
 		}
-	}
 
-	// 关闭
+		// 关闭
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
