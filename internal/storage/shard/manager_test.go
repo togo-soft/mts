@@ -489,3 +489,30 @@ func writeAndCreateSSTable(t *testing.T, s *Shard, p *types.Point) {
 		t.Fatalf("WriteSSTable failed: %v", err)
 	}
 }
+
+func TestShardManager_GetShard_InvalidName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	m := newTestShardManager(t, dir, time.Hour)
+
+	_, err := m.GetShard("", "cpu", 1000)
+	if err == nil {
+		t.Error("expected error for empty db name")
+	}
+
+	_, err = m.GetShard("db1", "", 1000)
+	if err == nil {
+		t.Error("expected error for empty measurement name")
+	}
+}
+
+func TestShardManager_Compact_NotFound(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	m := newTestShardManager(t, dir, time.Hour)
+
+	// Compact for non-existent shard should not error
+	if err := m.Compact("db1", "cpu", 1000); err != nil {
+		t.Errorf("Compact for non-existent shard should not error: %v", err)
+	}
+}
