@@ -21,3 +21,4 @@ query_1m
 check_fields
 check_schema
 .worktrees
+*.test

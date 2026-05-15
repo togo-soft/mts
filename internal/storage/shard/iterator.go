@@ -117,7 +117,7 @@ func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, e
 			}
 			si.sstIter = sstIter
 			if sstIter.Next() {
-				si.sstRow = sstIter.Point()
+				si.sstRow = si.resolveTags(sstIter.Point())
 			}
 		}
 	}
@@ -229,9 +229,24 @@ func (si *ShardIterator) nextSstRowLocked() *types.PointRow {
 		return nil
 	}
 	if si.sstIter.Next() {
-		return si.sstIter.Point()
+		return si.resolveTags(si.sstIter.Point())
 	}
 	return nil
+}
+
+// resolveTags 为 SSTable 返回的 PointRow 填充 Tags 字段（通过 Sid 从 SeriesStore 查询）。
+func (si *ShardIterator) resolveTags(row *types.PointRow) *types.PointRow {
+	if row == nil {
+		return nil
+	}
+	if si.shard != nil && si.shard.seriesStore != nil {
+		tags, _ := si.shard.seriesStore.GetTags(si.shard.db, si.shard.measurement, row.Sid)
+		row.Tags = tags
+	} else if si.extSeriesStore != nil {
+		tags, _ := si.extSeriesStore.GetTags(si.db, si.measurement, row.Sid)
+		row.Tags = tags
+	}
+	return row
 }
 
 // Current 返回当前位置的数据点（不推进迭代器）。

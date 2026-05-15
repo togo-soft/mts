@@ -8,14 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 func TestShardManager_GetShard(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()), sstable.CompressionNone)
+	m := newTestShardManager(t, t.TempDir(), time.Hour)
 
 	start := time.Now().UnixNano()
 
@@ -30,7 +29,7 @@ func TestShardManager_GetShard(t *testing.T) {
 }
 
 func TestShardManager_GetShard_TimeWindow(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()), sstable.CompressionNone)
+	m := newTestShardManager(t, t.TempDir(), time.Hour)
 
 	// 1小时时间窗口
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano()
@@ -52,7 +51,7 @@ func TestShardManager_GetShard_TimeWindow(t *testing.T) {
 
 func TestShardManager_PersistAll(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 创建一个 shard，这会自动创建 MetaStore
 	_, err := m.GetShard("db1", "cpu", time.Now().UnixNano())
@@ -68,7 +67,7 @@ func TestShardManager_PersistAll(t *testing.T) {
 
 func TestShardManager_GetAllShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 初始应该为空
 	shards := m.GetAllShards()
@@ -88,7 +87,7 @@ func TestShardManager_GetAllShards(t *testing.T) {
 
 func TestShardManager_DeleteShard(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 创建一个 shard
 	base := time.Now().UnixNano()
@@ -115,7 +114,7 @@ func TestShardManager_DeleteShard(t *testing.T) {
 }
 
 func TestShardManager_DeleteShard_NotFound(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()), sstable.CompressionNone)
+	m := newTestShardManager(t, t.TempDir(), time.Hour)
 
 	// 删除不存在的 shard 应该成功
 	err := m.DeleteShard("nonexistent/key")
@@ -126,7 +125,7 @@ func TestShardManager_DeleteShard_NotFound(t *testing.T) {
 
 func TestShardManager_DeleteShard_WithData(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 创建一个 shard 并写入数据
 	base := time.Now().UnixNano()
@@ -143,10 +142,7 @@ func TestShardManager_DeleteShard_WithData(t *testing.T) {
 			"usage": types.NewFieldValue(float64(50.0)),
 		},
 	}
-	_ = s.Write(p)
-
-	// Flush 确保数据写入磁盘
-	_ = s.Flush()
+	writeAndCreateSSTable(t, s, p)
 
 	// 验证数据目录存在（s.Dir() 包含完整路径）
 	dataDir := s.Dir()
@@ -169,7 +165,7 @@ func TestShardManager_DeleteShard_WithData(t *testing.T) {
 
 func TestShardManager_GetAllShards_MultipleShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 创建多个 shard
 	_, _ = m.GetShard("db1", "cpu", time.Now().UnixNano())
@@ -184,7 +180,7 @@ func TestShardManager_GetAllShards_MultipleShards(t *testing.T) {
 }
 
 func TestRetentionService_NewRetentionService(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()), sstable.CompressionNone)
+	m := newTestShardManager(t, t.TempDir(), time.Hour)
 	retention := NewRetentionService(m, time.Hour, time.Minute)
 	if retention == nil {
 		t.Error("NewRetentionService should not return nil")
@@ -192,7 +188,7 @@ func TestRetentionService_NewRetentionService(t *testing.T) {
 }
 
 func TestRetentionService_StartStop(t *testing.T) {
-	m := NewShardManager(t.TempDir(), time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, t.TempDir()), sstable.CompressionNone)
+	m := newTestShardManager(t, t.TempDir(), time.Hour)
 	retention := NewRetentionService(m, time.Hour, time.Minute)
 
 	// Start
@@ -205,7 +201,7 @@ func TestRetentionService_StartStop(t *testing.T) {
 
 func TestRetentionService_Cleanup(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, 500*time.Millisecond, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, 500*time.Millisecond)
 
 	// 创建 shard
 	oldTime := time.Now().Add(-2 * time.Second).UnixNano()
@@ -225,7 +221,7 @@ func TestRetentionService_Cleanup(t *testing.T) {
 
 func TestRetentionService_Cleanup_NoExpiredShards(t *testing.T) {
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 创建 shard
 	_, _ = m.GetShard("db1", "cpu", time.Now().UnixNano())
@@ -251,7 +247,6 @@ func TestShard_DB_Measurement_Dir(t *testing.T) {
 		EndTime:     2000,
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	s := NewShard(cfg)
@@ -271,7 +266,7 @@ func TestSimpleSeriesStore_BasicAllocate(t *testing.T) {
 	m := metadata.NewSimpleSeriesStore()
 	tags := map[string]string{"host": "server1", "region": "us"}
 
-	sid, err := m.AllocateSID(tags)
+	sid, err := m.AllocateSID("", "", tags)
 	if err != nil {
 		t.Fatal("AllocateSID failed:", err)
 	}
@@ -280,7 +275,7 @@ func TestSimpleSeriesStore_BasicAllocate(t *testing.T) {
 	}
 
 	// 再次分配相同 tags 应返回相同 SID
-	sid2, err := m.AllocateSID(tags)
+	sid2, err := m.AllocateSID("", "", tags)
 	if err != nil {
 		t.Fatal("second AllocateSID failed:", err)
 	}
@@ -293,8 +288,8 @@ func TestSimpleSeriesStore_GetTags(t *testing.T) {
 	m := metadata.NewSimpleSeriesStore()
 	tags := map[string]string{"host": "server1", "region": "us"}
 
-	sid, _ := m.AllocateSID(tags)
-	got, ok := m.GetTagsBySID(sid)
+	sid, _ := m.AllocateSID("", "", tags)
+	got, ok := m.GetTags("", "", sid)
 	if !ok {
 		t.Fatal("GetTagsBySID returned false")
 	}
@@ -309,7 +304,7 @@ func TestSimpleSeriesStore_GetTags(t *testing.T) {
 func TestSimpleSeriesStore_GetTagsNotFound(t *testing.T) {
 	m := metadata.NewSimpleSeriesStore()
 
-	_, ok := m.GetTagsBySID(999)
+	_, ok := m.GetTags("", "", 999)
 	if ok {
 		t.Error("expected false for nonexistent SID")
 	}
@@ -318,7 +313,7 @@ func TestSimpleSeriesStore_GetTagsNotFound(t *testing.T) {
 func TestShardManager_GetShard_DiscoverExisting(t *testing.T) {
 	// 测试发现已存在的 shard 目录
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 手动创建一个 shard 目录结构
 	shardDir := filepath.Join(tmpDir, "db1", "cpu", "0_3600000000000")
@@ -343,7 +338,7 @@ func TestShardManager_GetShard_DiscoverExisting(t *testing.T) {
 func TestShardManager_GetShard_DiscoverMultipleExisting(t *testing.T) {
 	// 测试发现多个已存在的 shard
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 手动创建多个 shard 目录结构
 	baseTime := int64(3600000000000) // 1 hour in ns
@@ -369,7 +364,7 @@ func TestShardManager_GetShard_DiscoverMultipleExisting(t *testing.T) {
 func TestShardManager_GetShard_InvalidDirectory(t *testing.T) {
 	// 测试处理无效目录名
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 手动创建包含无效目录名的目录结构
 	measDir := filepath.Join(tmpDir, "db1", "cpu")
@@ -393,7 +388,7 @@ func TestShardManager_GetShard_InvalidDirectory(t *testing.T) {
 func TestShardManager_DeleteShard_CleanupMetaStore(t *testing.T) {
 	// 测试删除 shard 后 MetaStore 是否被清理
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	// 创建一个 shard
 	base := time.Now().UnixNano()
@@ -407,8 +402,7 @@ func TestShardManager_DeleteShard_CleanupMetaStore(t *testing.T) {
 		Timestamp:   s.StartTime() + 1000,
 		Fields:      map[string]*types.FieldValue{"value": types.NewFieldValue(int64(1))},
 	}
-	_ = s.Write(p)
-	_ = s.Flush()
+	writeAndCreateSSTable(t, s, p)
 
 	// 获取所有 shards
 	shards := m.GetAllShards()
@@ -433,7 +427,7 @@ func TestShardManager_DeleteShard_CleanupMetaStore(t *testing.T) {
 func TestShardManager_GetShard_SameMeasurementDifferentDB(t *testing.T) {
 	// 测试同一 measurement 不同 database
 	tmpDir := t.TempDir()
-	m := NewShardManager(tmpDir, time.Hour, memtable.DefaultMemTableConfig(), nil, newTestMgr(t, tmpDir), sstable.CompressionNone)
+	m := newTestShardManager(t, tmpDir, time.Hour)
 
 	s1, _ := m.GetShard("db1", "cpu", time.Now().UnixNano())
 	s2, _ := m.GetShard("db2", "cpu", time.Now().UnixNano())
@@ -459,7 +453,6 @@ func TestShardManager_flushLocked_NotCalled(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 正常关闭
@@ -473,4 +466,35 @@ func newTestMgr(t *testing.T, dir string) *metadata.Manager {
 		t.Fatal(err)
 	}
 	return mgr
+}
+
+// newTestShardManager 创建一个测试用的 ShardManager。
+func newTestShardManager(t *testing.T, dir string, shardDur time.Duration) *ShardManager {
+	t.Helper()
+	mgr, err := metadata.NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Load(); err != nil {
+		t.Fatal(err)
+	}
+	return NewShardManager(
+		dir,
+		shardDur,
+		nil, // compactionCfg
+		sstable.CompressionNone,
+		mgr.Catalog(),
+		mgr.Series(),
+		mgr.Shards(),
+	)
+}
+
+// writeAndCreateSSTable 将 points 写入 Shard 并创建 SSTable（替代已删除的 Write+Flush）。
+func writeAndCreateSSTable(t *testing.T, s *Shard, p *types.Point) {
+	t.Helper()
+	mp := types.PointToMemPoint(p, 1)
+	_, _, _, _, err := s.WriteSSTable([]types.MemPoint{mp})
+	if err != nil {
+		t.Fatalf("WriteSSTable failed: %v", err)
+	}
 }

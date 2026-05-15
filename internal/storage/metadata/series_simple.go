@@ -105,7 +105,7 @@ func unmarshalTags(data []byte) (map[string]string, error) {
 }
 
 // SimpleSeriesStore 是纯内存的 Series 存储，供外部测试使用。
-// 实现 shard.SeriesStore 接口（AllocateSID + GetTagsBySID）。
+// 实现 shard.SeriesStore 接口（AllocateSID + GetTags）。
 type SimpleSeriesStore struct {
 	mu      sync.RWMutex
 	series  map[uint64]map[string]string
@@ -124,7 +124,7 @@ func NewSimpleSeriesStore() *SimpleSeriesStore {
 }
 
 // AllocateSID 分配或查找 SID。
-func (s *SimpleSeriesStore) AllocateSID(tags map[string]string) (uint64, error) {
+func (s *SimpleSeriesStore) AllocateSID(database, measurement string, tags map[string]string) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -149,8 +149,8 @@ func (s *SimpleSeriesStore) AllocateSID(tags map[string]string) (uint64, error) 
 	return sid, nil
 }
 
-// GetTagsBySID 根据 SID 获取 tags。
-func (s *SimpleSeriesStore) GetTagsBySID(sid uint64) (map[string]string, bool) {
+// GetTags 根据 SID 获取 tags。
+func (s *SimpleSeriesStore) GetTags(database, measurement string, sid uint64) (map[string]string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	tags, ok := s.series[sid]

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 )
 
@@ -23,7 +22,6 @@ func TestLevelCompactionManager_NewLevelManager(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -51,7 +49,6 @@ func TestLevelCompactionManager_ShouldCompact_Empty(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -76,7 +73,6 @@ func TestLevelCompactionManager_Recover_NoCheckpoint(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -101,7 +97,6 @@ func TestLevelCompactionManager_LevelMaxSize(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -132,7 +127,6 @@ func TestLevelCompactionManager_SelectPartsForMerge(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -172,7 +166,6 @@ func TestLevelCompactionManager_Compact_NoParts(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -205,7 +198,6 @@ func TestLevelCompactionManager_Compact_LessThanTwoParts(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -247,7 +239,6 @@ func TestLevelCompactionManager_CollectOverlapParts(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -286,7 +277,6 @@ func TestLevelCompactionManager_StartStop(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -348,7 +338,6 @@ func TestLevelCompactionManager_LevelMaxSize_Extended(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -380,7 +369,6 @@ func TestLevelCompactionManager_ShouldCompactLevel_WithParts(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -414,7 +402,6 @@ func TestLevelCompactionManager_DoPeriodicCompaction(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -477,7 +464,6 @@ func TestLevelCompactionManager_Recover_WithCheckpoint(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -531,7 +517,6 @@ func TestLevelCompactionManager_Recover_WithIncompleteOutput(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -561,7 +546,6 @@ func TestLevelCompactionManager_NextSeq(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -591,7 +575,6 @@ func TestLevelCompactionManager_SaveManifest(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -623,7 +606,6 @@ func TestLevelCompactionManager_Config(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)

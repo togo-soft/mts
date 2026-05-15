@@ -4,8 +4,8 @@
 //
 // 测试流程：
 //  1. 使用 Level Compaction 配置创建 Shard（L0 MaxParts=4）
-//  2. 写入多批带重叠时间范围的数据（7 次 Flush 产生 7 个 L0 SSTable）
-//  3. 等待后台 Compaction 自动触发（第 4 次 Flush 满足 ShouldCompact 条件）
+//  2. 写入多批带重叠时间范围的数据（7 个 SSTable）
+//  3. 等待后台 Compaction 自动触发
 //  4. 验证 Compaction 后 L1 有合并后的文件
 //  5. 查询验证数据完整性
 package main
@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
@@ -39,6 +38,23 @@ func countBinFiles(dir string) int {
 	return n
 }
 
+func writePointsToSSTable(s *shard.Shard, points []*types.Point, sid uint64) error {
+	memPoints := make([]types.MemPoint, len(points))
+	for i, p := range points {
+		memPoints[i] = types.PointToMemPoint(p, sid)
+	}
+	sstPath, sstSeq, minTime, maxTime, err := s.WriteSSTable(memPoints)
+	if err != nil {
+		return fmt.Errorf("WriteSSTable: %w", err)
+	}
+	fi, err := os.Stat(sstPath)
+	if err != nil {
+		return fmt.Errorf("stat sst: %w", err)
+	}
+	s.RegisterSSTable(sstSeq, minTime, maxTime, fi.Size())
+	return nil
+}
+
 func main() {
 	tmpDir, err := os.MkdirTemp("", "mts_write_compact_*")
 	if err != nil {
@@ -54,7 +70,7 @@ func main() {
 		Fields:  []metadata.FieldDef{{Name: "value", Type: 1}}, // float64
 	})
 
-	cfg := shard.ShardConfig{
+	s := shard.NewShard(shard.ShardConfig{
 		DB:          "testdb",
 		Measurement: "cpu",
 		StartTime:   0,
@@ -62,11 +78,6 @@ func main() {
 		Dir:         tmpDir,
 		SeriesStore: seriesStore,
 		SchemaStore: schemaStore,
-		MemTableCfg: &memtable.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024, // 足够大，避免因大小触发 Flush
-			MaxCount:          100,              // 足够大，避免因条数触发 Flush
-			IdleDurationNanos: int64(10 * time.Second),
-		},
 		LevelCompactionCfg: &compaction.LevelConfig{
 			Enabled: true,
 			LevelConfigs: []compaction.LevelSpec{
@@ -80,46 +91,45 @@ func main() {
 			CheckInterval:       1 * time.Hour, // 禁用定时检查，仅依赖 Flush 触发
 			Timeout:             30 * time.Second,
 		},
-	}
-
-	s := shard.NewShard(cfg)
+	})
 	fmt.Println("Shard created with Level Compaction (L0 MaxParts=4)")
 
 	baseTime := time.Now().UnixNano()
-	numFlushes := 7
-	pointsPerFlush := 5
+	numBatches := 7
+	pointsPerBatch := 5
 
-	totalPoints := numFlushes * pointsPerFlush
-	fmt.Printf("\nWriting %d batches x %d points each with overlapping time ranges...\n", numFlushes, pointsPerFlush)
+	totalPoints := numBatches * pointsPerBatch
+	fmt.Printf("\nWriting %d batches x %d points each with overlapping time ranges...\n", numBatches, pointsPerBatch)
 	writeTimer := metrics.NewWriteSummary(totalPoints)
-	for flush := 0; flush < numFlushes; flush++ {
-		for i := 0; i < pointsPerFlush; i++ {
+	for batch := 0; batch < numBatches; batch++ {
+		sid := uint64(batch)
+		points := make([]*types.Point, pointsPerBatch)
+		for i := 0; i < pointsPerBatch; i++ {
 			ts := baseTime + int64(i)*int64(time.Millisecond)
-			p := &types.Point{
+			points[i] = &types.Point{
 				Database:    "testdb",
 				Measurement: "cpu",
-				Tags:        map[string]string{"host": fmt.Sprintf("batch%d", flush)},
+				Tags:        map[string]string{"host": fmt.Sprintf("batch%d", batch)},
 				Timestamp:   ts,
 				Fields: map[string]*types.FieldValue{
-					"value": types.NewFieldValue(float64(flush*100 + i)),
+					"value": types.NewFieldValue(float64(batch*100 + i)),
 				},
-			}
-			if err := s.Write(p); err != nil {
-				fmt.Printf("FAIL: write point at batch %d, index %d: %v\n", flush, i, err)
-				_ = s.Close()
-				os.Exit(1)
 			}
 		}
 
-		if err := s.Flush(); err != nil {
-			fmt.Printf("FAIL: flush batch %d: %v\n", flush, err)
+		if err := writePointsToSSTable(s, points, sid); err != nil {
+			fmt.Printf("FAIL: write batch %d: %v\n", batch, err)
 			_ = s.Close()
 			os.Exit(1)
 		}
-		fmt.Printf("  Flush %d complete\n", flush+1)
+		fmt.Printf("  Batch %d complete\n", batch+1)
 	}
 	writeTimer.Finish()
 	fmt.Printf("%s\n", writeTimer.Format())
+
+	// 主动触发 Compaction
+	fmt.Println("Triggering compaction...")
+	s.TriggerCompaction()
 
 	l0Dir := filepath.Join(tmpDir, "data", "L0")
 	l1Dir := filepath.Join(tmpDir, "data", "L1")
@@ -128,7 +138,6 @@ func main() {
 	fmt.Printf("\nBefore compaction wait: L0 has %d .bin files\n", l0Before)
 
 	// 等待后台 Compaction 完成
-	// 第 4 次 Flush 触发 ShouldCompact（4 parts >= MaxParts=4），后台 goroutine 开始合并
 	fmt.Println("Waiting for background compaction to complete...")
 
 	// 轮询等待 Compaction 完成（最多等 10 秒）
@@ -153,14 +162,14 @@ func main() {
 	// 验证 Compaction 已将数据合并到 L1
 	if l1After == 0 {
 		fmt.Println("\nWARNING: No files in L1, compaction may not have completed")
-		fmt.Println("This could be a timing issue — compaction still in progress")
+		fmt.Println("This could be a timing issue -- compaction still in progress")
 	} else {
 		fmt.Println("PASS: Compaction merged files to L1")
 	}
 
 	// 查询验证数据完整性
 	fmt.Println("\nQuerying to verify data integrity...")
-	iter := shard.NewShardIterator(s, baseTime, baseTime+int64(pointsPerFlush)*int64(time.Millisecond), 0)
+	iter := shard.NewShardIterator(s, baseTime, baseTime+int64(pointsPerBatch)*int64(time.Millisecond), 0)
 	var rows []*types.PointRow
 	for row := iter.Next(); row != nil; row = iter.Next() {
 		rows = append(rows, row)
@@ -175,10 +184,10 @@ func main() {
 	// 统计唯一的 timestamp+SID 组合
 	seen := make(map[string]bool)
 	for _, row := range rows {
-		// each flush creates a unique tag "batchN" → unique SID
+		// each batch creates a unique tag "batchN" → unique SID
 		seen[fmt.Sprintf("%d-%d", row.Timestamp, row.Sid)] = true
 	}
-	expectedUnique := numFlushes * pointsPerFlush
+	expectedUnique := numBatches * pointsPerBatch
 	fmt.Printf("  Query returned %d rows, %d unique (timestamp,sid) pairs\n", len(rows), len(seen))
 	fmt.Printf("  Expected unique: %d\n", expectedUnique)
 

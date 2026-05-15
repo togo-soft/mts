@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
@@ -80,7 +79,6 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -169,7 +167,6 @@ func TestLevelCompactionE2E_L1ToL2(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -244,7 +241,6 @@ func TestLevelCompactionE2E_CheckpointRecovery(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -309,7 +305,6 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -393,7 +388,6 @@ func TestLevelCompactionE2E_SelectPartsForMerge(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -443,7 +437,6 @@ func TestLevelCompactionE2E_HasOverlap(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -497,7 +490,6 @@ func TestLevelCompactionE2E_PeriodicCompaction(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -538,7 +530,6 @@ func TestLevelCompactionE2E_EmptyManifest(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)
@@ -580,7 +571,6 @@ func TestLevelCompactionE2E_MultipleLevels(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	}
 
 	shard := NewShard(cfg)

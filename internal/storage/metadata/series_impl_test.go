@@ -396,7 +396,7 @@ func TestSeriesStore_HelperFunctions(t *testing.T) {
 func TestSimpleSeriesStore_AllocateSID_New(t *testing.T) {
 	s := NewSimpleSeriesStore()
 
-	sid, err := s.AllocateSID(map[string]string{"host": "s1"})
+	sid, err := s.AllocateSID("", "", map[string]string{"host": "s1"})
 	if err != nil {
 		t.Fatal("AllocateSID failed:", err)
 	}
@@ -408,8 +408,8 @@ func TestSimpleSeriesStore_AllocateSID_New(t *testing.T) {
 func TestSimpleSeriesStore_AllocateSID_SameTags(t *testing.T) {
 	s := NewSimpleSeriesStore()
 
-	sid1, _ := s.AllocateSID(map[string]string{"host": "s1", "region": "us"})
-	sid2, err := s.AllocateSID(map[string]string{"host": "s1", "region": "us"})
+	sid1, _ := s.AllocateSID("", "", map[string]string{"host": "s1", "region": "us"})
+	sid2, err := s.AllocateSID("", "", map[string]string{"host": "s1", "region": "us"})
 	if err != nil {
 		t.Fatal("AllocateSID failed:", err)
 	}
@@ -421,8 +421,8 @@ func TestSimpleSeriesStore_AllocateSID_SameTags(t *testing.T) {
 func TestSimpleSeriesStore_GetTagsBySID(t *testing.T) {
 	s := NewSimpleSeriesStore()
 
-	sid, _ := s.AllocateSID(map[string]string{"host": "s1", "region": "us"})
-	tags, ok := s.GetTagsBySID(sid)
+	sid, _ := s.AllocateSID("", "", map[string]string{"host": "s1", "region": "us"})
+	tags, ok := s.GetTags("", "", sid)
 	if !ok {
 		t.Fatal("GetTagsBySID returned false")
 	}
@@ -434,7 +434,7 @@ func TestSimpleSeriesStore_GetTagsBySID(t *testing.T) {
 func TestSimpleSeriesStore_GetTagsBySID_NotFound(t *testing.T) {
 	s := NewSimpleSeriesStore()
 
-	_, ok := s.GetTagsBySID(999)
+	_, ok := s.GetTags("", "", 999)
 	if ok {
 		t.Error("expected false for nonexistent SID")
 	}
@@ -443,13 +443,13 @@ func TestSimpleSeriesStore_GetTagsBySID_NotFound(t *testing.T) {
 func TestSimpleSeriesStore_MultipleSIDs(t *testing.T) {
 	s := NewSimpleSeriesStore()
 
-	sid1, _ := s.AllocateSID(map[string]string{"host": "a"})
-	sid2, _ := s.AllocateSID(map[string]string{"host": "b"})
-	sid3, _ := s.AllocateSID(map[string]string{"host": "c"})
+	sid1, _ := s.AllocateSID("", "", map[string]string{"host": "a"})
+	sid2, _ := s.AllocateSID("", "", map[string]string{"host": "b"})
+	sid3, _ := s.AllocateSID("", "", map[string]string{"host": "c"})
 
-	tags1, _ := s.GetTagsBySID(sid1)
-	tags2, _ := s.GetTagsBySID(sid2)
-	tags3, _ := s.GetTagsBySID(sid3)
+	tags1, _ := s.GetTags("", "", sid1)
+	tags2, _ := s.GetTags("", "", sid2)
+	tags3, _ := s.GetTags("", "", sid3)
 
 	if tags1["host"] != "a" || tags2["host"] != "b" || tags3["host"] != "c" {
 		t.Error("tags mismatch for multiple SIDs")
@@ -459,11 +459,11 @@ func TestSimpleSeriesStore_MultipleSIDs(t *testing.T) {
 func TestSimpleSeriesStore_CopyIsolation(t *testing.T) {
 	s := NewSimpleSeriesStore()
 
-	sid, _ := s.AllocateSID(map[string]string{"host": "s1"})
-	tags, _ := s.GetTagsBySID(sid)
+	sid, _ := s.AllocateSID("", "", map[string]string{"host": "s1"})
+	tags, _ := s.GetTags("", "", sid)
 	tags["host"] = "modified"
 
-	tags2, _ := s.GetTagsBySID(sid)
+	tags2, _ := s.GetTags("", "", sid)
 	if tags2["host"] != "s1" {
 		t.Error("GetTagsBySID should return a copy")
 	}

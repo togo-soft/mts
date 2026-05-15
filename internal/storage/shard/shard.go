@@ -208,6 +208,19 @@ func calcTimeRange(points []types.MemPoint) (int64, int64) {
 // 用于 ShardManager flush 后注册 SSTable。
 func (s *Shard) RegisterSSTable(sstSeq uint64, minTime, maxTime int64, size int64) {
 	if s.levelCompaction != nil {
+		// 将 SSTable 从 data/ 移动到 data/L0/，使 compaction 能通过 level 路径找到它
+		sstName := fmt.Sprintf("sst_%d.bin", sstSeq)
+		srcPath := filepath.Join(s.dir, "data", sstName)
+		dstDir := filepath.Join(s.dir, "data", "L0")
+		dstPath := filepath.Join(dstDir, sstName)
+		if srcPath != dstPath {
+			if mkErr := os.MkdirAll(dstDir, 0700); mkErr == nil {
+				if _, err := os.Stat(srcPath); err == nil {
+					_ = os.Rename(srcPath, dstPath)
+				}
+			}
+		}
+
 		s.levelCompaction.AddPart(0, compaction.PartInfo{
 			Name:    fmt.Sprintf("sst_%d", sstSeq),
 			Size:    size,

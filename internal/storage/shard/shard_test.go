@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -36,7 +35,7 @@ func TestShard_TimeRange(t *testing.T) {
 		EndTime:     end,
 		Dir:         t.TempDir(),
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	if s.StartTime() != start {
@@ -58,7 +57,7 @@ func TestShard_ContainsTime(t *testing.T) {
 		EndTime:     end,
 		Dir:         t.TempDir(),
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	if !s.ContainsTime(start) {
@@ -83,7 +82,7 @@ func TestShard_Duration(t *testing.T) {
 		EndTime:     end,
 		Dir:         t.TempDir(),
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	if s.Duration() != time.Hour {
@@ -103,7 +102,6 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据到 MemTable
@@ -113,17 +111,11 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		err := s.Write(p)
-		if err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	// Flush 到 SSTable
-	err := s.Flush()
-	if err != nil {
-		t.Fatalf("Flush failed: %v", err)
-	}
+	// Flush removed - shardWrite already writes to SSTable
 
 	// 再写入一些数据到 MemTable
 	for i := 10; i < 20; i++ {
@@ -132,10 +124,7 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		err := s.Write(p)
-		if err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	// Read 应该合并 MemTable 和 SSTable
@@ -155,47 +144,7 @@ func TestShard_Read_MergesMemTableAndSSTable(t *testing.T) {
 
 // TestShard_WriteWithWAL 测试 WAL 集成
 func TestShard_WriteWithWAL(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	s := NewShard(ShardConfig{
-		DB:          "db1",
-		Measurement: "cpu",
-		StartTime:   0,
-		EndTime:     time.Hour.Nanoseconds(),
-		Dir:         tmpDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
-	})
-
-	p := &types.Point{
-		Timestamp: 1000000000,
-		Tags:      map[string]string{"host": "server1"},
-		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(85.5))},
-	}
-	if err := s.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-
-	// Sync WAL 确保数据刷到 segment 文件（Close 会 Purge 删除 segment）
-	if err := s.wal.Sync(); err != nil {
-		t.Fatalf("WAL sync failed: %v", err)
-	}
-
-	// 直接从 Shard 的 WAL 验证写入
-	var points []types.InternalPoint
-	_ = s.wal.Replay(func(data []byte) error {
-		ip, err := deserializeInternalPoint(data)
-		if err != nil {
-			return nil
-		}
-		points = append(points, ip)
-		return nil
-	})
-	if len(points) != 1 {
-		t.Errorf("expected 1 point in WAL, got %d", len(points))
-	}
-
-	_ = s.Close()
+	t.Skip("Shard no longer has Write/WAL methods - WAL is managed by Writer")
 }
 
 func TestShard_Write_DifferentTags(t *testing.T) {
@@ -208,7 +157,7 @@ func TestShard_Write_DifferentTags(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入不同 tags 的 points 以测试 SID 分配
@@ -218,9 +167,7 @@ func TestShard_Write_DifferentTags(t *testing.T) {
 			Tags:      map[string]string{"host": "server1", "region": "us-east"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	_ = s.Close()
@@ -236,7 +183,7 @@ func TestShard_Write_IntAndStringFields(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	p := &types.Point{
@@ -248,9 +195,7 @@ func TestShard_Write_IntAndStringFields(t *testing.T) {
 			"string_field": types.NewFieldValue("hello"),
 		},
 	}
-	if err := s.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
+	shardWrite(t, s, p)
 
 	_ = s.Close()
 }
@@ -268,7 +213,6 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	for i := 0; i < 5; i++ {
@@ -277,11 +221,9 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := s1.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s1, p)
 	}
-	_ = s1.Flush()
+	// Flush removed - shardWrite already writes to SSTable
 	_ = s1.Close()
 
 	// Second shard - open same directory, should read from SSTable
@@ -293,7 +235,6 @@ func TestShard_Read_AfterCloseAndReopen(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: s1.seriesStore,
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	iter := NewShardIterator(s2, 0, 5*1e9, 0)
@@ -324,7 +265,6 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Write some data but don't flush
@@ -334,9 +274,7 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	// Close should flush remaining data
@@ -357,7 +295,6 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	iter := NewShardIterator(s2, 0, 3*1e9, 0)
@@ -375,24 +312,7 @@ func TestShard_Close_FlushesMemTable(t *testing.T) {
 }
 
 func TestShard_Flush_NoData(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	s := NewShard(ShardConfig{
-		DB:          "db1",
-		Measurement: "cpu",
-		StartTime:   0,
-		EndTime:     time.Hour.Nanoseconds(),
-		Dir:         tmpDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
-	})
-
-	// Flush with no data should not fail
-	if err := s.Flush(); err != nil {
-		t.Fatalf("Flush with no data failed: %v", err)
-	}
-
-	_ = s.Close()
+	t.Skip("Shard no longer has Flush method")
 }
 
 func TestShard_Read_OutOfRange(t *testing.T) {
@@ -405,7 +325,7 @@ func TestShard_Read_OutOfRange(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// Write some data
@@ -414,9 +334,7 @@ func TestShard_Read_OutOfRange(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(50))},
 	}
-	if err := s.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
+	shardWrite(t, s, p)
 
 	// Read with range that doesn't include the data
 	iter := NewShardIterator(s, 0, 1*1e9, 0)
@@ -443,7 +361,7 @@ func TestShard_DataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	dataDir := s.DataDir()
@@ -469,7 +387,6 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// Write data
@@ -478,10 +395,8 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(50))},
 	}
-	if err := s1.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-	_ = s1.Flush()
+	shardWrite(t, s1, p)
+	// Flush removed - shardWrite already writes to SSTable
 	_ = s1.Close()
 
 	// Second shard with same MetaStore
@@ -493,7 +408,6 @@ func TestShard_ReopenWithMetaStore(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metaStore,
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	iter := NewShardIterator(s2, 0, 2*1e9, 0)
@@ -520,7 +434,7 @@ func TestShard_Close_WithPendingData(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// Write more data to trigger internal flush
@@ -530,9 +444,7 @@ func TestShard_Close_WithPendingData(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	if err := s.Close(); err != nil {
@@ -550,7 +462,7 @@ func TestShard_MultipleFlush(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// Multiple flushes
@@ -561,13 +473,9 @@ func TestShard_MultipleFlush(t *testing.T) {
 				Tags:      map[string]string{"host": "server1"},
 				Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
 			}
-			if err := s.Write(p); err != nil {
-				t.Fatalf("Write failed: %v", err)
-			}
+			shardWrite(t, s, p)
 		}
-		if err := s.Flush(); err != nil {
-			t.Fatalf("Flush %d failed: %v", j, err)
-		}
+		// Flush removed - shardWrite already writes to SSTable
 	}
 
 	if err := s.Close(); err != nil {
@@ -585,7 +493,7 @@ func TestShard_DeleteDataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// Write and flush
@@ -594,10 +502,8 @@ func TestShard_DeleteDataDir(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(50))},
 	}
-	if err := s.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-	_ = s.Flush()
+	shardWrite(t, s, p)
+	// Flush removed - shardWrite already writes to SSTable
 
 	dataDir := s.DataDir()
 	_ = s.Close()
@@ -613,7 +519,7 @@ func TestShard_DeleteDataDir(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	iter := NewShardIterator(s2, 0, 2*1e9, 0)
@@ -641,8 +547,8 @@ func TestShard_Write_WALDisabled(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 		// 默认 WALEnabled = false
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入数据 - 即使 WAL 被禁用也应该正常工作
@@ -651,9 +557,7 @@ func TestShard_Write_WALDisabled(t *testing.T) {
 		Tags:      map[string]string{"host": "server1"},
 		Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(85.5))},
 	}
-	if err := s.Write(p); err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
+	shardWrite(t, s, p)
 
 	// 读取验证
 	iter := NewShardIterator(s, 0, 2000000000, 0)
@@ -680,7 +584,7 @@ func TestShard_Close_NoData(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 不写入任何数据，直接关闭
@@ -702,7 +606,6 @@ func TestShard_Flush_AfterWrite(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 写入数据
@@ -712,15 +615,11 @@ func TestShard_Flush_AfterWrite(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	// Flush
-	if err := s.Flush(); err != nil {
-		t.Fatalf("Flush failed: %v", err)
-	}
+	// Flush removed - shardWrite already writes to SSTable
 
 	// 再次写入并 flush
 	for i := 5; i < 10; i++ {
@@ -729,14 +628,10 @@ func TestShard_Flush_AfterWrite(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
-	if err := s.Flush(); err != nil {
-		t.Fatalf("Flush 2 failed: %v", err)
-	}
+	// Flush removed - shardWrite already writes to SSTable
 
 	// 读取验证
 	iter := NewShardIterator(s, 0, 10*1e9, 0)
@@ -763,7 +658,7 @@ func TestShard_Read_TimeRange(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入 5 个时间点的数据
@@ -773,9 +668,7 @@ func TestShard_Read_TimeRange(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"usage": types.NewFieldValue(float64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	// 读取 [1e9, 4e9) 范围的数据
@@ -809,7 +702,7 @@ func TestShard_ConcurrentWrite(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	const goroutines = 10
@@ -827,9 +720,7 @@ func TestShard_ConcurrentWrite(t *testing.T) {
 					Tags:      map[string]string{"host": fmt.Sprintf("server%d", goroutineID)},
 					Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
 				}
-				if err := s.Write(p); err != nil {
-					t.Errorf("Write failed: %v", err)
-				}
+				shardWrite(t, s, p)
 			}
 		}(g)
 	}
@@ -863,7 +754,7 @@ func TestShard_ConcurrentReadWrite(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 先写入一些数据
@@ -873,9 +764,7 @@ func TestShard_ConcurrentReadWrite(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	// 并发读写
@@ -909,9 +798,7 @@ func TestShard_ConcurrentReadWrite(t *testing.T) {
 					Tags:      map[string]string{"host": "server1"},
 					Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(j))},
 				}
-				if err := s.Write(p); err != nil {
-					t.Errorf("Write failed: %v", err)
-				}
+				shardWrite(t, s, p)
 			}
 		}(i)
 	}
@@ -934,7 +821,6 @@ func TestShard_Write_MultipleFlush(t *testing.T) {
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: schemaStore,
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 	})
 
 	// 多次写入并 flush
@@ -945,13 +831,9 @@ func TestShard_Write_MultipleFlush(t *testing.T) {
 				Tags:      map[string]string{"host": "server1"},
 				Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(round*100 + i))},
 			}
-			if err := s.Write(p); err != nil {
-				t.Fatalf("Write failed: %v", err)
-			}
+			shardWrite(t, s, p)
 		}
-		if err := s.Flush(); err != nil {
-			t.Fatalf("Flush %d failed: %v", round, err)
-		}
+		// Flush removed - shardWrite already writes to SSTable
 	}
 
 	// 读取所有数据
@@ -980,13 +862,11 @@ func TestShard_Flush_EmptyMemTable(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 不写入任何数据，直接 flush
-	if err := s.Flush(); err != nil {
-		t.Fatalf("Flush empty MemTable failed: %v", err)
-	}
+	// Flush removed - shardWrite already writes to SSTable
 
 	// 再写入一些数据验证仍能正常工作
 	for i := 0; i < 5; i++ {
@@ -995,9 +875,7 @@ func TestShard_Flush_EmptyMemTable(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 	}
 
 	iter := NewShardIterator(s, 0, math.MaxInt64, 0)
@@ -1025,12 +903,12 @@ func TestShard_Close_WithActiveCompaction(t *testing.T) {
 		EndTime:     time.Hour.Nanoseconds(),
 		Dir:         tmpDir,
 		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
 		CompactionCfg: &compaction.Config{
 			MaxSstableCount:    2,
 			CheckIntervalNanos: int64(10 * time.Millisecond), // 快速触发
 			TimeoutNanos:       int64(30 * time.Second),
 		},
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	}
 
 	s := NewShard(cfg)
@@ -1042,11 +920,9 @@ func TestShard_Close_WithActiveCompaction(t *testing.T) {
 			Tags:      map[string]string{"host": "server1"},
 			Fields:    map[string]*types.FieldValue{"value": types.NewFieldValue(int64(i))},
 		}
-		if err := s.Write(p); err != nil {
-			t.Fatalf("Write failed: %v", err)
-		}
+		shardWrite(t, s, p)
 		if i%50 == 0 {
-			_ = s.Flush()
+			// Flush removed - shardWrite already writes to SSTable
 		}
 	}
 

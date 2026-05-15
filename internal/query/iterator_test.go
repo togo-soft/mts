@@ -5,11 +5,27 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
 )
+
+// writePointsToShard 将 Point 列表写入 Shard 的 SSTable（替代已删除的 Shard.Write）。
+func writePointsToShard(t testing.TB, s *shard.Shard, ss shard.SeriesStore, db, meas string, points []*types.Point) {
+	t.Helper()
+	memPoints := make([]types.MemPoint, len(points))
+	for i, p := range points {
+		sid, err := ss.AllocateSID(db, meas, p.Tags)
+		if err != nil {
+			t.Fatalf("AllocateSID failed: %v", err)
+		}
+		memPoints[i] = types.PointToMemPoint(p, sid)
+	}
+	_, _, _, _, err := s.WriteSSTable(memPoints)
+	if err != nil {
+		t.Fatalf("WriteSSTable failed: %v", err)
+	}
+}
 
 func TestIterator_EmptyShardList(t *testing.T) {
 	ctx := t.Context()
@@ -35,27 +51,24 @@ func TestIterator_SingleShardBasic(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
+	seriesStore := metadata.NewSimpleSeriesStore()
 	s := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: seriesStore,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
-	// 写入 MemTable 数据
+	// 写入 SSTable 数据
 	points := []*types.Point{
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100)), "field2": types.NewFieldValue(float64(10.5))}},
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200)), "field2": types.NewFieldValue(float64(20.5))}},
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300)), "field2": types.NewFieldValue(float64(30.5))}},
 	}
-	for _, p := range points {
-		if err := s.Write(p); err != nil {
-			t.Fatalf("failed to write point: %v", err)
-		}
-	}
+	writePointsToShard(t, s, seriesStore, "db", "cpu", points)
 
 	ctx := t.Context()
 	req := &types.QueryRangeRequest{
@@ -95,23 +108,25 @@ func TestIterator_MultiShardMergeSort(t *testing.T) {
 		t.Fatalf("failed to create shard1 dir: %v", err)
 	}
 
+	s0series := metadata.NewSimpleSeriesStore()
 	s0 := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir0,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: s0series,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
+	s1series := metadata.NewSimpleSeriesStore()
 	s1 := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   3600 * 1e9,
 		EndTime:     7200 * 1e9,
 		Dir:         shardDir1,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: s1series,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// Shard0: 1000, 3000
@@ -119,22 +134,14 @@ func TestIterator_MultiShardMergeSort(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
 	}
-	for _, p := range points0 {
-		if err := s0.Write(p); err != nil {
-			t.Fatalf("failed to write point to shard0: %v", err)
-		}
-	}
+	writePointsToShard(t, s0, s0series, "db", "cpu", points0)
 
 	// Shard1: 4000, 5000
 	points1 := []*types.Point{
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
 	}
-	for _, p := range points1 {
-		if err := s1.Write(p); err != nil {
-			t.Fatalf("failed to write point to shard1: %v", err)
-		}
-	}
+	writePointsToShard(t, s1, s1series, "db", "cpu", points1)
 
 	ctx := t.Context()
 	req := &types.QueryRangeRequest{
@@ -171,14 +178,15 @@ func TestIterator_TagFiltering(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
+	seriesStore := metadata.NewSimpleSeriesStore()
 	s := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: seriesStore,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入不同 tag 的数据
@@ -188,11 +196,7 @@ func TestIterator_TagFiltering(t *testing.T) {
 		{Tags: map[string]string{"host": "server1", "region": "eu"}, Timestamp: 3000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(300))}},
 		{Tags: map[string]string{"host": "server2", "region": "eu"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
 	}
-	for _, p := range points {
-		if err := s.Write(p); err != nil {
-			t.Fatalf("failed to write point: %v", err)
-		}
-	}
+	writePointsToShard(t, s, seriesStore, "db", "cpu", points)
 
 	ctx := t.Context()
 	// 只查询 region=us 的数据
@@ -229,14 +233,15 @@ func TestIterator_FieldProjection(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
+	seriesStore := metadata.NewSimpleSeriesStore()
 	s := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: seriesStore,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入包含多个字段的数据
@@ -244,11 +249,7 @@ func TestIterator_FieldProjection(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100)), "field2": types.NewFieldValue(float64(10.5)), "field3": types.NewFieldValue("text")}},
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 2000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(200)), "field2": types.NewFieldValue(float64(20.5)), "field3": types.NewFieldValue("text2")}},
 	}
-	for _, p := range points {
-		if err := s.Write(p); err != nil {
-			t.Fatalf("failed to write point: %v", err)
-		}
-	}
+	writePointsToShard(t, s, seriesStore, "db", "cpu", points)
 
 	ctx := t.Context()
 	// 只查询 field1 和 field2
@@ -291,14 +292,15 @@ func TestIterator_OffsetSkip(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
+	seriesStore := metadata.NewSimpleSeriesStore()
 	s := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: seriesStore,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入 5 条数据
@@ -309,11 +311,7 @@ func TestIterator_OffsetSkip(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
 	}
-	for _, p := range points {
-		if err := s.Write(p); err != nil {
-			t.Fatalf("failed to write point: %v", err)
-		}
-	}
+	writePointsToShard(t, s, seriesStore, "db", "cpu", points)
 
 	ctx := t.Context()
 	// 跳过前 2 条
@@ -351,14 +349,15 @@ func TestIterator_LimitRestriction(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
+	seriesStore := metadata.NewSimpleSeriesStore()
 	s := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: seriesStore,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入 5 条数据
@@ -369,11 +368,7 @@ func TestIterator_LimitRestriction(t *testing.T) {
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 4000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(400))}},
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 5000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(500))}},
 	}
-	for _, p := range points {
-		if err := s.Write(p); err != nil {
-			t.Fatalf("failed to write point: %v", err)
-		}
-	}
+	writePointsToShard(t, s, seriesStore, "db", "cpu", points)
 
 	ctx := t.Context()
 	// 只返回前 3 条
@@ -410,14 +405,15 @@ func TestIterator_OffsetAndLimit(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
+	seriesStore := metadata.NewSimpleSeriesStore()
 	s := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: seriesStore,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	// 写入 10 条数据
@@ -428,10 +424,8 @@ func TestIterator_OffsetAndLimit(t *testing.T) {
 			Timestamp: int64((i + 1) * 1000),
 			Fields:    map[string]*types.FieldValue{"field1": types.NewFieldValue(int64((i + 1) * 100))},
 		}
-		if err := s.Write(points[i]); err != nil {
-			t.Fatalf("failed to write point: %v", err)
-		}
 	}
+	writePointsToShard(t, s, seriesStore, "db", "cpu", points)
 
 	ctx := t.Context()
 	// 跳过前 2 条，只返回接下来的 3 条
@@ -470,24 +464,21 @@ func TestIterator_Close(t *testing.T) {
 		t.Fatalf("failed to create shard dir: %v", err)
 	}
 
+	seriesStore := metadata.NewSimpleSeriesStore()
 	s := shard.NewShard(shard.ShardConfig{
 		DB:          "db",
 		Measurement: "cpu",
 		StartTime:   0,
 		EndTime:     3600 * 1e9,
 		Dir:         shardDir,
-		SeriesStore: metadata.NewSimpleSeriesStore(),
-		MemTableCfg: memtable.DefaultMemTableConfig(),
+		SeriesStore: seriesStore,
+		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
 
 	points := []*types.Point{
 		{Tags: map[string]string{"host": "server1"}, Timestamp: 1000, Fields: map[string]*types.FieldValue{"field1": types.NewFieldValue(int64(100))}},
 	}
-	for _, p := range points {
-		if err := s.Write(p); err != nil {
-			t.Fatalf("failed to write point: %v", err)
-		}
-	}
+	writePointsToShard(t, s, seriesStore, "db", "cpu", points)
 
 	ctx := t.Context()
 	req := &types.QueryRangeRequest{
