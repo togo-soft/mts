@@ -626,3 +626,159 @@ func TestCatalogStore_SetSchema_FieldAddition(t *testing.T) {
 		t.Errorf("expected 2 fields, got %d", len(loaded.Fields))
 	}
 }
+
+func TestCatalogStore_DatabaseExists_CacheHit(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("testdb")
+
+	// 创建后应在缓存中，DatabaseExists 不走 bbolt
+	if !cs.DatabaseExists("testdb") {
+		t.Error("expected DatabaseExists to return true from cache")
+	}
+}
+
+func TestCatalogStore_DatabaseExists_CacheMissFallback(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	// 冷 cache：应走 bbolt 并填充缓存
+	_ = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("testdb"))
+		return err
+	})
+
+	// 第一次：cache miss，走 bbolt
+	if !cs.DatabaseExists("testdb") {
+		t.Error("expected DatabaseExists to return true via bbolt fallback")
+	}
+
+	// 第二次：cache hit
+	if !cs.DatabaseExists("testdb") {
+		t.Error("expected DatabaseExists to return true from cache")
+	}
+}
+
+func TestCatalogStore_MeasurementExists_CacheHit(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("testdb")
+	_ = cs.CreateMeasurement("testdb", "cpu")
+
+	// 创建后应在缓存中
+	if !cs.MeasurementExists("testdb", "cpu") {
+		t.Error("expected MeasurementExists to return true from cache")
+	}
+}
+
+func TestCatalogStore_MeasurementExists_CacheMissFallback(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	// 直接通过 bolt 创建（绕开缓存）
+	_ = db.Update(func(tx *bolt.Tx) error {
+		dbBucket, _ := tx.CreateBucketIfNotExists([]byte("testdb"))
+		_, _ = dbBucket.CreateBucketIfNotExists([]byte("cpu"))
+		return nil
+	})
+
+	// 第一次：cache miss → bbolt
+	if !cs.MeasurementExists("testdb", "cpu") {
+		t.Error("expected MeasurementExists to return true via bbolt fallback")
+	}
+
+	// 第二次：cache hit
+	if !cs.MeasurementExists("testdb", "cpu") {
+		t.Error("expected MeasurementExists to return true from cache")
+	}
+}
+
+func TestCatalogStore_DropDatabase_CleansCache(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("testdb")
+	_ = cs.CreateMeasurement("testdb", "cpu")
+
+	// 确认缓存中有
+	if !cs.DatabaseExists("testdb") {
+		t.Fatal("expected database to exist before drop")
+	}
+	if !cs.MeasurementExists("testdb", "cpu") {
+		t.Fatal("expected measurement to exist before drop")
+	}
+
+	_ = cs.DropDatabase("testdb")
+
+	// 缓存应被清理，DatabaseExists 应走 bbolt 返回 false
+	if cs.DatabaseExists("testdb") {
+		t.Error("expected DatabaseExists to return false after drop")
+	}
+	if cs.MeasurementExists("testdb", "cpu") {
+		t.Error("expected MeasurementExists to return false after drop (cache cleaned)")
+	}
+}
+
+func TestCatalogStore_DropMeasurement_CleansCache(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("testdb")
+	_ = cs.CreateMeasurement("testdb", "cpu")
+
+	if !cs.MeasurementExists("testdb", "cpu") {
+		t.Fatal("expected measurement to exist before drop")
+	}
+
+	_ = cs.DropMeasurement("testdb", "cpu")
+
+	if cs.MeasurementExists("testdb", "cpu") {
+		t.Error("expected MeasurementExists to return false after drop (cache cleaned)")
+	}
+
+	// db 缓存不应被清理
+	if !cs.DatabaseExists("testdb") {
+		t.Error("expected DatabaseExists to still return true")
+	}
+}
+
+func TestCatalogStore_CacheRebuild(t *testing.T) {
+	dir := t.TempDir()
+
+	m1, err := NewManager(dir)
+	if err != nil {
+		t.Fatal("NewManager failed:", err)
+	}
+
+	cat1 := m1.Catalog()
+	_ = cat1.CreateDatabase("testdb")
+	_ = cat1.CreateMeasurement("testdb", "cpu")
+	_ = cat1.CreateMeasurement("testdb", "mem")
+	_ = m1.Close()
+
+	// 重新打开，Load 应重建 catalog 缓存
+	m2, err := NewManager(dir)
+	if err != nil {
+		t.Fatal("NewManager reopen failed:", err)
+	}
+	defer func() { _ = m2.Close() }()
+	if err := m2.Load(); err != nil {
+		t.Fatal("Load failed:", err)
+	}
+
+	cat2 := m2.Catalog()
+	if !cat2.DatabaseExists("testdb") {
+		t.Error("DatabaseExists should return true after cache rebuild")
+	}
+	if !cat2.MeasurementExists("testdb", "cpu") {
+		t.Error("MeasurementExists(cpu) should return true after cache rebuild")
+	}
+	if !cat2.MeasurementExists("testdb", "mem") {
+		t.Error("MeasurementExists(mem) should return true after cache rebuild")
+	}
+	if cat2.MeasurementExists("testdb", "nonexistent") {
+		t.Error("MeasurementExists for nonexistent should return false")
+	}
+}

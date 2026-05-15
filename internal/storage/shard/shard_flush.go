@@ -99,19 +99,9 @@ func (s *Shard) writeSSTableSync(points []types.MemPoint) error {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
 
-	// 批量解码 MemPoint → InternalPoint（仅存活于 flush 期间）
-	ips := make([]types.InternalPoint, len(points))
-	for i, mp := range points {
-		ip, err := types.MemPointToInternal(mp)
-		if err != nil {
-			_ = w.Close()
-			return fmt.Errorf("decode mempoint %d: %w", i, err)
-		}
-		ips[i] = ip
-	}
-	if err := w.WritePoints(ips); err != nil {
+	if err := w.WriteMemPoints(points); err != nil {
 		_ = w.Close()
-		return fmt.Errorf("write points to sstable: %w", err)
+		return fmt.Errorf("write mempoints to sstable: %w", err)
 	}
 
 	if s.schemaStore != nil {
@@ -316,19 +306,9 @@ func (s *Shard) writeSSTableAsync(points []types.MemPoint, sstSeq uint64, dataDi
 		return nil, fmt.Errorf("create sstable writer: %w", err)
 	}
 
-	// 批量解码 MemPoint → InternalPoint
-	ips := make([]types.InternalPoint, len(points))
-	for i, mp := range points {
-		ip, err := types.MemPointToInternal(mp)
-		if err != nil {
-			_ = w.Close()
-			return nil, fmt.Errorf("decode mempoint %d: %w", i, err)
-		}
-		ips[i] = ip
-	}
-	if err := w.WritePoints(ips); err != nil {
+	if err := w.WriteMemPoints(points); err != nil {
 		_ = w.Close()
-		return nil, fmt.Errorf("write points: %w", err)
+		return nil, fmt.Errorf("write mempoints: %w", err)
 	}
 
 	if s.schemaStore != nil {

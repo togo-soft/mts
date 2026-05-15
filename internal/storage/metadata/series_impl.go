@@ -12,12 +12,16 @@ import (
 // ===================================
 
 type seriesStore struct {
-	db    *bolt.DB
-	cache sync.Map // key: "db/meas/{sid}" → map[string]string (只缓存高频读 tags)
+	db           *bolt.DB
+	cache        sync.Map // key: "db/meas/{sid}" → map[string]string (SID → tags 缓存)
+	hashSidCache *hashSidCache
 }
 
 func newSeriesStore(db *bolt.DB) *seriesStore {
-	return &seriesStore{db: db}
+	return &seriesStore{
+		db:           db,
+		hashSidCache: newHashSidCache(0),
+	}
 }
 
 // ensureMeasBuckets 确保 db/meas 及其子 bucket 存在（写事务中调用）。
@@ -52,6 +56,35 @@ func (s *seriesStore) cacheKey(db, meas string, sid uint64) string {
 	return string(buf)
 }
 
+// hashCacheKey 构造 "db/meas/{hash}" 格式的缓存键。
+func (s *seriesStore) hashCacheKey(db, meas string, h uint64) string {
+	buf := make([]byte, len(db)+1+len(meas)+1+16)
+	n := copy(buf, db)
+	buf[n] = '/'
+	n++
+	n += copy(buf[n:], meas)
+	buf[n] = '/'
+	n++
+	// 使用十六进制编码，避免不可打印字符
+	const hex = "0123456789abcdef"
+	for i := 0; i < 8; i++ {
+		b := byte(h >> (56 - i*8))
+		buf[n+i*2] = hex[b>>4]
+		buf[n+i*2+1] = hex[b&0xf]
+	}
+	return string(buf[:n+16])
+}
+
+// loadHashSid 从有界 hash 缓存中查找 SID。
+func (s *seriesStore) loadHashSid(db, meas string, h uint64) (uint64, bool) {
+	return s.hashSidCache.load(s.hashCacheKey(db, meas, h))
+}
+
+// storeHashSid 将 SID 存入有界 hash 缓存（FIFO 淘汰）。
+func (s *seriesStore) storeHashSid(db, meas string, h, sid uint64) {
+	s.hashSidCache.store(s.hashCacheKey(db, meas, h), sid)
+}
+
 func appendSIDToBuf(buf []byte, v uint64) []byte {
 	off := len(buf)
 	buf = append(buf, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -70,8 +103,14 @@ func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]
 	h := tagsHash(tags)
 	hashKey := encodeSIDKey(h)
 
-	// 先用只读事务快速查找已存在的 SID（不触发 fsync）
+	// 快速路径：hash 缓存命中直接返回 SID（跳过 bbolt 事务）
+	if sid, ok := s.loadHashSid(database, measurement, h); ok {
+		return sid, nil
+	}
+
+	// 只读事务查找已存在的 SID（不触发 fsync）
 	if sid, ok := s.lookupSIDReadOnly(database, measurement, hashKey, tags); ok {
+		s.storeHashSid(database, measurement, h, sid)
 		return sid, nil
 	}
 
@@ -82,6 +121,7 @@ func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]
 	}
 
 	// 更新内存缓存
+	s.storeHashSid(database, measurement, h, sid)
 	s.cache.Store(s.cacheKey(database, measurement, sid), copyTags(tags))
 	return sid, nil
 }
@@ -341,6 +381,10 @@ func (s *seriesStore) rebuildCache() error {
 					}
 					ck := s.cacheKey(string(dbName), measName, sid)
 					s.cache.Store(ck, tags)
+
+					// 重建 hash 缓存
+					h := tagsHash(tags)
+					s.storeHashSid(string(dbName), measName, h, sid)
 				}
 			}
 			return nil

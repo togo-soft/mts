@@ -61,9 +61,15 @@ func (m *Manager) GetOrCreateSeriesStore(db, meas string) *MeasSeriesStore {
 	return NewMeasSeriesStore(m.series, db, meas)
 }
 
-// Load 从 bbolt 重建 series 内存缓存。
+// Load 从 bbolt 重建 series 和 catalog 内存缓存。
 func (m *Manager) Load() error {
-	return m.series.rebuildCache()
+	if err := m.catalog.rebuildCache(); err != nil {
+		return fmt.Errorf("rebuild catalog cache: %w", err)
+	}
+	if err := m.series.rebuildCache(); err != nil {
+		return fmt.Errorf("rebuild series cache: %w", err)
+	}
+	return nil
 }
 
 // Sync 强制 fsync bbolt 数据库。

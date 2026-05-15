@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sync"
 )
 
 // InternalField 紧凑字段条目，避免每行分配 map。
@@ -91,8 +92,16 @@ func InternalFieldsToMap(fields []InternalField) map[string]*FieldValue {
 	return m
 }
 
+// fieldSerialPool 串行化缓冲区池，复用 serializeFieldsFromMap 的内部缓冲区。
+var fieldSerialPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 0, 256)
+		return &buf
+	},
+}
+
 // serializeFieldsFromMap 直接将 map[string]*FieldValue 序列化为 FieldData 格式。
-// 跳过 []InternalField 中间态，零额外分配。
+// 跳过 []InternalField 中间态，内部缓冲区池化减少 GC 压力。
 //
 // 格式: FieldCount(2B BE) + [KeyLen(2B BE) + Key + Type(1B) + Value]...
 func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
@@ -111,7 +120,14 @@ func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 			size += 1
 		}
 	}
-	buf := make([]byte, 0, size)
+
+	bufPtr := fieldSerialPool.Get().(*[]byte)
+	buf := *bufPtr
+	buf = buf[:0]
+	if cap(buf) < size {
+		buf = make([]byte, 0, size)
+	}
+
 	buf = appendU16(buf, uint16(len(fields)))
 	for k, v := range fields {
 		buf = appendU16(buf, uint16(len(k)))
@@ -140,7 +156,14 @@ func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 			}
 		}
 	}
-	return buf
+
+	// 复制结果后归还缓冲区到池
+	result := make([]byte, len(buf))
+	copy(result, buf)
+	*bufPtr = buf[:0]
+	fieldSerialPool.Put(bufPtr)
+
+	return result
 }
 
 // deserializeFieldData 从 FieldData 解码出 []InternalField。

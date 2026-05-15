@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -15,28 +17,53 @@ import (
 // ===================================
 
 type catalogStore struct {
-	db *bolt.DB
+	db        *bolt.DB
+	dbCache   sync.Map // string → struct{}，database 存在性内存缓存
+	measCache sync.Map // "db/meas" → struct{}，measurement 存在性内存缓存
 }
 
 func newCatalogStore(db *bolt.DB) *catalogStore {
 	return &catalogStore{db: db}
 }
 
+// rebuildCache 从 bbolt 重建 DB/Meas 内存缓存（Load 时调用）。
+func (c *catalogStore) rebuildCache() error {
+	return c.db.View(func(tx *bolt.Tx) error {
+		return tx.ForEach(func(name []byte, b *bolt.Bucket) error {
+			if len(name) == 0 || name[0] == '_' {
+				return nil
+			}
+			dbName := string(name)
+			c.dbCache.Store(dbName, struct{}{})
+			return b.ForEach(func(k, v []byte) error {
+				if v == nil {
+					c.measCache.Store(dbName+"/"+string(k), struct{}{})
+				}
+				return nil
+			})
+		})
+	})
+}
+
 func (c *catalogStore) CreateDatabase(name string) error {
 	if name == "" {
 		return fmt.Errorf("database name is empty")
 	}
-	return c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(name))
 		if err != nil {
 			return fmt.Errorf("create database bucket: %w", err)
 		}
 		return nil
 	})
+	if err == nil {
+		c.dbCache.Store(name, struct{}{})
+	}
+	return err
 }
 
 func (c *catalogStore) DropDatabase(name string) error {
-	return c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		if err := tx.DeleteBucket([]byte(name)); err != nil {
 			if err == berrors.ErrBucketNotFound {
 				return fmt.Errorf("database %q not found", name)
@@ -45,6 +72,18 @@ func (c *catalogStore) DropDatabase(name string) error {
 		}
 		return nil
 	})
+	if err == nil {
+		c.dbCache.Delete(name)
+		// 清理该 database 的所有 measurement 缓存
+		prefix := name + "/"
+		c.measCache.Range(func(k, _ any) bool {
+			if strings.HasPrefix(k.(string), prefix) {
+				c.measCache.Delete(k)
+			}
+			return true
+		})
+	}
+	return err
 }
 
 func (c *catalogStore) ListDatabases() []string {
@@ -63,11 +102,17 @@ func (c *catalogStore) ListDatabases() []string {
 }
 
 func (c *catalogStore) DatabaseExists(name string) bool {
+	if _, ok := c.dbCache.Load(name); ok {
+		return true
+	}
 	exists := false
 	_ = c.db.View(func(tx *bolt.Tx) error {
 		exists = tx.Bucket([]byte(name)) != nil
 		return nil
 	})
+	if exists {
+		c.dbCache.Store(name, struct{}{})
+	}
 	return exists
 }
 
@@ -78,7 +123,7 @@ func (c *catalogStore) CreateMeasurement(database, name string) error {
 	if name == "" {
 		return fmt.Errorf("measurement name is empty")
 	}
-	return c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		dbBucket := tx.Bucket([]byte(database))
 		if dbBucket == nil {
 			return fmt.Errorf("database %q not found", database)
@@ -92,10 +137,14 @@ func (c *catalogStore) CreateMeasurement(database, name string) error {
 		}
 		return nil
 	})
+	if err == nil {
+		c.measCache.Store(database+"/"+name, struct{}{})
+	}
+	return err
 }
 
 func (c *catalogStore) DropMeasurement(database, name string) error {
-	return c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
 		dbBucket := tx.Bucket([]byte(database))
 		if dbBucket == nil {
 			return fmt.Errorf("database %q not found", database)
@@ -108,6 +157,10 @@ func (c *catalogStore) DropMeasurement(database, name string) error {
 		}
 		return nil
 	})
+	if err == nil {
+		c.measCache.Delete(database + "/" + name)
+	}
+	return err
 }
 
 func (c *catalogStore) ListMeasurements(database string) ([]string, error) {
@@ -133,6 +186,10 @@ func (c *catalogStore) ListMeasurements(database string) ([]string, error) {
 }
 
 func (c *catalogStore) MeasurementExists(database, name string) bool {
+	key := database + "/" + name
+	if _, ok := c.measCache.Load(key); ok {
+		return true
+	}
 	exists := false
 	_ = c.db.View(func(tx *bolt.Tx) error {
 		dbBucket := tx.Bucket([]byte(database))
@@ -142,6 +199,9 @@ func (c *catalogStore) MeasurementExists(database, name string) bool {
 		exists = dbBucket.Bucket([]byte(name)) != nil
 		return nil
 	})
+	if exists {
+		c.measCache.Store(key, struct{}{})
+	}
 	return exists
 }
 

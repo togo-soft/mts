@@ -11,6 +11,203 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+// WriteMemPoints 直接写入 MemPoint 切片，从 FieldData 字节流解码字段值到列式缓冲区。
+// 跳过 MemPoint → InternalPoint → WritePoints 中间态，消除 deserializeFieldData + NewFieldValue 分配。
+func (w *Writer) WriteMemPoints(points []types.MemPoint) error {
+	if len(points) == 0 {
+		return nil
+	}
+
+	// 第一遍：从 FieldData 轻量解析字段名和类型（跳过值）
+	fieldSet := make(map[string]FieldType, 8)
+	for i := range points {
+		if len(points[i].FieldData) == 0 {
+			continue
+		}
+		if err := scanFieldDataKeys(points[i].FieldData, fieldSet, &w.schema); err != nil {
+			return fmt.Errorf("scan fields in point %d: %w", i, err)
+		}
+	}
+
+	fieldsDir := filepath.Join(w.tmpDir, "fields")
+	if err := storage.SafeMkdirAll(fieldsDir, 0700); err != nil {
+		return fmt.Errorf("create fields tmp dir: %w", err)
+	}
+
+	for name, ft := range fieldSet {
+		if _, exists := w.fields[name]; exists {
+			continue
+		}
+		f, err := storage.SafeOpenFile(
+			filepath.Join(fieldsDir, name+".bin"),
+			os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+		if err != nil {
+			return fmt.Errorf("open field file %s: %w", name, err)
+		}
+		w.fields[name] = f
+		w.fieldBufs[name] = make([]byte, 0, w.blockSize)
+		w.fieldSizes[name] = w.fieldTypeSize(ft)
+	}
+
+	// 第二遍：直接解码 FieldData 写入列式缓冲区
+	for i := range points {
+		if err := w.writeMemPoint(points[i]); err != nil {
+			return fmt.Errorf("write mempoint %d (timestamp=%d): %w", i, points[i].Timestamp, err)
+		}
+	}
+
+	return nil
+}
+
+// scanFieldDataKeys 从 FieldData 轻量扫描字段名和类型（不分配 FieldValue）。
+func scanFieldDataKeys(data []byte, fieldSet map[string]FieldType, schema *Schema) error {
+	if len(data) < 2 {
+		return fmt.Errorf("field data too short: %d bytes", len(data))
+	}
+	fieldCount := int(binary.BigEndian.Uint16(data[:2]))
+	pos := 2
+	for range fieldCount {
+		if pos+2 > len(data) {
+			return fmt.Errorf("truncated key len at pos %d", pos)
+		}
+		kLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
+		pos += 2
+		if pos+kLen > len(data) {
+			return fmt.Errorf("truncated key at pos %d (len=%d)", pos, kLen)
+		}
+		key := string(data[pos : pos+kLen])
+		pos += kLen
+		if pos+1 > len(data) {
+			return fmt.Errorf("truncated type at pos %d", pos)
+		}
+		typ := data[pos]
+		pos++
+
+		ft := fieldDataTypeToFieldType(typ)
+		if ft == "" {
+			return fmt.Errorf("unknown field type: %d", typ)
+		}
+		if _, exists := fieldSet[key]; !exists {
+			fieldSet[key] = ft
+		}
+		if _, exists := schema.Fields[key]; !exists {
+			schema.Fields[key] = ft
+		}
+
+		// 跳过值
+		skip, err := skipFieldValue(data, pos, typ)
+		if err != nil {
+			return err
+		}
+		pos = skip
+	}
+	return nil
+}
+
+// skipFieldValue 跳过 FieldData 中一个字段的值部分，返回新位置。
+func skipFieldValue(data []byte, pos int, typ byte) (int, error) {
+	switch typ {
+	case 0, 1: // float64, int64
+		pos += 8
+	case 2: // string
+		if pos+2 > len(data) {
+			return 0, fmt.Errorf("truncated string len at pos %d", pos)
+		}
+		vLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
+		pos += 2 + vLen
+	case 3: // bool
+		pos++
+	default:
+		return 0, fmt.Errorf("unknown field type: %d", typ)
+	}
+	return pos, nil
+}
+
+// fieldDataTypeToFieldType 将 FieldData 中的类型标签映射为 FieldType。
+// 返回空字符串表示未知类型。
+func fieldDataTypeToFieldType(typ byte) FieldType {
+	switch typ {
+	case 0:
+		return FieldTypeFloat64
+	case 1:
+		return FieldTypeInt64
+	case 2:
+		return FieldTypeString
+	case 3:
+		return FieldTypeBool
+	default:
+		return ""
+	}
+}
+
+// writeMemPoint 直接解析 MemPoint.FieldData 写入块缓冲区（零 FieldValue 分配）。
+func (w *Writer) writeMemPoint(mp types.MemPoint) error {
+	if w.bufPos >= w.blockSize {
+		if err := w.flushBlock(); err != nil {
+			return err
+		}
+	}
+
+	if w.rowCount == 0 {
+		w.firstTs = mp.Timestamp
+	}
+
+	var tsBuf [8]byte
+	binary.BigEndian.PutUint64(tsBuf[:], uint64(mp.Timestamp))
+	copy(w.buf[w.bufPos:w.bufPos+8], tsBuf[:])
+	w.bufPos += 8
+
+	// 使用小 map 追踪已写入的字段，用于后续缺失字段补零
+	written := make(map[string]bool, len(w.fields))
+
+	data := mp.FieldData
+	if len(data) > 0 {
+		fieldCount := int(binary.BigEndian.Uint16(data[:2]))
+		pos := 2
+		for range fieldCount {
+			kLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
+			pos += 2
+			key := string(data[pos : pos+kLen])
+			pos += kLen
+			typ := data[pos]
+			pos++
+
+			switch typ {
+			case 0: // float64
+				val := math.Float64frombits(binary.BigEndian.Uint64(data[pos : pos+8]))
+				w.appendFieldValue(key, val)
+				pos += 8
+			case 1: // int64
+				val := int64(binary.BigEndian.Uint64(data[pos : pos+8]))
+				w.appendFieldValue(key, val)
+				pos += 8
+			case 2: // string
+				vLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
+				pos += 2
+				val := string(data[pos : pos+vLen])
+				w.appendFieldValue(key, val)
+				pos += vLen
+			case 3: // bool
+				val := data[pos] == 1
+				w.appendFieldValue(key, val)
+				pos++
+			}
+			written[key] = true
+		}
+	}
+
+	// 为当前行中不存在的字段写入零值
+	for name := range w.fields {
+		if !written[name] {
+			w.appendFieldValue(name, w.zeroValue(w.schema.Fields[name]))
+		}
+	}
+
+	w.sidBuf = append(w.sidBuf, mp.Sid)
+	w.rowCount++
+	return nil
+}
+
 // WritePointRows 直接写入 PointRow 切片，跳过 InternalField 中间转换。
 func (w *Writer) WritePointRows(rows []*types.PointRow) error {
 	fieldNames := make(map[string]bool)

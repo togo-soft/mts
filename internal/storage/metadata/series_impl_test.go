@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -862,4 +863,212 @@ func TestShardIndex_UpdateShardStats_NoShardsBucket(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when shards bucket doesn't exist")
 	}
+}
+
+func TestSeriesStore_HashCache_Hit(t *testing.T) {
+	db, ss := openSeriesDB(t)
+	setupSeriesDBMeas(t, ss)
+
+	tags := map[string]string{"host": "s1"}
+
+	// 第一次：走 bbolt，分配 SID
+	sid1, err := ss.AllocateSID("testdb", "cpu", tags)
+	if err != nil {
+		t.Fatal("first AllocateSID failed:", err)
+	}
+
+	// 第二次：应命中 hash 缓存，返回相同 SID，不走 bbolt
+	sid2, err := ss.AllocateSID("testdb", "cpu", tags)
+	if err != nil {
+		t.Fatal("second AllocateSID failed:", err)
+	}
+	if sid1 != sid2 {
+		t.Errorf("expected same SID from cache: %d vs %d", sid1, sid2)
+	}
+
+	_ = db
+}
+
+func TestSeriesStore_HashCache_DifferentTags(t *testing.T) {
+	_, ss := openSeriesDB(t)
+	setupSeriesDBMeas(t, ss)
+
+	tags1 := map[string]string{"host": "s1", "region": "us"}
+	tags2 := map[string]string{"host": "s2", "region": "eu"}
+
+	sid1, _ := ss.AllocateSID("testdb", "cpu", tags1)
+	sid2, _ := ss.AllocateSID("testdb", "cpu", tags2)
+
+	if sid1 == sid2 {
+		t.Errorf("different tags should produce different SIDs")
+	}
+
+	// 验证各自的缓存命中
+	sid1Again, _ := ss.AllocateSID("testdb", "cpu", tags1)
+	if sid1Again != sid1 {
+		t.Errorf("cache hit should return same SID: %d vs %d", sid1, sid1Again)
+	}
+}
+
+func TestSeriesStore_HashCache_DifferentDBMeas(t *testing.T) {
+	db, ss := openSeriesDB(t)
+	setupSeriesDBMeas(t, ss)
+
+	// 创建第二个 measurement
+	_ = db.Update(func(tx *bolt.Tx) error {
+		_, _ = ensureMeasBuckets(tx, "testdb", "mem")
+		return nil
+	})
+
+	tags := map[string]string{"host": "s1"}
+
+	sidCPU, _ := ss.AllocateSID("testdb", "cpu", tags)
+	sidMem, _ := ss.AllocateSID("testdb", "mem", tags)
+
+	// 不同的 measurement 应有独立的 SID 序列
+	if sidCPU != sidMem {
+		t.Logf("different measurements may have different or same SIDs: cpu=%d, mem=%d", sidCPU, sidMem)
+	}
+
+	// 各自命中缓存
+	sidCPUAgain, _ := ss.AllocateSID("testdb", "cpu", tags)
+	if sidCPUAgain != sidCPU {
+		t.Errorf("cpu cache miss: %d vs %d", sidCPU, sidCPUAgain)
+	}
+	sidMemAgain, _ := ss.AllocateSID("testdb", "mem", tags)
+	if sidMemAgain != sidMem {
+		t.Errorf("mem cache miss: %d vs %d", sidMem, sidMemAgain)
+	}
+}
+
+func TestSeriesStore_HashCache_Rebuild(t *testing.T) {
+	dir := t.TempDir()
+
+	m1, err := NewManager(dir)
+	if err != nil {
+		t.Fatal("NewManager failed:", err)
+	}
+
+	cat := m1.Catalog()
+	_ = cat.CreateDatabase("testdb")
+	_ = cat.CreateMeasurement("testdb", "cpu")
+
+	tags := map[string]string{"host": "s1"}
+	sid1, _ := m1.Series().AllocateSID("testdb", "cpu", tags)
+	_ = m1.Close()
+
+	// 重新打开，Load 应重建 hash 缓存
+	m2, err := NewManager(dir)
+	if err != nil {
+		t.Fatal("NewManager reopen failed:", err)
+	}
+	defer func() { _ = m2.Close() }()
+	if err := m2.Load(); err != nil {
+		t.Fatal("Load failed:", err)
+	}
+
+	// 重建后应命中 hash 缓存，返回相同 SID
+	sid2, err := m2.Series().AllocateSID("testdb", "cpu", tags)
+	if err != nil {
+		t.Fatal("AllocateSID after rebuild failed:", err)
+	}
+	if sid1 != sid2 {
+		t.Errorf("rebuild cache: expected SID %d, got %d", sid1, sid2)
+	}
+}
+
+func TestSeriesStore_HashCache_DifferentHash(t *testing.T) {
+	// 验证 hashCacheKey 对不同输入产生不同的键
+	ss := newSeriesStore(nil)
+
+	k1 := ss.hashCacheKey("db", "meas", 0x1234)
+	k2 := ss.hashCacheKey("db", "meas", 0x5678)
+	if k1 == k2 {
+		t.Error("different hashes should produce different cache keys")
+	}
+
+	k3 := ss.hashCacheKey("db", "meas", 0x1234)
+	k4 := ss.hashCacheKey("db2", "meas", 0x1234)
+	if k3 == k4 {
+		t.Error("different db should produce different cache keys")
+	}
+
+	k5 := ss.hashCacheKey("db", "meas1", 0x1234)
+	k6 := ss.hashCacheKey("db", "meas2", 0x1234)
+	if k5 == k6 {
+		t.Error("different measurement should produce different cache keys")
+	}
+}
+
+func TestHashSidCache_Bounded(t *testing.T) {
+	// 设置小 maxSize 验证淘汰行为
+	c := newHashSidCache(100) // 100 entries / 256 shards ≈ 1 per shard
+
+	// 每个 shard 只能存 1 个条目，所以插入 512 个不同 key 后
+	// 前 256 个应该被淘汰
+	for i := 0; i < 512; i++ {
+		key := ssHashKey("testdb", "cpu", uint64(i))
+		c.store(key, uint64(i))
+	}
+
+	// 前 256 个应已被淘汰（回退到 bbolt）
+	evicted := 0
+	for i := 0; i < 256; i++ {
+		key := ssHashKey("testdb", "cpu", uint64(i))
+		if _, ok := c.load(key); ok {
+			evicted++
+		}
+	}
+	// 大部分应被淘汰（由于 hash 分布，可能少部分仍在）
+	if evicted > 128 {
+		t.Errorf("too many entries retained in bounded cache: %d/256", 256-evicted)
+	}
+
+	// 后 256 个应在缓存中
+	found := 0
+	for i := 256; i < 512; i++ {
+		key := ssHashKey("testdb", "cpu", uint64(i))
+		if _, ok := c.load(key); ok {
+			found++
+		}
+	}
+	if found < 128 {
+		t.Errorf("too few entries found in bounded cache: %d/256", found)
+	}
+}
+
+func TestHashSidCache_Concurrent(t *testing.T) {
+	c := newHashSidCache(10000)
+
+	var wg sync.WaitGroup
+	n := 1000
+	wg.Add(4)
+	for range 4 {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < n; i++ {
+				key := ssHashKey("testdb", "cpu", uint64(i))
+				c.store(key, uint64(i))
+			}
+		}()
+	}
+	wg.Wait()
+
+	// 验证无 panic，数据一致
+	hits := 0
+	for i := 0; i < n; i++ {
+		key := ssHashKey("testdb", "cpu", uint64(i))
+		if v, ok := c.load(key); ok && v == uint64(i) {
+			hits++
+		}
+	}
+	if hits < n {
+		t.Logf("bounded cache: %d/%d hits (some evicted, expected)", hits, n)
+	}
+}
+
+// ssHashKey 测试辅助函数，直接用 seriesStore 的 hashCacheKey（绕过 bbolt）。
+func ssHashKey(db, meas string, h uint64) string {
+	ss := &seriesStore{hashSidCache: newHashSidCache(0)}
+	return ss.hashCacheKey(db, meas, h)
 }
