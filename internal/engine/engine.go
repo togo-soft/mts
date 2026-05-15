@@ -5,8 +5,9 @@
 //
 // 架构说明：
 //
-//	Engine → ShardManager → Shards → MemTable/SSTable
-//	Engine → Manager → Catalog / SeriesStore / ShardIndex
+//	Engine → Flusher → ShardManager → Shards → SSTable
+//	Engine → Catalog / SeriesStore / ShardIndex → metadata.Manager
+//	Engine → FlushCoordinator → Writer(WAL+MemTable)
 //
 // Engine 是并发安全的，所有公共方法都可以从多个 goroutine 调用。
 package engine
@@ -14,6 +15,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
+	"codeberg.org/micro-ts/mts/internal/storage/writer"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -48,13 +51,19 @@ type Config struct {
 
 // Engine 是微时序数据库的存储引擎。
 type Engine struct {
-	cfg              *Config
-	shardManager     *shard.ShardManager
-	retentionService *shard.RetentionService
-	manager          *metadata.Manager
-	shutdownMu       sync.Mutex
-	queryWg          sync.WaitGroup
-	closed           bool
+	cfg         *Config
+	dataDir     string
+	catalog     Catalog
+	seriesStore SeriesStore
+	shardIndex  ShardIndex
+	flusher     Flusher
+	coordinator *FlushCoordinator
+	memTableCfg *types.MemTableConfig
+	metaManager *metadata.Manager
+	mu          sync.RWMutex
+	queryWg     sync.WaitGroup
+	closed      bool
+	shutdownMu  sync.Mutex
 }
 
 // New 创建新的存储引擎实例。
@@ -66,11 +75,6 @@ func New(cfg *Config) (*Engine, error) {
 		memTableCfg = cfg.MemTableCfg
 	}
 
-	retentionCheckInterval := cfg.RetentionCheckInterval
-	if retentionCheckInterval == 0 {
-		retentionCheckInterval = time.Hour
-	}
-
 	mgr, err := metadata.NewManager(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("create metadata manager: %w", err)
@@ -80,22 +84,60 @@ func New(cfg *Config) (*Engine, error) {
 		return nil, fmt.Errorf("load metadata: %w", err)
 	}
 
+	flusher := shard.NewShardManager(
+		cfg.DataDir,
+		cfg.ShardDuration,
+		cfg.CompactionCfg,
+		cfg.CompressionAlgorithm,
+		mgr.Catalog(),
+		mgr.Series(),
+		mgr.Shards(),
+	)
+
+	coordinator := NewFlushCoordinator(flusher)
+
 	engine := &Engine{
-		cfg:          cfg,
-		shardManager: shard.NewShardManager(cfg.DataDir, cfg.ShardDuration, memTableCfg, cfg.CompactionCfg, mgr, cfg.CompressionAlgorithm),
-		manager:      mgr,
+		cfg:         cfg,
+		dataDir:     cfg.DataDir,
+		catalog:     mgr.Catalog(),
+		seriesStore: mgr.Series(),
+		shardIndex:  mgr.Shards(),
+		flusher:     flusher,
+		coordinator: coordinator,
+		memTableCfg: memTableCfg,
+		metaManager: mgr,
 	}
 
-	if cfg.RetentionPeriod > 0 {
-		engine.retentionService = shard.NewRetentionService(
-			engine.shardManager,
-			cfg.RetentionPeriod,
-			retentionCheckInterval,
-		)
-		engine.retentionService.Start()
-	}
+	// 后台发现已有 measurement 的 WAL 并重放
+	go engine.discoverAndRecover()
 
 	return engine, nil
+}
+
+// discoverAndRecover 发现已存在的 measurement 并重放 WAL。
+func (e *Engine) discoverAndRecover() {
+	databases := e.catalog.ListDatabases()
+	for _, db := range databases {
+		measurements, err := e.catalog.ListMeasurements(db)
+		if err != nil {
+			continue
+		}
+		for _, meas := range measurements {
+			// 发现已有 Shard（填充 ShardManager 缓存）
+			_ = e.flusher.GetShards(db, meas, 0, 1<<62)
+
+			// 创建 Writer 并重放 WAL
+			w, err := e.getOrCreateWriter(db, meas)
+			if err != nil {
+				continue
+			}
+			if mw, ok := w.(*writer.MeasurementWriter); ok {
+				if err := mw.ReplayWAL(); err != nil {
+					slog.Warn("WAL replay failed", "db", db, "meas", meas, "error", err)
+				}
+			}
+		}
+	}
 }
 
 // Close 关闭引擎，释放所有资源。
@@ -108,23 +150,23 @@ func (e *Engine) Close() error {
 	e.closed = true
 	e.shutdownMu.Unlock()
 
-	if e.retentionService != nil {
-		e.retentionService.Stop()
-	}
-
 	e.queryWg.Wait()
 
-	// 等待 WAL replay 完成
-	e.shardManager.WaitForDiscovery()
+	// 同步刷写所有数据
+	_ = e.coordinator.FlushAll()
 
-	_ = e.shardManager.CloseAllWriters()
-	_ = e.shardManager.CloseAll()
+	// 关闭所有 Writer
+	_ = e.coordinator.CloseAllWriters()
 
-	if err := e.manager.Sync(); err != nil {
+	// 关闭所有 Shard
+	_ = e.flusher.CloseAll()
+
+	// 同步 metadata
+	if err := e.metaManager.Sync(); err != nil {
 		return fmt.Errorf("sync metadata: %w", err)
 	}
 
-	if err := e.manager.Close(); err != nil {
+	if err := e.metaManager.Close(); err != nil {
 		return fmt.Errorf("close metadata manager: %w", err)
 	}
 	return nil
@@ -137,12 +179,9 @@ func (e *Engine) isClosed() bool {
 	return e.closed
 }
 
-// Flush 将所有 MeasurementWriter 和 Shard 的 MemTable 数据刷写到 SSTable。
+// Flush 将所有 MeasurementWriter 的 MemTable 数据刷写到 SSTable。
 func (e *Engine) Flush() error {
-	if err := e.shardManager.FlushAllWriters(); err != nil {
-		return err
-	}
-	return e.shardManager.FlushAll()
+	return e.coordinator.FlushAll()
 }
 
 // DataDir 返回引擎的数据目录。
@@ -152,5 +191,5 @@ func (e *Engine) DataDir() string {
 
 // SetConfig 运行时更新所有 Shard 的 Compaction 配置。
 func (e *Engine) SetConfig(config *compaction.Config) {
-	e.shardManager.SetConfig(config)
+	e.flusher.SetConfig(config)
 }

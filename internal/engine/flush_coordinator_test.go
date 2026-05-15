@@ -37,8 +37,8 @@ func (f *mockFlusher) GetShards(db, measurement string, startTime, endTime int64
 	return nil
 }
 
-func (f *mockFlusher) CloseAll() error                         { return nil }
-func (f *mockFlusher) SetConfig(config *compaction.Config)      {}
+func (f *mockFlusher) CloseAll() error                     { return nil }
+func (f *mockFlusher) SetConfig(config *compaction.Config) {}
 
 // mockWriter 实现 Writer 接口用于测试。
 type mockWriter struct {
@@ -52,9 +52,9 @@ func (w *mockWriter) Write(point *types.Point) error {
 }
 
 func (w *mockWriter) WriteBatch(points []*types.Point) (int, error) { return 0, nil }
-func (w *mockWriter) MemTable() *memtable.MemTable                   { return w.mt }
-func (w *mockWriter) SeriesStore() SeriesStore                        { return w.seriesStore }
-func (w *mockWriter) Close() error                                    { w.closed = true; return nil }
+func (w *mockWriter) MemTable() *memtable.MemTable                  { return w.mt }
+func (w *mockWriter) SeriesStore() SeriesStore                      { return w.seriesStore }
+func (w *mockWriter) Close() error                                  { w.closed = true; return nil }
 
 func TestFlushCoordinator_RegisterAndGet(t *testing.T) {
 	t.Parallel()

@@ -4,13 +4,49 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 
 	"codeberg.org/micro-ts/mts/internal/storage/writer"
 	"codeberg.org/micro-ts/mts/types"
 )
 
+// getOrCreateWriter 获取或创建指定 measurement 的 Writer。
+//
+// 使用双检查（double-check）模式避免重复创建：
+//  1. 先不加锁查询 coordinator
+//  2. 加锁后再次确认
+//  3. 不存在则创建并注册
+func (e *Engine) getOrCreateWriter(db, measurement string) (Writer, error) {
+	// 先检查是否已存在
+	if w := e.coordinator.GetWriter(db, measurement); w != nil {
+		return w, nil
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// 双检查
+	if w := e.coordinator.GetWriter(db, measurement); w != nil {
+		return w, nil
+	}
+
+	measDir := filepath.Join(e.dataDir, db, measurement)
+	mw, err := writer.New(writer.Config{
+		DB:          db,
+		Measurement: measurement,
+		Dir:         measDir,
+		SeriesStore: e.seriesStore,
+		MemTableCfg: e.memTableCfg,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create writer: %w", err)
+	}
+
+	e.coordinator.RegisterWriter(db, measurement, mw)
+	return mw, nil
+}
+
 // Write 写入单个数据点到存储引擎。
-// 数据通过全局 MeasurementWriter 写入，而非路由到单个 Shard。
 func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 	select {
 	case <-ctx.Done():
@@ -35,19 +71,18 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 		return ErrInvalidTimestamp
 	}
 
-	cat := e.manager.Catalog()
-	if !cat.DatabaseExists(point.Database) {
-		if err := cat.CreateDatabase(point.Database); err != nil {
+	if !e.catalog.DatabaseExists(point.Database) {
+		if err := e.catalog.CreateDatabase(point.Database); err != nil {
 			slog.Warn("auto-create database failed", "database", point.Database, "error", err)
 		}
 	}
-	if !cat.MeasurementExists(point.Database, point.Measurement) {
-		if err := cat.CreateMeasurement(point.Database, point.Measurement); err != nil {
+	if !e.catalog.MeasurementExists(point.Database, point.Measurement) {
+		if err := e.catalog.CreateMeasurement(point.Database, point.Measurement); err != nil {
 			slog.Warn("auto-create measurement failed", "database", point.Database, "measurement", point.Measurement, "error", err)
 		}
 	}
 
-	w, err := e.shardManager.GetWriter(point.Database, point.Measurement)
+	w, err := e.getOrCreateWriter(point.Database, point.Measurement)
 	if err != nil {
 		return fmt.Errorf("get writer: %w", err)
 	}
@@ -60,7 +95,7 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 
 // WriteBatch 批量写入数据点。
 //
-// 优化策略：按 Measurement 分组后对每组调用 MeasurementWriter.WriteBatch，
+// 优化策略：按 Measurement 分组后对每组调用 Writer.WriteBatch，
 // 减少锁获取次数并利用 WAL 批量写入减少 fsync。
 //
 // 批量写入不是原子操作，部分失败不会回滚已写入的点。
@@ -80,8 +115,7 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 	}
 
 	// 验证并自动创建 database/measurement，按 writer 分组
-	cat := e.manager.Catalog()
-	groups := make(map[*writer.MeasurementWriter][]*types.Point)
+	groups := make(map[Writer][]*types.Point)
 
 	for _, p := range points {
 		if p == nil {
@@ -97,18 +131,18 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 			return ErrInvalidTimestamp
 		}
 
-		if !cat.DatabaseExists(p.Database) {
-			if err := cat.CreateDatabase(p.Database); err != nil {
+		if !e.catalog.DatabaseExists(p.Database) {
+			if err := e.catalog.CreateDatabase(p.Database); err != nil {
 				slog.Warn("auto-create database failed", "database", p.Database, "error", err)
 			}
 		}
-		if !cat.MeasurementExists(p.Database, p.Measurement) {
-			if err := cat.CreateMeasurement(p.Database, p.Measurement); err != nil {
+		if !e.catalog.MeasurementExists(p.Database, p.Measurement) {
+			if err := e.catalog.CreateMeasurement(p.Database, p.Measurement); err != nil {
 				slog.Warn("auto-create measurement failed", "database", p.Database, "measurement", p.Measurement, "error", err)
 			}
 		}
 
-		w, err := e.shardManager.GetWriter(p.Database, p.Measurement)
+		w, err := e.getOrCreateWriter(p.Database, p.Measurement)
 		if err != nil {
 			return fmt.Errorf("get writer: %w", err)
 		}
@@ -116,7 +150,7 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 		groups[w] = append(groups[w], p)
 	}
 
-	// 对每组调用 MeasurementWriter.WriteBatch
+	// 对每组调用 Writer.WriteBatch
 	for w, group := range groups {
 		select {
 		case <-ctx.Done():

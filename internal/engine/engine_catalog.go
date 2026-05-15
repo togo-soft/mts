@@ -7,12 +7,12 @@ import (
 
 // ListDatabases 列出所有数据库名称。
 func (e *Engine) ListDatabases() []string {
-	return e.manager.Catalog().ListDatabases()
+	return e.catalog.ListDatabases()
 }
 
 // ListMeasurements 列出指定数据库中的所有 Measurement 名称。
 func (e *Engine) ListMeasurements(database string) ([]string, bool) {
-	names, err := e.manager.Catalog().ListMeasurements(database)
+	names, err := e.catalog.ListMeasurements(database)
 	if err != nil {
 		return nil, false
 	}
@@ -21,10 +21,10 @@ func (e *Engine) ListMeasurements(database string) ([]string, bool) {
 
 // CreateDatabase 创建一个新的数据库。
 func (e *Engine) CreateDatabase(database string) bool {
-	if e.manager.Catalog().DatabaseExists(database) {
+	if e.catalog.DatabaseExists(database) {
 		return false
 	}
-	if err := e.manager.Catalog().CreateDatabase(database); err != nil {
+	if err := e.catalog.CreateDatabase(database); err != nil {
 		slog.Warn("failed to create database", "database", database, "error", err)
 		return false
 	}
@@ -33,7 +33,7 @@ func (e *Engine) CreateDatabase(database string) bool {
 
 // DropDatabase 删除指定的数据库。
 func (e *Engine) DropDatabase(database string) bool {
-	return e.manager.Catalog().DropDatabase(database) == nil
+	return e.catalog.DropDatabase(database) == nil
 }
 
 // CreateMeasurement 在指定数据库中创建一个新的 Measurement。
@@ -45,7 +45,7 @@ func (e *Engine) CreateMeasurement(database, measurement string) (bool, error) {
 		return false, ErrEmptyMeasurement
 	}
 
-	if err := e.manager.Catalog().CreateMeasurement(database, measurement); err != nil {
+	if err := e.catalog.CreateMeasurement(database, measurement); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -60,15 +60,15 @@ func (e *Engine) DropMeasurement(database, measurement string) (bool, error) {
 		return false, ErrEmptyMeasurement
 	}
 
-	if !e.manager.Catalog().DatabaseExists(database) {
+	if !e.catalog.DatabaseExists(database) {
 		return false, fmt.Errorf("%w: %s", ErrDatabaseNotFound, database)
 	}
 
-	if !e.manager.Catalog().MeasurementExists(database, measurement) {
+	if !e.catalog.MeasurementExists(database, measurement) {
 		return false, nil
 	}
 
-	err := e.manager.Catalog().DropMeasurement(database, measurement)
+	err := e.catalog.DropMeasurement(database, measurement)
 	if err != nil {
 		return false, err
 	}

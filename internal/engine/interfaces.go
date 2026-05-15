@@ -23,7 +23,6 @@ type Writer interface {
 	Write(point *types.Point) error
 	WriteBatch(points []*types.Point) (int, error)
 	MemTable() *memtable.MemTable
-	SeriesStore() SeriesStore
 	Close() error
 }
 
