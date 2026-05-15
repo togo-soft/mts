@@ -107,14 +107,14 @@ func (cm *Manager) Merge(ctx context.Context, task *Task) error {
 
 	merged := NewMergeIterator(iterators)
 
-	seen := make(map[uint64]bool)
-	var pointsToWrite []types.InternalPoint
+	dedup := NewDedupFilter(0)
+	pointsToWrite := make([]*types.PointRow, 0, mergeBatchSize+mergeBatchSize/10)
 
 	flushBatch := func() error {
 		if len(pointsToWrite) == 0 {
 			return nil
 		}
-		if err := w.WritePoints(pointsToWrite); err != nil {
+		if err := w.WritePointRows(pointsToWrite); err != nil {
 			return err
 		}
 		task.OutputCount += len(pointsToWrite)
@@ -133,21 +133,15 @@ func (cm *Manager) Merge(ctx context.Context, task *Task) error {
 		row := merged.Point()
 		key := uint64(row.Timestamp) ^ (row.Sid * hashSeed)
 
-		if seen[key] {
+		if dedup.Seen(key) {
 			task.DuplicateCount++
 			continue
 		}
 		if tombstones.ShouldDelete(row.Sid, row.Timestamp) {
 			continue
 		}
-		seen[key] = true
 
-		ip := types.InternalPoint{
-			Timestamp: row.Timestamp,
-			Fields:    types.FieldEntryToInternalFields(row.Fields),
-			Sid:       row.Sid,
-		}
-		pointsToWrite = append(pointsToWrite, ip)
+		pointsToWrite = append(pointsToWrite, row)
 		if len(pointsToWrite) >= mergeBatchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()
@@ -259,10 +253,11 @@ func collectInputTombstones(inputPaths []string) *TombstoneSet {
 
 // MergeIterator k-way merge 迭代器。
 type MergeIterator struct {
-	iterators []*sstable.Iterator
-	heap      *MergeHeap
-	current   *MergeHeapItem
-	err       error
+	iterators    []*sstable.Iterator
+	heap         *MergeHeap
+	current      *MergeHeapItem // 复用的堆项，避免每次 Next 分配
+	currentPoint *types.PointRow
+	err          error
 }
 
 type MergeHeapItem struct {
@@ -325,29 +320,29 @@ func NewMergeIterator(iters []*sstable.Iterator) *MergeIterator {
 func (m *MergeIterator) Next() bool {
 	if len(*m.heap) == 0 || m.err != nil {
 		m.current = nil
+		m.currentPoint = nil
 		return false
 	}
 
 	m.current = heap.Pop(m.heap).(*MergeHeapItem)
+	m.currentPoint = m.current.Point // 缓存当前 Point，复用 current 后不会被覆盖
 
 	if m.current.Iter.Next() {
 		p := m.current.Iter.Point()
-		heap.Push(m.heap, &MergeHeapItem{
-			Iter:      m.current.Iter,
-			Point:     p,
-			Idx:       m.current.Idx,
-			Timestamp: p.Timestamp,
-		})
+		// 复用已弹出 item 的结构体，避免每次 Next 分配新 MergeHeapItem
+		m.current.Point = p
+		m.current.Timestamp = p.Timestamp
+		heap.Push(m.heap, m.current)
 	}
 
 	return true
 }
 
 func (m *MergeIterator) Point() *types.PointRow {
-	if m.current == nil {
+	if m.currentPoint == nil {
 		return nil
 	}
-	return m.current.Point
+	return m.currentPoint
 }
 
 func (m *MergeIterator) Error() error {

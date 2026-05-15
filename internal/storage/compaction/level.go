@@ -347,14 +347,14 @@ func (lcm *LevelManager) merge(ctx context.Context, level int, inputPaths []stri
 		return err
 	}
 
-	seen := make(map[uint64]bool)
-	var pointsToWrite []types.InternalPoint
+	dedup := NewDedupFilter(0)
+	pointsToWrite := make([]*types.PointRow, 0, mergeBatchSize+mergeBatchSize/10)
 
 	flushBatch := func() error {
 		if len(pointsToWrite) == 0 {
 			return nil
 		}
-		if err := w.WritePoints(pointsToWrite); err != nil {
+		if err := w.WritePointRows(pointsToWrite); err != nil {
 			return err
 		}
 		pointsToWrite = pointsToWrite[:0]
@@ -372,20 +372,14 @@ func (lcm *LevelManager) merge(ctx context.Context, level int, inputPaths []stri
 		row := merged.Point()
 		key := uint64(row.Timestamp) ^ (row.Sid * hashSeed)
 
-		if seen[key] {
+		if dedup.Seen(key) {
 			continue
 		}
 		if tombstones.ShouldDelete(row.Sid, row.Timestamp) {
 			continue
 		}
-		seen[key] = true
 
-		ip := types.InternalPoint{
-			Timestamp: row.Timestamp,
-			Fields:    types.FieldEntryToInternalFields(row.Fields),
-			Sid:       row.Sid,
-		}
-		pointsToWrite = append(pointsToWrite, ip)
+		pointsToWrite = append(pointsToWrite, row)
 		if len(pointsToWrite) >= mergeBatchSize {
 			if err := flushBatch(); err != nil {
 				_ = w.Close()

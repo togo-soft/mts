@@ -11,6 +11,47 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+// WritePointRows 直接写入 PointRow 切片，跳过 InternalField 中间转换。
+func (w *Writer) WritePointRows(rows []*types.PointRow) error {
+	fieldNames := make(map[string]bool)
+	for _, row := range rows {
+		for _, fe := range row.Fields {
+			fieldNames[fe.Key] = true
+			if _, exists := w.schema.Fields[fe.Key]; !exists {
+				w.schema.Fields[fe.Key] = detectFieldType(fe.Value)
+			}
+		}
+	}
+
+	fieldsDir := filepath.Join(w.tmpDir, "fields")
+	if err := storage.SafeMkdirAll(fieldsDir, 0700); err != nil {
+		return fmt.Errorf("create fields tmp dir: %w", err)
+	}
+
+	for name := range fieldNames {
+		if _, exists := w.fields[name]; exists {
+			continue
+		}
+		f, err := storage.SafeOpenFile(
+			filepath.Join(fieldsDir, name+".bin"),
+			os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+		if err != nil {
+			return fmt.Errorf("open field file %s: %w", name, err)
+		}
+		w.fields[name] = f
+		w.fieldBufs[name] = make([]byte, 0, w.blockSize)
+		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
+	}
+
+	for _, row := range rows {
+		if err := w.writePointRow(row); err != nil {
+			return fmt.Errorf("write point (timestamp=%d): %w", row.Timestamp, err)
+		}
+	}
+
+	return nil
+}
+
 // WritePoints 写入一批 InternalPoint 到 SSTable。
 func (w *Writer) WritePoints(points []types.InternalPoint) error {
 	fieldNames := make(map[string]bool)
@@ -64,6 +105,34 @@ func (w *Writer) fieldTypeSize(t FieldType) int {
 	default:
 		return 8
 	}
+}
+
+// writePointRow 将单个 PointRow 直接写入 block buffer（跳过 InternalField 转换）。
+func (w *Writer) writePointRow(row *types.PointRow) error {
+	if w.bufPos >= w.blockSize {
+		if err := w.flushBlock(); err != nil {
+			return err
+		}
+	}
+
+	if w.rowCount == 0 {
+		w.firstTs = row.Timestamp
+	}
+
+	var tsBuf [8]byte
+	binary.BigEndian.PutUint64(tsBuf[:], uint64(row.Timestamp))
+	copy(w.buf[w.bufPos:w.bufPos+8], tsBuf[:])
+	w.bufPos += 8
+
+	for name := range w.fields {
+		val := row.GetFieldValue(name)
+		w.appendFieldValue(name, val)
+	}
+
+	w.sidBuf = append(w.sidBuf, row.Sid)
+
+	w.rowCount++
+	return nil
 }
 
 // writeInternalPoint 将单个 InternalPoint 写入 block buffer。
