@@ -226,7 +226,7 @@ func Open(cfg Config) (*DB, error) {
 
 	// 默认 Compaction 配置
 	if cfg.CompactionCfg == nil || cfg.CompactionCfg.MaxSstableCount == 0 {
-		cfg.CompactionCfg = types.DefaultCompactionConfig()
+		cfg.CompactionCfg = DefaultCompactionConfig()
 	}
 
 	// 确保数据目录存在
