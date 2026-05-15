@@ -38,12 +38,12 @@ func (c *MemTableConfig) SetIdleDuration(d time.Duration) {
 // 默认配置：
 //
 //   - MaxSize: 64MB
-//   - MaxCount: 3000
+//   - MaxCount: 50000
 //   - IdleDuration: 1分钟
 func DefaultMemTableConfig() *MemTableConfig {
 	return &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          3000,
+		MaxCount:          50000,
 		IdleDurationNanos: int64(time.Minute),
 	}
 }

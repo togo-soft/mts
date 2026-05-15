@@ -93,8 +93,9 @@ type MeasurementWriter struct {
 	seriesStore SeriesStore
 	schemaStore SchemaStore
 	shardStore  ShardStore
-	schema      *metadata.Schema
-	schemaMu    sync.RWMutex
+	schema       *metadata.Schema
+	schemaMu     sync.RWMutex
+	schemaStable atomic.Bool // schema 稳定后跳过逐字段新增检查
 
 	compactionCfg        *compaction.Config
 	levelCompactionCfg   *compaction.LevelConfig
@@ -138,11 +139,21 @@ func (mw *MeasurementWriter) Write(point *types.Point) error {
 	}
 
 	mp := types.PointToMemPoint(point, sid)
+	mw.mu.Unlock()
 
+	// WAL 序列化（LZ4 压缩 + 编码）移出临界区，减少锁持有时间
+	var walData []byte
+	var walRelease func()
 	if mw.wal != nil {
-		data, release := serializePointForWALPooled(mp.Timestamp, mp.Sid, mp.FieldData)
-		_, err := mw.wal.Write(data)
-		release()
+		walData, walRelease = serializePointForWALPooled(mp.Timestamp, mp.Sid, mp.FieldData)
+	}
+
+	mw.mu.Lock()
+	if mw.wal != nil {
+		_, err := mw.wal.Write(walData)
+		if walRelease != nil {
+			walRelease()
+		}
 		if err != nil {
 			metrics.Incr(metrics.WriteErrors, 1)
 			mw.mu.Unlock()
@@ -257,6 +268,26 @@ func (mw *MeasurementWriter) WriteBatch(points []*types.Point) (int, error) {
 
 // validateFieldTypes 验证 point 的字段类型与当前 schema 一致。
 func (mw *MeasurementWriter) validateFieldTypes(point *types.Point) error {
+	// 快速路径：schema 稳定后使用读锁，不修改 schema
+	if mw.schemaStable.Load() {
+		mw.schemaMu.RLock()
+		if mw.schema != nil {
+			err := mw.validateFieldsFast(point.Fields, mw.schema.Fields)
+			mw.schemaMu.RUnlock()
+			if err == nil {
+				return nil
+			}
+			// 字段类型不匹配是真错误，直接返回
+			if _, ok := err.(*fieldTypeMismatchError); ok {
+				return err
+			}
+		} else {
+			mw.schemaMu.RUnlock()
+		}
+		// 字段未找到（newFieldError）或 schema 为 nil → 回退到慢路径
+	}
+
+	// 慢路径：持写锁，可能新增字段
 	mw.schemaMu.Lock()
 	defer mw.schemaMu.Unlock()
 
@@ -269,6 +300,7 @@ func (mw *MeasurementWriter) validateFieldTypes(point *types.Point) error {
 		}
 	}
 
+	hadNewField := false
 	for name, fieldValue := range point.Fields {
 		if fieldValue == nil || fieldValue.Value == nil {
 			continue
@@ -288,16 +320,66 @@ func (mw *MeasurementWriter) validateFieldTypes(point *types.Point) error {
 				Name: name,
 				Type: sstableFieldTypeToMetadataType(newType),
 			})
+			hadNewField = true
 			continue
 		}
 
 		existingType := metadataFieldTypeToSSTableType(mw.schema.Fields[existingIdx].Type)
 		if newType != existingType {
-			return fmt.Errorf("field type mismatch: field %q has type %s, cannot accept %s",
-				name, existingType, newType)
+			return &fieldTypeMismatchError{
+				name:         name,
+				existingType: existingType,
+				newType:      newType,
+			}
 		}
 	}
 
+	// 若无新增字段，标记 schema 为稳定，后续走快速路径
+	if !hadNewField {
+		mw.schemaStable.Store(true)
+	}
+
+	return nil
+}
+
+// fieldTypeMismatchError 字段类型不匹配错误。
+type fieldTypeMismatchError struct {
+	name                  string
+	existingType, newType sstable.FieldType
+}
+
+func (e *fieldTypeMismatchError) Error() string {
+	return fmt.Sprintf("field type mismatch: field %q has type %s, cannot accept %s",
+		e.name, e.existingType, e.newType)
+}
+
+// validateFieldsFast 快速校验字段类型（仅读取，不修改 schema）。
+// 返回 nil 表示全部字段匹配，返回 error 表示字段未找到或类型不匹配。
+func (mw *MeasurementWriter) validateFieldsFast(fields map[string]*types.FieldValue, schemaFields []metadata.FieldDef) error {
+	for name, fieldValue := range fields {
+		if fieldValue == nil || fieldValue.Value == nil {
+			continue
+		}
+		newType := detectFieldType(fieldValue)
+		found := false
+		for _, f := range schemaFields {
+			if f.Name == name {
+				existingType := metadataFieldTypeToSSTableType(f.Type)
+				if newType != existingType {
+					return &fieldTypeMismatchError{
+						name:         name,
+						existingType: existingType,
+						newType:      newType,
+					}
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("field %q not found in schema", name)
+		}
+	}
 	return nil
 }
 

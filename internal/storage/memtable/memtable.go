@@ -17,7 +17,7 @@ type MemTableConfig = types.MemTableConfig
 func DefaultMemTableConfig() *MemTableConfig {
 	return &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024, // 64MB
-		MaxCount:          3000,
+		MaxCount:          50000,
 		IdleDurationNanos: int64(time.Minute),
 	}
 }
@@ -59,11 +59,14 @@ func (m *MemTable) Write(mp types.MemPoint) error {
 	m.activeCount++
 	m.lastWrite = time.Now()
 
-	if !m.sorted || (m.activeCount > 1 && m.active[m.activeCount-1].Timestamp < m.active[m.activeCount-2].Timestamp) {
-		m.sortActive()
+	// 快速路径：时间戳单调递增（最常见场景），跳过排序
+	if m.activeCount <= 1 || mp.Timestamp >= m.active[m.activeCount-2].Timestamp {
+		m.sorted = true
+		return nil
 	}
+	// 乱序插入：全量重排
+	m.sortActive()
 	m.sorted = true
-
 	return nil
 }
 

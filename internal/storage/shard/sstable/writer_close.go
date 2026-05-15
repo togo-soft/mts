@@ -223,6 +223,14 @@ func (w *Writer) Close() error {
 		return cleanupErr(err)
 	}
 
+	if w.syncOnClose {
+		if err := outFile.Sync(); err != nil {
+			_ = outFile.Close()
+			_ = os.Remove(outPath)
+			_ = os.RemoveAll(w.tmpDir)
+			return fmt.Errorf("sync output file: %w", err)
+		}
+	}
 	if err := outFile.Close(); err != nil {
 		_ = os.Remove(outPath)
 		_ = os.RemoveAll(w.tmpDir)

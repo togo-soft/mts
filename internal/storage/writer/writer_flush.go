@@ -192,6 +192,7 @@ func (mw *MeasurementWriter) writeGroupSSTable(g flushGroup) (asyncFlushResult, 
 	if err != nil {
 		return asyncFlushResult{}, fmt.Errorf("create sstable writer: %w", err)
 	}
+	w.SetSyncOnClose(false) // flush 走 tmp+rename，WAL 保证持久性
 
 	if err := w.WriteMemPoints(g.points); err != nil {
 		_ = w.Close()
@@ -318,6 +319,7 @@ func (mw *MeasurementWriter) writeGroupSSTableSync(g flushGroup) error {
 	if err != nil {
 		return fmt.Errorf("create sstable writer: %w", err)
 	}
+	w.SetSyncOnClose(false) // flush 场景，WAL 保证持久性
 
 	if err := w.WriteMemPoints(g.points); err != nil {
 		_ = w.Close()

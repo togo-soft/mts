@@ -57,6 +57,7 @@ type Writer struct {
 	writtenPool   sync.Pool      // []bool 池化，用于追踪每行已写入字段
 
 	compressAlgo CompressionAlgorithm
+	syncOnClose  bool // Close 时是否 fsync，默认 true
 }
 
 // NewWriter 创建 SSTable Writer。
@@ -109,9 +110,16 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 		fieldIdx:         make(map[string]int),
 		writtenPool:      sync.Pool{New: func() any { s := make([]bool, 0, 16); return &s }},
 		compressAlgo:     compressAlgo,
+		syncOnClose:      true,
 	}
 
 	return w, nil
+}
+
+// SetSyncOnClose 设置 Close 时是否执行 fsync。flush 场景可设为 false，
+// 由 WAL + tmp/rename 模式保证原子性和持久性。
+func (w *Writer) SetSyncOnClose(v bool) {
+	w.syncOnClose = v
 }
 
 // NewBlockIndex 创建空的 BlockIndex。

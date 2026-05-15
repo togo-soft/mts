@@ -90,8 +90,8 @@ func TestDefaultMemTableConfig(t *testing.T) {
 	if cfg.MaxSize != 64*1024*1024 {
 		t.Errorf("expected MaxSize 64MB, got %d", cfg.MaxSize)
 	}
-	if cfg.MaxCount != 3000 {
-		t.Errorf("expected MaxCount 3000, got %d", cfg.MaxCount)
+	if cfg.MaxCount != 50000 {
+		t.Errorf("expected MaxCount 50000, got %d", cfg.MaxCount)
 	}
 	if cfg.IdleDurationNanos != int64(time.Minute) {
 		t.Errorf("expected IdleDuration 1min, got %d ns", cfg.IdleDurationNanos)

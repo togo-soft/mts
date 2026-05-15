@@ -144,7 +144,7 @@ type Config struct {
 //
 // 默认配置：
 //   - MaxSize: 64MB，内存表最大内存占用
-//   - MaxCount: 3000，最大条目数
+//   - MaxCount: 50000，最大条目数
 //   - IdleDuration: 1分钟，空闲时间阈值
 //
 // 返回：
@@ -160,7 +160,7 @@ type Config struct {
 func DefaultMemTableConfig() *types.MemTableConfig {
 	return &types.MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          3000,
+		MaxCount:          50000,
 		IdleDurationNanos: int64(time.Minute),
 	}
 }
