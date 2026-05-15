@@ -12,6 +12,7 @@ import (
 	"container/heap"
 	"context"
 
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -138,6 +139,54 @@ func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRan
 	heap.Init(&q.heap)
 
 	// 获取第一个有效的行
+	q.fetchNextValid()
+
+	return q
+}
+
+// NewIteratorWithMemTable 创建流式查询迭代器，合并 Writer MemTable 和 Shard SSTable。
+// writerMT 为 MeasurementWriter 的 MemTable（未刷盘数据），可为 nil。
+// extSeriesStore 用于 nil shard 场景下 SID→Tags 解析（可为 nil）。
+func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerMT *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest) *Iterator {
+	q := &Iterator{
+		req: req,
+	}
+
+	startTimeNs := req.StartTime
+	endTimeNs := req.EndTime
+
+	var maxRows int
+	if req.Limit > 0 {
+		maxRows = int(req.Limit + req.Offset)
+	}
+	q.heap = make(shardHeap, 0, len(shards)+1)
+
+	for i, s := range shards {
+		var si *shard.ShardIterator
+		if i == 0 && writerMT != nil {
+			si = shard.NewShardIteratorWithMemTable(s, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows)
+		} else {
+			si = shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
+		}
+		if si.Current() != nil {
+			q.heap = append(q.heap, si)
+		} else {
+			si.Close()
+		}
+	}
+
+	// 如果没有 shard 但有 writer MemTable，创建独立数据源
+	if len(shards) == 0 && writerMT != nil {
+		si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows)
+		if si.Current() != nil {
+			q.heap = append(q.heap, si)
+		} else {
+			si.Close()
+		}
+	}
+
+	heap.Init(&q.heap)
+
 	q.fetchNextValid()
 
 	return q

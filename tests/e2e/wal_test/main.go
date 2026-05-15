@@ -64,7 +64,8 @@ func listWALFiles(walDir string) ([]string, error) {
 
 // getWALDirectories 查找 WAL 目录列表
 //
-// WAL 目录结构: dataDir/dbName/measurement/shardTimeRange/wal/
+// 新架构（Writer 级别 WAL）: dataDir/dbName/measurement/wal/
+// 旧架构（Shard 级别 WAL）: dataDir/dbName/measurement/shardTimeRange/wal/
 func getWALDirectories(dataDir, dbName, measurement string) ([]string, error) {
 	measurementDir := filepath.Join(dataDir, dbName, measurement)
 	entries, err := os.ReadDir(measurementDir)
@@ -73,6 +74,14 @@ func getWALDirectories(dataDir, dbName, measurement string) ([]string, error) {
 	}
 
 	var walDirs []string
+
+	// 新架构：measurement 级别的 WAL
+	measurementWALDir := filepath.Join(measurementDir, "wal")
+	if info, err := os.Stat(measurementWALDir); err == nil && info.IsDir() {
+		walDirs = append(walDirs, measurementWALDir)
+	}
+
+	// 旧架构：shard 级别的 WAL
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), "1") {
 			walDir := filepath.Join(measurementDir, e.Name(), "wal")

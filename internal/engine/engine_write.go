@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/internal/storage/writer"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 // Write 写入单个数据点到存储引擎。
+// 数据通过全局 MeasurementWriter 写入，而非路由到单个 Shard。
 func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 	select {
 	case <-ctx.Done():
@@ -46,20 +47,20 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 		}
 	}
 
-	s, err := e.shardManager.GetShard(point.Database, point.Measurement, point.Timestamp)
+	w, err := e.shardManager.GetWriter(point.Database, point.Measurement)
 	if err != nil {
-		return fmt.Errorf("get shard: %w", err)
+		return fmt.Errorf("get writer: %w", err)
 	}
 
-	if err := s.Write(point); err != nil {
-		return fmt.Errorf("write to shard: %w", err)
+	if err := w.Write(point); err != nil {
+		return fmt.Errorf("write: %w", err)
 	}
 	return nil
 }
 
 // WriteBatch 批量写入数据点。
 //
-// 优化策略：按 Shard 分组后对每组调用 Shard.WriteBatch，
+// 优化策略：按 Measurement 分组后对每组调用 MeasurementWriter.WriteBatch，
 // 减少锁获取次数并利用 WAL 批量写入减少 fsync。
 //
 // 批量写入不是原子操作，部分失败不会回滚已写入的点。
@@ -78,9 +79,9 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 		return nil
 	}
 
-	// 验证并自动创建 database/measurement，按 *Shard 分组
+	// 验证并自动创建 database/measurement，按 writer 分组
 	cat := e.manager.Catalog()
-	groups := make(map[*shard.Shard][]*types.Point)
+	groups := make(map[*writer.MeasurementWriter][]*types.Point)
 
 	for _, p := range points {
 		if p == nil {
@@ -107,28 +108,28 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 			}
 		}
 
-		s, err := e.shardManager.GetShard(p.Database, p.Measurement, p.Timestamp)
+		w, err := e.shardManager.GetWriter(p.Database, p.Measurement)
 		if err != nil {
-			return fmt.Errorf("get shard: %w", err)
+			return fmt.Errorf("get writer: %w", err)
 		}
 
-		groups[s] = append(groups[s], p)
+		groups[w] = append(groups[w], p)
 	}
 
-	// 对每组调用 Shard.WriteBatch
-	for s, group := range groups {
+	// 对每组调用 MeasurementWriter.WriteBatch
+	for w, group := range groups {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		n, err := s.WriteBatch(group)
+		n, err := w.WriteBatch(group)
 		if err != nil {
-			return fmt.Errorf("write batch to shard: wrote %d/%d: %w", n, len(group), err)
+			return fmt.Errorf("write batch: wrote %d/%d: %w", n, len(group), err)
 		}
 		if n != len(group) {
-			slog.Warn("write batch to shard: partial write with nil error",
+			slog.Warn("write batch: partial write with nil error",
 				"written", n, "expected", len(group))
 		}
 	}

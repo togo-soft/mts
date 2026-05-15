@@ -117,6 +117,7 @@ func (e *Engine) Close() error {
 	// 等待 WAL replay 完成
 	e.shardManager.WaitForDiscovery()
 
+	_ = e.shardManager.CloseAllWriters()
 	_ = e.shardManager.CloseAll()
 
 	if err := e.manager.Sync(); err != nil {
@@ -136,8 +137,11 @@ func (e *Engine) isClosed() bool {
 	return e.closed
 }
 
-// Flush 将所有 MemTable 数据刷写到 SSTable。
+// Flush 将所有 MeasurementWriter 和 Shard 的 MemTable 数据刷写到 SSTable。
 func (e *Engine) Flush() error {
+	if err := e.shardManager.FlushAllWriters(); err != nil {
+		return err
+	}
 	return e.shardManager.FlushAll()
 }
 

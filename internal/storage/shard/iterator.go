@@ -38,7 +38,9 @@ type ShardIterator struct {
 	produced int // 已输出的行数
 	maxRows  int // 最大输出行数（0 表示无限制）
 
-	// 线程安全保护 - 读写锁允许多个并发读
+	// extSeriesStore 为外部 SeriesStore（用于 nil shard 场景的 SID→Tags 解析）
+	extSeriesStore SeriesStore
+
 	mu sync.RWMutex
 }
 
@@ -59,36 +61,52 @@ type ShardIterator struct {
 //  2. 创建 SSTable MergeIterator 流式归并（块级按需读取）
 //  3. 记录当前位置用于归并排序
 func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *ShardIterator {
+	return NewShardIteratorWithMemTable(shard, nil, nil, startTime, endTime, maxRows)
+}
+
+// NewShardIteratorWithMemTable 创建 Shard 迭代器，可指定外部 MemTable 和 SeriesStore。
+// externalMT 为 nil 时使用 shard 自带的 MemTable。
+// extSeriesStore 用于 nil shard 场景下 SID→Tags 解析。
+func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, extSeriesStore SeriesStore, startTime, endTime int64, maxRows int) *ShardIterator {
 	si := &ShardIterator{
-		shard:     shard,
-		startTime: startTime,
-		endTime:   endTime,
-		maxRows:   maxRows,
+		shard:          shard,
+		startTime:      startTime,
+		endTime:        endTime,
+		maxRows:        maxRows,
+		extSeriesStore: extSeriesStore,
 	}
 
+	mt := externalMT
+	if mt == nil {
+		mt = shard.memTable
+	}
 	// 创建 MemTable 迭代器
-	si.memIter = shard.memTable.Iterator()
-	if si.memIter.Next() {
-		ip := si.memIter.Point()
-		si.memRow = si.pointToRow(ip)
+	if mt != nil {
+		si.memIter = mt.Iterator()
+		if si.memIter.Next() {
+			ip := si.memIter.Point()
+			si.memRow = si.pointToRow(ip)
+		}
 	}
 
-	// 创建流式 SSTable MergeIterator
-	sstFiles := shard.listSSTableFiles()
-	if len(sstFiles) > 0 {
-		schema, err := shard.GetSchema()
-		if err != nil {
-			si.err = fmt.Errorf("get schema: %w", err)
-			return si
-		}
-		sstIter, err := sstable.NewMergeIterator(sstFiles, startTime, endTime, schema, shard, nil)
-		if err != nil {
-			si.err = fmt.Errorf("create SSTable merge iterator: %w", err)
-			return si
-		}
-		si.sstIter = sstIter
-		if sstIter.Next() {
-			si.sstRow = sstIter.Point()
+	// 创建流式 SSTable MergeIterator（仅当 shard 非 nil 时）
+	if si.shard != nil {
+		sstFiles := si.shard.listSSTableFiles()
+		if len(sstFiles) > 0 {
+			schema, err := si.shard.GetSchema()
+			if err != nil {
+				si.err = fmt.Errorf("get schema: %w", err)
+				return si
+			}
+			sstIter, err := sstable.NewMergeIterator(sstFiles, startTime, endTime, schema, si.shard, nil)
+			if err != nil {
+				si.err = fmt.Errorf("create SSTable merge iterator: %w", err)
+				return si
+			}
+			si.sstIter = sstIter
+			if sstIter.Next() {
+				si.sstRow = sstIter.Point()
+			}
 		}
 	}
 
@@ -98,8 +116,10 @@ func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *Shar
 // pointToRow 将 InternalPoint 转换为 PointRow，通过 Sid 从 SeriesStore 恢复 Tags。
 func (si *ShardIterator) pointToRow(ip types.InternalPoint) *types.PointRow {
 	tags := make(map[string]string)
-	if si.shard.seriesStore != nil {
+	if si.shard != nil && si.shard.seriesStore != nil {
 		tags, _ = si.shard.seriesStore.GetTagsBySID(ip.Sid)
+	} else if si.extSeriesStore != nil {
+		tags, _ = si.extSeriesStore.GetTagsBySID(ip.Sid)
 	}
 	return &types.PointRow{
 		Sid:       ip.Sid,

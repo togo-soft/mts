@@ -49,19 +49,6 @@ type SeriesStore interface {
 
 // ===================================
 // ShardConfig 定义 Shard 的配置。
-//
-// 字段说明：
-//
-//   - DB:          所属数据库名称
-//   - Measurement: 所属 Measurement 名称
-//   - StartTime:   Shard 时间窗口起始（包含），纳秒
-//   - EndTime:     Shard 时间窗口结束（不包含），纳秒
-//   - Dir:         数据存储目录路径
-//   - SeriesStore: Series 存储接口，用于分配 SID 和查询 Tags
-//   - MemTableCfg: MemTable 配置
-//   - CompactionCfg: Compaction 配置（可选，nil 表示禁用 compaction）
-//   - LevelCompactionCfg: Level Compaction 配置（可选，nil 表示使用平坦 compaction）
-//   - Logger:      日志记录器（nil 使用 slog.Default()）
 type ShardConfig struct {
 	DB                   string
 	Measurement          string
@@ -75,6 +62,10 @@ type ShardConfig struct {
 	LevelCompactionCfg   *compaction.LevelConfig
 	CompressionAlgorithm sstable.CompressionAlgorithm
 	Logger               *slog.Logger
+
+	// DiskOnly 为 true 时，Shard 仅管理 SSTable 文件，不创建 WAL 和 MemTable。
+	// 用于新架构中 MeasurementWriter 统一管理写入的场景。
+	DiskOnly bool
 }
 
 // SchemaStore 是 schema 的存储接口。
@@ -165,6 +156,28 @@ func NewShard(cfg ShardConfig) *Shard {
 		logger = slog.Default()
 	}
 
+	shard := &Shard{
+		db:              cfg.DB,
+		measurement:     cfg.Measurement,
+		startTime:       cfg.StartTime,
+		endTime:         cfg.EndTime,
+		dir:             cfg.Dir,
+		seriesStore:     cfg.SeriesStore,
+		schemaStore:     cfg.SchemaStore,
+		sstRefs:         newSSTRefs(),
+		compressionAlgo: cfg.CompressionAlgorithm,
+	}
+
+	// 恢复 SSTable 序列号
+	shard.sstSeq = recoverSSTSeq(cfg.Dir)
+
+	if cfg.DiskOnly {
+		shard.initCompaction(cfg)
+		return shard
+	}
+
+	// ========== 以下为完整模式（含 WAL + MemTable）==========
+
 	// 创建 WAL
 	walDir := filepath.Join(cfg.Dir, "wal")
 	w, err := wal.Open(wal.Config{
@@ -181,64 +194,41 @@ func NewShard(cfg ShardConfig) *Shard {
 			"walDir", walDir, "error", err)
 	}
 
-	// 创建空的 MemTable
-	memTable := memtable.NewMemTable(cfg.MemTableCfg)
+	shard.wal = w
+	shard.memTable = memtable.NewMemTable(cfg.MemTableCfg)
+	shard.flushDone = make(chan struct{})
 
-	// 创建 Shard 实例
-	shard := &Shard{
-		db:              cfg.DB,
-		measurement:     cfg.Measurement,
-		startTime:       cfg.StartTime,
-		endTime:         cfg.EndTime,
-		dir:             cfg.Dir,
-		memTable:        memTable,
-		wal:             w,
-		flushDone:       make(chan struct{}),
-		seriesStore:     cfg.SeriesStore,
-		schemaStore:     cfg.SchemaStore,
-		sstRefs:         newSSTRefs(),
-		compressionAlgo: cfg.CompressionAlgorithm,
-	}
+	shard.initCompaction(cfg)
 
-	// 初始化 Manager（如果配置了）
-	if cfg.CompactionCfg != nil {
-		shard.compaction = compaction.NewManager(shard, cfg.CompactionCfg)
-	}
-
-	// 初始化 LevelManager（如果配置了）
-	if cfg.LevelCompactionCfg != nil {
-		shard.levelCompaction, err = compaction.NewLevelManager(shard, cfg.LevelCompactionCfg)
-		if err != nil {
-			slog.Warn("failed to create LevelManager, level compaction disabled",
-				"error", err)
-			shard.levelCompaction = nil
-		}
-	}
-
-	// 恢复 SSTable 序列号，避免重启后覆盖已有 SSTable 数据
-	shard.sstSeq = recoverSSTSeq(cfg.Dir)
-
-	// 从 boltDB 加载初始 schema 到内存缓存
+	// 从 boltDB 加载初始 schema
 	if shard.schemaStore != nil {
 		if metaSchema, err := shard.schemaStore.GetSchema(cfg.DB, cfg.Measurement); err == nil {
 			shard.schema = metaSchema
 		}
 	}
 
-	// 启动定期 Compaction 检查（如果启用了）
-	if shard.compaction != nil {
-		shard.compaction.StartPeriodicCheck()
-	}
-
-	// 启动定期 Level Compaction 检查（如果启用了）
-	if shard.levelCompaction != nil {
-		shard.levelCompaction.StartPeriodicCheck()
-	}
-
 	// 启动 MemTable 定期刷盘检查
 	shard.startPeriodicFlushCheck()
 
 	return shard
+}
+
+// initCompaction 初始化 compaction manager（两种模式共用）。
+func (s *Shard) initCompaction(cfg ShardConfig) {
+	if cfg.CompactionCfg != nil {
+		s.compaction = compaction.NewManager(s, cfg.CompactionCfg)
+		s.compaction.StartPeriodicCheck()
+	}
+	if cfg.LevelCompactionCfg != nil {
+		var err error
+		s.levelCompaction, err = compaction.NewLevelManager(s, cfg.LevelCompactionCfg)
+		if err != nil {
+			slog.Warn("failed to create LevelManager, level compaction disabled", "error", err)
+			s.levelCompaction = nil
+		} else {
+			s.levelCompaction.StartPeriodicCheck()
+		}
+	}
 }
 
 // recoverSSTSeq 扫描数据目录，恢复 SSTable 序列号。
@@ -542,9 +532,36 @@ func (s *Shard) startPeriodicFlushCheck() {
 
 // doPeriodicFlush 定时执行的 MemTable 刷盘检查（异步，不阻塞写入）。
 func (s *Shard) doPeriodicFlush() {
-	if s.memTable.ShouldSwap() {
+	if s.memTable != nil && s.memTable.ShouldSwap() {
 		s.tryTriggerAsyncFlush()
 	}
+}
+
+// RegisterSSTable 注册新写入的 SSTable 到 Shard 的 compaction 系统。
+// 用于 MeasurementWriter flush 后注册 SSTable。
+func (s *Shard) RegisterSSTable(seq uint64, minTime, maxTime int64, size int64) {
+	if s.levelCompaction != nil {
+		name := fmt.Sprintf("sst_%d", seq)
+		s.levelCompaction.AddPart(0, compaction.PartInfo{
+			Name:    name,
+			Size:    size,
+			MinTime: minTime,
+			MaxTime: maxTime,
+		})
+	}
+	// 对于 flat compaction，SSTable 通过文件系统发现，无需显式注册
+}
+
+// TriggerCompaction 触发后台 compaction（公开方法，由 ShardStore 调用）。
+func (s *Shard) TriggerCompaction() {
+	s.triggerBackgroundCompaction()
+}
+
+// SSTSeq 返回当前 SSTable 序列号（不递增，公开给 ShardStore）。
+func (s *Shard) SSTSeq() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sstSeq
 }
 
 // ReplayWAL 重放 WAL 数据恢复到 MemTable。

@@ -29,22 +29,16 @@ import (
 func (s *Shard) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		// 1. 先停止 MemTable 定期刷盘检查，避免与 s.mu 形成死锁
-		// 注意：这里需要在获取 s.mu 之前停止定时任务，因为 doPeriodicFlush
-		// 会尝试获取 s.mu，如果我们在持有 s.mu 时等待 flushWg，
-		// 而定时任务恰好在执行 doPeriodicFlush，会导致死锁。
+		// 停止 MemTable 定期刷盘（仅完整模式）
 		if s.flushDone != nil {
 			close(s.flushDone)
 			s.flushWg.Wait()
 		}
 
-		// 2-5. 在 s.mu 保护下完成刷盘和 WAL 清理
+		// 刷盘 + WAL 清理（仅完整模式）
 		err = s.closeWithLock()
 
-		// 6-9. 停止 compaction managers 并等待后台 goroutine，不持有 s.mu
-		// 必须在 s.mu 之外调用，因为后台 compaction goroutine 可能通过
-		// NextSSTSeq() -> s.mu.Lock() 获取 s.mu，若 Close 持有 s.mu
-		// 会导致死锁。
+		// 停止 compaction managers
 		if s.compaction != nil {
 			s.compaction.Stop()
 		}
@@ -58,8 +52,21 @@ func (s *Shard) Close() error {
 	return err
 }
 
+// IsDiskOnly 返回 Shard 是否为磁盘模式（无 WAL/MemTable）。
+func (s *Shard) IsDiskOnly() bool {
+	return s.memTable == nil
+}
+
 // closeWithLock 在持有 s.mu 的情况下执行刷盘和 WAL 清理。
 func (s *Shard) closeWithLock() error {
+	// 磁盘模式：只需标记关闭
+	if s.memTable == nil {
+		s.mu.Lock()
+		s.closed.Store(true)
+		s.mu.Unlock()
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

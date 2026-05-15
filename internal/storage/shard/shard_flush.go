@@ -17,7 +17,12 @@ import (
 )
 
 // Flush 将 MemTable 数据刷写到 SSTable（同步，用于手动调用和 Close）。
+// 磁盘模式 Shard 无 MemTable，直接返回 nil。
 func (s *Shard) Flush() error {
+	if s.memTable == nil {
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -154,7 +159,7 @@ func (s *Shard) writeSSTableSync(points []types.MemPoint) error {
 
 // tryTriggerAsyncFlush 尝试触发异步 flush。CAS 保证只有一个 goroutine 执行。
 func (s *Shard) tryTriggerAsyncFlush() {
-	if !s.memTable.TrySetFlushing() {
+	if s.memTable == nil || !s.memTable.TrySetFlushing() {
 		return
 	}
 
