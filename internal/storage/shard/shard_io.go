@@ -65,8 +65,10 @@ func (s *Shard) Write(point *types.Point) error {
 
 	// 4. 写入 WAL（WAL 完整格式 = Version + TS + SID + FieldData）
 	if s.wal != nil {
-		data := serializePointForWAL(mp.Timestamp, mp.Sid, mp.FieldData)
-		if _, err := s.wal.Write(data); err != nil {
+		data, release := serializePointForWALPooled(mp.Timestamp, mp.Sid, mp.FieldData)
+		_, err := s.wal.Write(data)
+		release()
+		if err != nil {
 			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
 			return fmt.Errorf("write to wal: %w", err)
@@ -133,32 +135,46 @@ func (s *Shard) WriteBatch(points []*types.Point) (int, error) {
 	// 预序列化所有 point
 	mps := make([]types.MemPoint, 0, len(points))
 	walData := make([][]byte, 0, len(points))
+	walReleases := make([]func(), 0, len(points))
 
 	for i, point := range points {
 		sid, err := s.seriesStore.AllocateSID(point.Tags)
 		if err != nil {
 			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
+			for _, r := range walReleases {
+				r()
+			}
 			return i, fmt.Errorf("allocate SID for point %d: %w", i, err)
 		}
 		if err := s.ValidateFieldTypes(point); err != nil {
 			s.mu.Unlock()
+			for _, r := range walReleases {
+				r()
+			}
 			return i, fmt.Errorf("validate field types for point %d: %w", i, err)
 		}
 		mp := types.PointToMemPoint(point, sid)
 		mps = append(mps, mp)
 
 		if s.wal != nil {
-			walData = append(walData, serializePointForWAL(mp.Timestamp, mp.Sid, mp.FieldData))
+			data, release := serializePointForWALPooled(mp.Timestamp, mp.Sid, mp.FieldData)
+			walData = append(walData, data)
+			walReleases = append(walReleases, release)
 		}
 	}
 
 	// 批量写入 WAL
 	if s.wal != nil && len(walData) > 0 {
-		if _, err := s.wal.WriteBatch(walData); err != nil {
+		var batchErr error
+		_, batchErr = s.wal.WriteBatch(walData)
+		for _, r := range walReleases {
+			r()
+		}
+		if batchErr != nil {
 			metrics.Incr(metrics.WriteErrors, 1)
 			s.mu.Unlock()
-			return 0, fmt.Errorf("wal write batch: %w", err)
+			return 0, fmt.Errorf("wal write batch: %w", batchErr)
 		}
 	}
 

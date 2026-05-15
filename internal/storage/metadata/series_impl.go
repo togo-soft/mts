@@ -65,7 +65,6 @@ func (s *seriesStore) hashCacheKey(db, meas string, h uint64) string {
 	n += copy(buf[n:], meas)
 	buf[n] = '/'
 	n++
-	// 使用十六进制编码，避免不可打印字符
 	const hex = "0123456789abcdef"
 	for i := 0; i < 8; i++ {
 		b := byte(h >> (56 - i*8))

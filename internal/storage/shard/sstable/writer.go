@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"codeberg.org/micro-ts/mts/internal/storage"
 )
@@ -49,6 +50,11 @@ type Writer struct {
 	fieldBufs        map[string][]byte
 	fieldSizes       map[string]int
 	fieldByteOffsets map[string][]int64 // 每个 block 在各 field temp 文件中的字节起始偏移
+
+	// 字段索引：消除 writeMemPoint 中的字符串分配
+	fieldIdx      map[string]int // 字段名 → 索引
+	fieldIdxNames []string       // 索引 → 字段名
+	writtenPool   sync.Pool      // []bool 池化，用于追踪每行已写入字段
 
 	compressAlgo CompressionAlgorithm
 }
@@ -100,6 +106,8 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 		fieldBufs:        make(map[string][]byte),
 		fieldSizes:       make(map[string]int),
 		fieldByteOffsets: make(map[string][]int64),
+		fieldIdx:         make(map[string]int),
+		writtenPool:      sync.Pool{New: func() any { s := make([]bool, 0, 16); return &s }},
 		compressAlgo:     compressAlgo,
 	}
 

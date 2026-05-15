@@ -29,6 +29,13 @@ func (w *Writer) WriteMemPoints(points []types.MemPoint) error {
 		}
 	}
 
+	// 构建字段索引：字段名 → 整数索引，消除后续字符串分配
+	w.fieldIdxNames = make([]string, 0, len(fieldSet))
+	for name := range fieldSet {
+		w.fieldIdx[name] = len(w.fieldIdxNames)
+		w.fieldIdxNames = append(w.fieldIdxNames, name)
+	}
+
 	fieldsDir := filepath.Join(w.tmpDir, "fields")
 	if err := storage.SafeMkdirAll(fieldsDir, 0700); err != nil {
 		return fmt.Errorf("create fields tmp dir: %w", err)
@@ -59,7 +66,8 @@ func (w *Writer) WriteMemPoints(points []types.MemPoint) error {
 	return nil
 }
 
-// scanFieldDataKeys 从 FieldData 轻量扫描字段名和类型（不分配 FieldValue）。
+// scanFieldDataKeys 从 FieldData 轻量扫描字段名和类型。
+// 使用字节级比较避免重复字符串分配：仅在 fieldSet 中不存在时才创建新字符串。
 func scanFieldDataKeys(data []byte, fieldSet map[string]FieldType, schema *Schema) error {
 	if len(data) < 2 {
 		return fmt.Errorf("field data too short: %d bytes", len(data))
@@ -75,7 +83,7 @@ func scanFieldDataKeys(data []byte, fieldSet map[string]FieldType, schema *Schem
 		if pos+kLen > len(data) {
 			return fmt.Errorf("truncated key at pos %d (len=%d)", pos, kLen)
 		}
-		key := string(data[pos : pos+kLen])
+		keyData := data[pos : pos+kLen]
 		pos += kLen
 		if pos+1 > len(data) {
 			return fmt.Errorf("truncated type at pos %d", pos)
@@ -87,6 +95,9 @@ func scanFieldDataKeys(data []byte, fieldSet map[string]FieldType, schema *Schem
 		if ft == "" {
 			return fmt.Errorf("unknown field type: %d", typ)
 		}
+
+		// 字节级比较，仅在首次遇到时分配字符串
+		key := lookupOrAllocKey(keyData, fieldSet)
 		if _, exists := fieldSet[key]; !exists {
 			fieldSet[key] = ft
 		}
@@ -102,6 +113,26 @@ func scanFieldDataKeys(data []byte, fieldSet map[string]FieldType, schema *Schem
 		pos = skip
 	}
 	return nil
+}
+
+// lookupOrAllocKey 在已有 map 中按字节查找 key，找到则返回已有字符串（避免分配），未找到则分配新字符串。
+func lookupOrAllocKey(data []byte, m map[string]FieldType) string {
+	for k := range m {
+		if len(k) == len(data) && stringEqualBytes(k, data) {
+			return k
+		}
+	}
+	return string(data)
+}
+
+// stringEqualBytes 比较 string 和 []byte 是否相等（零分配）。
+func stringEqualBytes(s string, b []byte) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // skipFieldValue 跳过 FieldData 中一个字段的值部分，返回新位置。
@@ -124,7 +155,6 @@ func skipFieldValue(data []byte, pos int, typ byte) (int, error) {
 }
 
 // fieldDataTypeToFieldType 将 FieldData 中的类型标签映射为 FieldType。
-// 返回空字符串表示未知类型。
 func fieldDataTypeToFieldType(typ byte) FieldType {
 	switch typ {
 	case 0:
@@ -140,7 +170,8 @@ func fieldDataTypeToFieldType(typ byte) FieldType {
 	}
 }
 
-// writeMemPoint 直接解析 MemPoint.FieldData 写入块缓冲区（零 FieldValue 分配）。
+// writeMemPoint 直接解析 MemPoint.FieldData 写入块缓冲区。
+// 使用字段索引 + 池化 []bool 消除 per-point 字符串分配和 map 分配。
 func (w *Writer) writeMemPoint(mp types.MemPoint) error {
 	if w.bufPos >= w.blockSize {
 		if err := w.flushBlock(); err != nil {
@@ -157,8 +188,18 @@ func (w *Writer) writeMemPoint(mp types.MemPoint) error {
 	copy(w.buf[w.bufPos:w.bufPos+8], tsBuf[:])
 	w.bufPos += 8
 
-	// 使用小 map 追踪已写入的字段，用于后续缺失字段补零
-	written := make(map[string]bool, len(w.fields))
+	// 从池获取 written slice，复用避免每行分配
+	writtenPtr := w.writtenPool.Get().(*[]bool)
+	written := *writtenPtr
+	if cap(written) < len(w.fieldIdxNames) {
+		written = make([]bool, len(w.fieldIdxNames))
+	} else {
+		written = written[:len(w.fieldIdxNames)]
+	}
+	// 清零
+	for i := range written {
+		written[i] = false
+	}
 
 	data := mp.FieldData
 	if len(data) > 0 {
@@ -167,45 +208,145 @@ func (w *Writer) writeMemPoint(mp types.MemPoint) error {
 		for range fieldCount {
 			kLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
 			pos += 2
-			key := string(data[pos : pos+kLen])
+			// 字节级字段查找：获取索引，零字符串分配
+			idx := w.lookupFieldIdx(data[pos : pos+kLen])
 			pos += kLen
 			typ := data[pos]
 			pos++
 
+			name := w.fieldIdxNames[idx]
 			switch typ {
 			case 0: // float64
 				val := math.Float64frombits(binary.BigEndian.Uint64(data[pos : pos+8]))
-				w.appendFieldValue(key, val)
+				w.appendFieldValueIdx(idx, name, val)
 				pos += 8
 			case 1: // int64
 				val := int64(binary.BigEndian.Uint64(data[pos : pos+8]))
-				w.appendFieldValue(key, val)
+				w.appendFieldValueIdx(idx, name, val)
 				pos += 8
 			case 2: // string
 				vLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
 				pos += 2
 				val := string(data[pos : pos+vLen])
-				w.appendFieldValue(key, val)
+				w.appendFieldValueIdx(idx, name, val)
 				pos += vLen
 			case 3: // bool
 				val := data[pos] == 1
-				w.appendFieldValue(key, val)
+				w.appendFieldValueIdx(idx, name, val)
 				pos++
 			}
-			written[key] = true
+			written[idx] = true
 		}
 	}
 
 	// 为当前行中不存在的字段写入零值
-	for name := range w.fields {
-		if !written[name] {
-			w.appendFieldValue(name, w.zeroValue(w.schema.Fields[name]))
+	for i, name := range w.fieldIdxNames {
+		if !written[i] {
+			w.appendFieldValueIdx(i, name, w.zeroValue(w.schema.Fields[name]))
 		}
 	}
 
 	w.sidBuf = append(w.sidBuf, mp.Sid)
 	w.rowCount++
+
+	// 归还 written slice 到池
+	*writtenPtr = written[:0]
+	w.writtenPool.Put(writtenPtr)
+
 	return nil
+}
+
+// lookupFieldIdx 通过字节级比较查找字段索引，零字符串分配。
+func (w *Writer) lookupFieldIdx(data []byte) int {
+	for i, name := range w.fieldIdxNames {
+		if len(name) == len(data) && stringEqualBytes(name, data) {
+			return i
+		}
+	}
+	return -1
+}
+
+// appendFieldValueIdx 将字段值追加到 field buffer（使用字段索引）。
+func (w *Writer) appendFieldValueIdx(idx int, name string, val any) {
+	buf := w.fieldBufs[name]
+
+	if val == nil {
+		buf = w.appendZeroValue(buf, w.schema.Fields[name])
+		w.fieldBufs[name] = buf
+		return
+	}
+
+	if fv, ok := val.(*types.FieldValue); ok {
+		if fv == nil || fv.Value == nil {
+			buf = w.appendZeroValue(buf, w.schema.Fields[name])
+			w.fieldBufs[name] = buf
+			return
+		}
+		switch v := fv.Value.(type) {
+		case *types.FieldValue_FloatValue:
+			var b [8]byte
+			binary.BigEndian.PutUint64(b[:], math.Float64bits(v.FloatValue))
+			buf = append(buf, b[:]...)
+		case *types.FieldValue_IntValue:
+			var b [8]byte
+			binary.BigEndian.PutUint64(b[:], uint64(v.IntValue))
+			buf = append(buf, b[:]...)
+		case *types.FieldValue_StringValue:
+			var lenBuf [4]byte
+			binary.BigEndian.PutUint32(lenBuf[:], uint32(len(v.StringValue)))
+			buf = append(buf, lenBuf[:]...)
+			buf = append(buf, v.StringValue...)
+		case *types.FieldValue_BoolValue:
+			if v.BoolValue {
+				buf = append(buf, 1)
+			} else {
+				buf = append(buf, 0)
+			}
+		}
+		w.fieldBufs[name] = buf
+		return
+	}
+
+	switch v := val.(type) {
+	case float64:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], math.Float64bits(v))
+		buf = append(buf, b[:]...)
+	case int64:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(v))
+		buf = append(buf, b[:]...)
+	case string:
+		var lenBuf [4]byte
+		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(v)))
+		buf = append(buf, lenBuf[:]...)
+		buf = append(buf, v...)
+	case bool:
+		if v {
+			buf = append(buf, 1)
+		} else {
+			buf = append(buf, 0)
+		}
+	}
+	w.fieldBufs[name] = buf
+}
+
+// appendZeroValue 追加类型的零值到 buffer
+func (w *Writer) appendZeroValue(buf []byte, t FieldType) []byte {
+	switch t {
+	case FieldTypeFloat64, FieldTypeInt64:
+		var b [8]byte
+		buf = append(buf, b[:]...)
+	case FieldTypeBool:
+		buf = append(buf, 0)
+	case FieldTypeString:
+		var lenBuf [4]byte
+		buf = append(buf, lenBuf[:]...)
+	default:
+		var b [8]byte
+		buf = append(buf, b[:]...)
+	}
+	return buf
 }
 
 // WritePointRows 直接写入 PointRow 切片，跳过 InternalField 中间转换。
@@ -452,22 +593,4 @@ func (w *Writer) appendFieldValue(name string, val any) {
 		}
 	}
 	w.fieldBufs[name] = buf
-}
-
-// appendZeroValue 追加类型的零值到 buffer
-func (w *Writer) appendZeroValue(buf []byte, t FieldType) []byte {
-	switch t {
-	case FieldTypeFloat64, FieldTypeInt64:
-		var b [8]byte
-		buf = append(buf, b[:]...)
-	case FieldTypeBool:
-		buf = append(buf, 0)
-	case FieldTypeString:
-		var lenBuf [4]byte
-		buf = append(buf, lenBuf[:]...)
-	default:
-		var b [8]byte
-		buf = append(buf, b[:]...)
-	}
-	return buf
 }

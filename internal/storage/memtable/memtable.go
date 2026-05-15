@@ -140,7 +140,13 @@ func (m *MemTable) Swap() []types.MemPoint {
 	}
 
 	m.passive = m.active
-	m.active = make([]types.MemPoint, 0, 1024)
+	// 使用上一次 active 的实际长度作为新 active 的初始容量
+	// 既避免小容量频繁扩容，也避免为新 shard 过度预分配
+	newCap := len(m.passive)
+	if newCap < 1024 {
+		newCap = 1024
+	}
+	m.active = make([]types.MemPoint, 0, newCap)
 	m.activeCount = 0
 	m.sorted = false
 	m.flushing.Store(true)

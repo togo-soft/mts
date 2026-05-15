@@ -4,11 +4,44 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sync"
 
 	"codeberg.org/micro-ts/mts/types"
 )
 
 const pointVersion byte = 2
+
+// walBufPool 池化 WAL 序列化缓冲区，减少 per-point 内存分配。
+var walBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 0, 256)
+		return &buf
+	},
+}
+
+// serializePointForWALPooled 将 ts + sid + FieldData 序列化到池化缓冲区。
+// 格式: Version(1B) + Timestamp(8B) + Sid(8B) + FieldData
+// 返回序列化数据和释放函数。调用者在 WAL 写入完成后必须调用 release 归还 buffer。
+func serializePointForWALPooled(ts int64, sid uint64, fieldData []byte) ([]byte, func()) {
+	size := 1 + 8 + 8 + len(fieldData)
+	bufPtr := walBufPool.Get().(*[]byte)
+	buf := *bufPtr
+	if cap(buf) < size {
+		buf = make([]byte, size)
+	} else {
+		buf = buf[:size]
+	}
+	buf[0] = pointVersion
+	binary.BigEndian.PutUint64(buf[1:9], uint64(ts))
+	binary.BigEndian.PutUint64(buf[9:17], sid)
+	copy(buf[17:], fieldData)
+	*bufPtr = buf
+
+	release := func() {
+		walBufPool.Put(bufPtr)
+	}
+	return buf, release
+}
 
 // serializeInternalPoint 将 InternalPoint 序列化为紧凑二进制格式。
 //
@@ -77,21 +110,6 @@ func serializeInternalPoint(ip types.InternalPoint) ([]byte, error) {
 	}
 
 	return buf, nil
-}
-
-// serializePointForWAL 将 ts + sid + FieldData 组装为完整 WAL 格式。
-// 格式: Version(1B) + Timestamp(8B) + Sid(8B) + FieldData
-func serializePointForWAL(ts int64, sid uint64, fieldData []byte) []byte {
-	size := 1 + 8 + 8 + len(fieldData)
-	buf := make([]byte, 0, size)
-	buf = append(buf, pointVersion)
-	var tmp [8]byte
-	binary.BigEndian.PutUint64(tmp[:], uint64(ts))
-	buf = append(buf, tmp[:]...)
-	binary.BigEndian.PutUint64(tmp[:], sid)
-	buf = append(buf, tmp[:]...)
-	buf = append(buf, fieldData...)
-	return buf
 }
 
 // deserializeFromWAL 从 WAL 完整格式解析出 MemPoint。
