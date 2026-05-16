@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -90,8 +91,16 @@ func (fc *FlushCoordinator) CloseAllWriters() error {
 
 // flushWriterLocked 内部同步刷写（调用者持有锁或保证线程安全）。
 func (fc *FlushCoordinator) flushWriterLocked(db, measurement string, w Writer) error {
+	// 等待正在进行的 flush 完成
+	waitStart := time.Now()
 	for w.MemTable().IsFlushing() {
 		time.Sleep(time.Millisecond)
+		if time.Since(waitStart) > 3*time.Second {
+			slog.Warn("flushWriterLocked: IsFlushing timeout waiting", "db", db, "meas", measurement)
+		}
+	}
+	if time.Since(waitStart) > time.Second {
+		slog.Info("flushWriterLocked: waited for IsFlushing", "db", db, "meas", measurement, "waited", time.Since(waitStart))
 	}
 
 	passive := w.MemTable().Swap()
@@ -100,9 +109,14 @@ func (fc *FlushCoordinator) flushWriterLocked(db, measurement string, w Writer) 
 		return nil
 	}
 
+	flushStart := time.Now()
 	if err := fc.flusher.Flush(db, measurement, passive); err != nil {
+		slog.Error("flushWriterLocked: Flush failed", "db", db, "meas", measurement, "error", err)
 		w.MemTable().MergePassiveBack()
 		return err
+	}
+	if time.Since(flushStart) > time.Second {
+		slog.Info("flushWriterLocked: Flush completed", "db", db, "meas", measurement, "duration", time.Since(flushStart))
 	}
 
 	w.MemTable().ClearPassive()
