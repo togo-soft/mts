@@ -150,43 +150,64 @@ func (s *Shard) initCompaction(cfg ShardConfig) {
 	}
 }
 
-// writeSSTableIOWithTimeout 使用 goroutine + timeout 包装 NewWriter 的 I/O 操作，
+// writeSSTableWithTimeout 使用 goroutine + timeout 包装整个 SSTable 写入过程，
 // 避免在 Windows 上因杀毒软件或文件系统阻塞而导致死锁。
-// 返回已创建的 Writer（由 caller 负责关闭）和 sstPath。
-func (s *Shard) writeSSTableIOWithTimeout(seq uint64) (w *sstable.Writer, sstPath string, err error) {
+func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (sstPath string, sstSeq uint64, minTime, maxTime int64, err error) {
 	type result struct {
-		w    *sstable.Writer
-		path string
-		err  error
+		sstPath string
+		sstSeq  uint64
+		minTime int64
+		maxTime int64
+		err     error
 	}
-	dataDir := s.DataDir()
-	sstPath = filepath.Join(dataDir, fmt.Sprintf("sst_%d.bin", seq))
 
 	resCh := make(chan result, 1)
 	go func() {
-		// MkdirAll + NewWriter 内部的多个 SafeCreate 调用都可能阻塞
-		if mkdirErr := os.MkdirAll(dataDir, 0700); mkdirErr != nil {
-			resCh <- result{nil, "", fmt.Errorf("create data dir: %w", mkdirErr)}
+		sstPath := filepath.Join(s.DataDir(), fmt.Sprintf("sst_%d.bin", seq))
+
+		// MkdirAll can block on Windows (antivirus, filesystem issues)
+		if mkdirErr := os.MkdirAll(s.DataDir(), 0700); mkdirErr != nil {
+			resCh <- result{"", 0, 0, 0, fmt.Errorf("create data dir: %w", mkdirErr)}
 			return
 		}
 
 		w, wErr := sstable.NewWriter(s.dir, seq, 0, s.compressionAlgo)
 		if wErr != nil {
-			resCh <- result{nil, "", fmt.Errorf("create sstable writer: %w", wErr)}
+			resCh <- result{"", 0, 0, 0, fmt.Errorf("create sstable writer: %w", wErr)}
 			return
 		}
-		resCh <- result{w, sstPath, nil}
+
+		if err := w.WriteMemPoints(points); err != nil {
+			_ = w.Close()
+			resCh <- result{"", 0, 0, 0, fmt.Errorf("write mempoints: %w", err)}
+			return
+		}
+
+		// Close triggers fsync and file operations that can block on Windows
+		if closeErr := w.Close(); closeErr != nil {
+			resCh <- result{"", 0, 0, 0, fmt.Errorf("close sstable writer: %w", closeErr)}
+			return
+		}
+
+		srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", seq))
+		if srcPath != sstPath {
+			if renameErr := os.Rename(srcPath, sstPath); renameErr != nil {
+				_ = os.Remove(srcPath)
+				resCh <- result{"", 0, 0, 0, fmt.Errorf("move sstable: %w", renameErr)}
+				return
+			}
+		}
+
+		minTime, maxTime = calcTimeRange(points)
+		resCh <- result{sstPath, seq, minTime, maxTime, nil}
 	}()
 
-	// 5 second timeout for I/O operations
+	// 5 second timeout for the entire SSTable write process
 	select {
 	case <-time.After(5 * time.Second):
-		return nil, "", fmt.Errorf("write sstable I/O timeout after 5s")
+		return "", 0, 0, 0, fmt.Errorf("write sstable timeout after 5s")
 	case res := <-resCh:
-		if res.err != nil {
-			return nil, "", res.err
-		}
-		return res.w, res.path, nil
+		return res.sstPath, res.sstSeq, res.minTime, res.maxTime, res.err
 	}
 }
 
@@ -197,32 +218,7 @@ func (s *Shard) WriteSSTable(points []types.MemPoint) (sstPath string, sstSeq ui
 	s.sstSeq++
 	s.mu.Unlock()
 
-	// 使用带超时的 I/O 避免 Windows 上阻塞导致死锁
-	w, sstPath, err := s.writeSSTableIOWithTimeout(sstSeq)
-	if err != nil {
-		return "", 0, 0, 0, err
-	}
-	// 注意：w 由 caller（此函数）负责关闭
-
-	if err := w.WriteMemPoints(points); err != nil {
-		_ = w.Close()
-		return "", 0, 0, 0, fmt.Errorf("write mempoints: %w", err)
-	}
-
-	if closeErr := w.Close(); closeErr != nil {
-		return "", 0, 0, 0, fmt.Errorf("close sstable writer: %w", closeErr)
-	}
-
-	srcPath := filepath.Join(s.dir, "data", fmt.Sprintf("sst_%d.bin", sstSeq))
-	if srcPath != sstPath {
-		if renameErr := os.Rename(srcPath, sstPath); renameErr != nil {
-			_ = os.Remove(srcPath)
-			return "", 0, 0, 0, fmt.Errorf("move sstable: %w", renameErr)
-		}
-	}
-
-	minTime, maxTime = calcTimeRange(points)
-	return sstPath, sstSeq, minTime, maxTime, nil
+	return s.writeSSTableWithTimeout(points, sstSeq)
 }
 
 // calcTimeRange 计算 points 的时间范围。
