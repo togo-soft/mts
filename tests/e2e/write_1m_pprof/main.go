@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
@@ -157,16 +158,24 @@ func countAllBin(dataDir string) int {
 	return count
 }
 
+// unixTmpDir 返回跨平台安全的临时目录路径（始终使用正斜杠）。
+func unixTmpDir() string {
+	tmp := os.TempDir()
+	// 替换反斜杠为正斜杠，确保跨平台一致性
+	return strings.ReplaceAll(tmp, string(os.PathSeparator), "/")
+}
+
 func main() {
-	// 开启 pprof
-	f, err := os.Create(filepath.Join(os.TempDir(), "memprofile.prof"))
+	// 开启 pprof，使用正斜杠路径避免 Windows 路径问题
+	profilePath := unixTmpDir() + "/memprofile.prof"
+	f, err := os.Create(profilePath)
 	if err != nil {
 		fmt.Printf("Failed to create profile file: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() { _ = f.Close() }()
 
-	tmpDir := filepath.Join(os.TempDir(), "microts_write_pprof")
+	tmpDir := unixTmpDir() + "/microts_write_pprof"
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
@@ -223,7 +232,7 @@ func main() {
 		fmt.Printf("FlushAll failed: %v\n", err)
 	}
 	fmt.Println("Waiting for compaction to settle...")
-	waitForCompaction(filepath.Join(tmpDir, "db1", "cpu"))
+	waitForCompaction(tmpDir + "/db1/cpu")
 
 	metrics.GC()
 	memAfter := metrics.ReadMemStats()
@@ -237,8 +246,8 @@ func main() {
 	}
 	_ = f.Close()
 
-	fmt.Printf("\nHeap profile saved to: %s\n", filepath.Join(os.TempDir(), "memprofile.prof"))
-	fmt.Printf("To analyze: go tool pprof %s\n", filepath.Join(os.TempDir(), "memprofile.prof"))
+	fmt.Printf("\nHeap profile saved to: %s\n", profilePath)
+	fmt.Printf("To analyze: go tool pprof %s\n", profilePath)
 
 	// 打印内存统计
 	var mstats runtime.MemStats
@@ -254,5 +263,5 @@ func main() {
 	fmt.Printf("  OtherSys: %d MB\n", mstats.OtherSys/1024/1024)
 
 	// 统计存储
-	fmt.Printf("\n%s\n", metrics.FormatStorageReport(filepath.Join(tmpDir, "db1", "cpu"), count, 80))
+	fmt.Printf("\n%s\n", metrics.FormatStorageReport(tmpDir+"/db1/cpu", count, 80))
 }
