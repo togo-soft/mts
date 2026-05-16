@@ -78,9 +78,11 @@ type WAL struct {
 func Open(cfg Config) (*WAL, error) {
 	cfg.normalize()
 
+	slog.Info("wal.Open: creating dir", "dir", cfg.Dir)
 	if err := storage.SafeMkdirAll(cfg.Dir, 0700); err != nil {
 		return nil, err
 	}
+	slog.Info("wal.Open: dir created", "dir", cfg.Dir)
 
 	w := &WAL{
 		dir:        cfg.Dir,

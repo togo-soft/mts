@@ -200,6 +200,7 @@ func New(cfg Config) (*MeasurementWriter, error) {
 	}
 
 	walDir := filepath.Join(cfg.Dir, "wal")
+	logger.Info("writer.New: opening WAL", "walDir", walDir)
 	w, err := wal.Open(wal.Config{
 		Dir:          walDir,
 		SegmentSize:  64 * 1024 * 1024,

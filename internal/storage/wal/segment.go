@@ -2,6 +2,7 @@ package wal
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -23,10 +24,12 @@ type segment struct {
 // openSegment 打开或创建指定世代和序号的 WAL segment。
 func openSegment(dir string, gen uint64, num uint64, compressed bool) (*segment, error) {
 	filename := segmentPath(dir, gen, num)
+	slog.Info("openSegment: opening file", "filename", filename)
 	f, err := storage.SafeOpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("openSegment: file opened", "filename", filename)
 
 	info, err := f.Stat()
 	if err != nil {
