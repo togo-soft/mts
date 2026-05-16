@@ -16,7 +16,7 @@ type Reader struct {
 	sectionTable    SectionTable
 	blockIndex      *BlockIndex
 	blockSectionMap *BlockSectionMap // 每个 section 内各 block 的字节偏移
-	Flags           uint16
+	Flags           uint16 // 文件头标志位 (FlagSorted=0 有序, FlagUnordered=1 无序)
 	schema          Schema
 }
 

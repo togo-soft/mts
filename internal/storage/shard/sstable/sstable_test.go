@@ -7,6 +7,41 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+func TestFileHeader_FlagsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+
+	w, err := NewWriter(dir, 1, BlockSize, CompressionNone, FlagUnordered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp := types.PointToMemPoint(&types.Point{
+		Database:    "db",
+		Measurement: "meas",
+		Timestamp:   100,
+		Fields:      map[string]*types.FieldValue{"v": types.NewFieldValue(float64(1.0))},
+	}, 1)
+	if err := w.WriteMemPoints([]types.MemPoint{mp}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify reader sees the flag
+	files, _ := filepath.Glob(filepath.Join(dir, "data", "*.bin"))
+	if len(files) == 0 {
+		t.Fatal("no output file")
+	}
+	r, err := NewReader(files[0], Schema{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	if r.Flags != FlagUnordered {
+		t.Errorf("expected FlagUnordered (0x%04x), got 0x%04x", FlagUnordered, r.Flags)
+	}
+}
+
 func TestIterator_SeekToTime(t *testing.T) {
 	tmpDir := t.TempDir()
 

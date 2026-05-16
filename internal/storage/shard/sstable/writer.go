@@ -64,6 +64,9 @@ type Writer struct {
 // NewWriter 创建 SSTable Writer。
 // 在 shardDir/data/ 下创建 sst_{seq}.bin 单文件。
 func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo CompressionAlgorithm, flags uint16) (*Writer, error) {
+	if flags != FlagSorted && flags != FlagUnordered {
+		return nil, fmt.Errorf("invalid flags: 0x%04x", flags)
+	}
 	if blockSize <= 0 {
 		blockSize = BlockSize
 	}
