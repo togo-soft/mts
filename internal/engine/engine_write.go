@@ -57,7 +57,7 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 	mp := types.PointToMemPoint(point, sid)
 
 	// 序列化 WAL 数据
-	walPayload, release := wal.SerializePoint(mp.Timestamp, mp.Sid, mp.FieldData)
+	walPayload, release := wal.SerializePoint(point.Database, point.Measurement, mp.Timestamp, mp.Sid, mp.FieldData)
 	defer release()
 
 	// 写 WAL
@@ -133,7 +133,7 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 		mp := types.PointToMemPoint(point, sid)
 		memPoints = append(memPoints, mp)
 
-		wp, release := wal.SerializePoint(mp.Timestamp, mp.Sid, mp.FieldData)
+		wp, release := wal.SerializePoint(point.Database, point.Measurement, mp.Timestamp, mp.Sid, mp.FieldData)
 		walData = append(walData, wp)
 		releases = append(releases, release)
 	}

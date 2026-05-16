@@ -285,6 +285,24 @@ func (m *ShardManager) SetConfig(config *compaction.Config) {
 	}
 }
 
+// L0Dir 返回指定 shard 的 L0 目录，若不存在则创建。
+func (m *ShardManager) L0Dir(db, measurement string, shardStart int64) (string, error) {
+	shard, err := m.GetShard(db, measurement, shardStart)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(shard.DataDir(), "L0")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// ShardDurationNanos 返回 shard 时间窗口（纳秒）。
+func (m *ShardManager) ShardDurationNanos() int64 {
+	return int64(m.shardDuration)
+}
+
 // GetAllShards 返回所有 Shard 的快照。
 func (m *ShardManager) GetAllShards() []*Shard {
 	m.mu.RLock()

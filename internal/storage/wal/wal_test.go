@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"sync"
@@ -581,8 +582,36 @@ func TestSerializeDeserializePoint_RoundTrip(t *testing.T) {
 	sid := uint64(42)
 	fieldData := []byte{0, 1, 1, 'v', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63} // float64(1.0)
 
-	data, release := SerializePoint(ts, sid, fieldData)
+	data, release := SerializePoint("db1", "meas1", ts, sid, fieldData)
 	defer release()
+
+	mp, err := DeserializePoint(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mp.Timestamp != ts {
+		t.Errorf("expected ts %d, got %d", ts, mp.Timestamp)
+	}
+	if mp.Sid != sid {
+		t.Errorf("expected sid %d, got %d", sid, mp.Sid)
+	}
+	if mp.Database != "db1" {
+		t.Errorf("expected db %q, got %q", "db1", mp.Database)
+	}
+	if mp.Measurement != "meas1" {
+		t.Errorf("expected meas %q, got %q", "meas1", mp.Measurement)
+	}
+}
+
+func TestDeserializePoint_V1Compat(t *testing.T) {
+	// v1/v2 format: version(1B) + ts(8B) + sid(8B) + fieldData(N)
+	data := make([]byte, 17)
+	data[0] = 2 // pointVersion v2
+	ts := int64(1620000000000000000)
+	sid := uint64(42)
+	// use a helper to write ts + sid
+	binary.LittleEndian.PutUint64(data[1:9], uint64(ts))
+	binary.LittleEndian.PutUint64(data[9:17], sid)
 
 	mp, err := DeserializePoint(data)
 	if err != nil {

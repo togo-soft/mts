@@ -26,9 +26,11 @@ type InternalPoint struct {
 //
 // 内存布局：FieldData 是单块连续内存，对 GC 友好。
 type MemPoint struct {
-	Timestamp int64
-	Sid       uint64
-	FieldData []byte
+	Database    string
+	Measurement string
+	Timestamp   int64
+	Sid         uint64
+	FieldData   []byte
 }
 
 // PointToInternal 将外部 Point 转换为 InternalPoint。
@@ -262,9 +264,11 @@ func MemPointToInternal(mp MemPoint) (InternalPoint, error) {
 // PointToMemPoint 将外部 Point 直接序列化为 MemPoint（写入路径入口）。
 func PointToMemPoint(p *Point, sid uint64) MemPoint {
 	return MemPoint{
-		Timestamp: p.Timestamp,
-		Sid:       sid,
-		FieldData: serializeFieldsFromMap(p.Fields),
+		Database:    p.Database,
+		Measurement: p.Measurement,
+		Timestamp:   p.Timestamp,
+		Sid:         sid,
+		FieldData:   serializeFieldsFromMap(p.Fields),
 	}
 }
 

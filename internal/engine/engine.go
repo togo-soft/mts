@@ -52,23 +52,26 @@ type Config struct {
 
 // Engine 是微时序数据库的存储引擎。
 type Engine struct {
-	cfg         *Config
-	dataDir     string
-	catalog     Catalog
-	seriesStore SeriesStore
-	shardIndex  ShardIndex
-	flusher     Flusher
-	coordinator *FlushCoordinator
-	memTable    *memtable.MemTable     // 全局 MemTable
-	wal         *wal.WAL               // 全局 WAL
-	memTableCfg *types.MemTableConfig
-	metaManager *metadata.Manager
-	shardMgr    *shard.ShardManager
-	retentionSvc *shard.RetentionService
-	mu          sync.RWMutex
-	queryWg     sync.WaitGroup
-	closed      bool
-	shutdownMu  sync.Mutex
+	cfg              *Config
+	dataDir          string
+	catalog          Catalog
+	seriesStore      SeriesStore
+	shardIndex       ShardIndex
+	flusher          Flusher
+	coordinator      *FlushCoordinator
+	memTable         *memtable.MemTable     // 全局 MemTable
+	wal              *wal.WAL               // 全局 WAL
+	memTableCfg      *types.MemTableConfig
+	metaManager      *metadata.Manager
+	shardMgr         *shard.ShardManager
+	retentionSvc     *shard.RetentionService
+	mu               sync.RWMutex
+	queryWg          sync.WaitGroup
+	closed           bool
+	shutdownMu       sync.Mutex
+
+	// unordered → L0 compaction
+	compactionStopCh chan struct{}
 }
 
 // New 创建新的存储引擎实例。
@@ -99,9 +102,6 @@ func New(cfg *Config) (*Engine, error) {
 		mgr.Shards(),
 	)
 
-	coordinator := NewFlushCoordinator(flusher)
-	coordinator.StartPeriodicCheck(time.Second)
-
 	// 初始化全局 WAL
 	walDir := wal.GlobalDir(cfg.DataDir)
 	walCfg := wal.Config{
@@ -128,6 +128,9 @@ func New(cfg *Config) (*Engine, error) {
 		return nil, fmt.Errorf("recover unordered seq: %w", err)
 	}
 
+	coordinator := NewFlushCoordinator(globalMT, globalWAL, flusher, cfg.DataDir, cfg.CompressionAlgorithm)
+	coordinator.StartPeriodicCheck(time.Second)
+
 	engine := &Engine{
 		cfg:         cfg,
 		dataDir:     cfg.DataDir,
@@ -152,6 +155,22 @@ func New(cfg *Config) (*Engine, error) {
 		engine.retentionSvc = shard.NewRetentionService(engine.shardMgr, cfg.RetentionPeriod, checkInterval)
 		engine.retentionSvc.Start()
 	}
+
+	// 启动 unordered → stable/L0 compaction（每 500ms）
+	engine.compactionStopCh = make(chan struct{})
+	uc := compaction.NewUnorderedCompactor(cfg.DataDir, engine.shardMgr, cfg.CompressionAlgorithm)
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				_ = uc.Compact()
+			case <-engine.compactionStopCh:
+				return
+			}
+		}
+	}()
 
 	// 后台发现已有 measurement 的 Shard 并重放全局 WAL
 	go engine.discoverAndRecover()
@@ -203,6 +222,11 @@ func (e *Engine) Close() error {
 	// 停止数据保留清理服务
 	if e.retentionSvc != nil {
 		e.retentionSvc.Stop()
+	}
+
+	// 停止 unordered compaction
+	if e.compactionStopCh != nil {
+		close(e.compactionStopCh)
 	}
 
 	// 同步刷写所有数据

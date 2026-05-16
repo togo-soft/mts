@@ -1,47 +1,35 @@
 package engine
 
 import (
-	"sync"
 	"testing"
 
-	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/shard"
-	"codeberg.org/micro-ts/mts/types"
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 )
 
-// mockFlusher 实现 Flusher 接口用于测试。
-type mockFlusher struct {
-	mu       sync.Mutex
-	flushed  map[string][]types.MemPoint
-	flushErr error
-}
-
-func (f *mockFlusher) Flush(points []types.MemPoint) error {
-	if f.flushErr != nil {
-		return f.flushErr
+func TestFlushCoordinator_New(t *testing.T) {
+	mt := memtable.NewMemTable(memtable.DefaultMemTableConfig())
+	fc := NewFlushCoordinator(mt, nil, nil, "/tmp", sstable.CompressionNone)
+	if fc == nil {
+		t.Fatal("expected non-nil FlushCoordinator")
 	}
-	f.mu.Lock()
-	if f.flushed == nil {
-		f.flushed = make(map[string][]types.MemPoint)
+	if fc.MemTable() != mt {
+		t.Error("MemTable() should return the memtable")
 	}
-	f.flushed["global"] = append(f.flushed["global"], points...)
-	f.mu.Unlock()
-	return nil
 }
 
-func (f *mockFlusher) Compact(startTime int64) error { return nil }
-
-func (f *mockFlusher) GetShards(db, measurement string, startTime, endTime int64) []*shard.Shard {
-	return nil
-}
-
-func (f *mockFlusher) CloseAll() error                     { return nil }
-func (f *mockFlusher) SetConfig(config *compaction.Config) {}
-
-func TestFlushCoordinator_FlushAll(t *testing.T) {
-	t.Parallel()
-	fc := NewFlushCoordinator(&mockFlusher{})
+func TestFlushCoordinator_FlushAll_Empty(t *testing.T) {
+	mt := memtable.NewMemTable(memtable.DefaultMemTableConfig())
+	fc := NewFlushCoordinator(mt, nil, nil, t.TempDir(), sstable.CompressionNone)
 	if err := fc.FlushAll(); err != nil {
-		t.Errorf("FlushAll should succeed: %v", err)
+		t.Errorf("FlushAll on empty MemTable should not error: %v", err)
 	}
+}
+
+func TestFlushCoordinator_Close(t *testing.T) {
+	mt := memtable.NewMemTable(memtable.DefaultMemTableConfig())
+	fc := NewFlushCoordinator(mt, nil, nil, t.TempDir(), sstable.CompressionNone)
+	fc.Close()
+	// Second close should be safe (sync.Once)
+	fc.Close()
 }
