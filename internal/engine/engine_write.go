@@ -4,58 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 
-	"codeberg.org/micro-ts/mts/internal/storage/writer"
+	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// getOrCreateWriter 获取或创建指定 measurement 的 Writer。
-//
-// 使用双检查（double-check）模式避免重复创建：
-//  1. 先不加锁查询 coordinator
-//  2. 加锁后再次确认
-//  3. 不存在则创建并注册
-func (e *Engine) getOrCreateWriter(db, measurement string) (Writer, error) {
-	// 先检查是否已存在
-	if w := e.coordinator.GetWriter(db, measurement); w != nil {
-		return w, nil
-	}
-
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	// 双检查
-	if w := e.coordinator.GetWriter(db, measurement); w != nil {
-		return w, nil
-	}
-
-	measDir := filepath.Join(e.dataDir, db, measurement)
-	mw, err := writer.New(writer.Config{
-		DB:          db,
-		Measurement: measurement,
-		Dir:         measDir,
-		SeriesStore: e.seriesStore,
-		MemTableCfg: e.memTableCfg,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create writer: %w", err)
-	}
-
-	e.coordinator.RegisterWriter(db, measurement, mw)
-	return mw, nil
-}
-
 // Write 写入单个数据点到存储引擎。
+// 直接写入全局 WAL 和全局 MemTable。
 func (e *Engine) Write(ctx context.Context, point *types.Point) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
 	if e.isClosed() {
-		return fmt.Errorf("engine is closed")
+		return fmt.Errorf("engine closed")
 	}
 
 	if point == nil {
@@ -71,6 +29,7 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 		return ErrInvalidTimestamp
 	}
 
+	// 自动创建 db/measurement 元数据
 	if !e.catalog.DatabaseExists(point.Database) {
 		if err := e.catalog.CreateDatabase(point.Database); err != nil {
 			slog.Warn("auto-create database failed", "database", point.Database, "error", err)
@@ -78,95 +37,117 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 	}
 	if !e.catalog.MeasurementExists(point.Database, point.Measurement) {
 		if err := e.catalog.CreateMeasurement(point.Database, point.Measurement); err != nil {
-			slog.Warn("auto-create measurement failed", "database", point.Database, "measurement", point.Measurement, "error", err)
+			return err
 		}
 	}
 
-	w, err := e.getOrCreateWriter(point.Database, point.Measurement)
+	// 分配 SID
+	sid, err := e.seriesStore.AllocateSID(point.Database, point.Measurement, point.Tags)
 	if err != nil {
-		return fmt.Errorf("get writer: %w", err)
+		return fmt.Errorf("allocate sid: %w", err)
 	}
 
-	if err := w.Write(point); err != nil {
-		return fmt.Errorf("write: %w", err)
+	// 序列化为 MemPoint
+	mp := types.PointToMemPoint(point, sid)
+
+	// 序列化 WAL 数据
+	walPayload, release := wal.SerializePoint(mp.Timestamp, mp.Sid, mp.FieldData)
+	defer release()
+
+	// 写 WAL
+	if _, err := e.wal.Write(walPayload); err != nil {
+		return fmt.Errorf("wal write: %w", err)
+	}
+
+	// 写 MemTable（背压检查）
+	if e.memTable.ActiveFull() {
+		return fmt.Errorf("memtable full")
+	}
+
+	if err := e.memTable.Write(mp); err != nil {
+		return fmt.Errorf("memtable write: %w", err)
 	}
 	return nil
 }
 
 // WriteBatch 批量写入数据点。
 //
-// 优化策略：按 Measurement 分组后对每组调用 Writer.WriteBatch，
-// 减少锁获取次数并利用 WAL 批量写入减少 fsync。
-//
+// 批量写入直接使用全局 WAL 和全局 MemTable。
 // 批量写入不是原子操作，部分失败不会回滚已写入的点。
 func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
 	if e.isClosed() {
-		return fmt.Errorf("engine is closed")
+		return fmt.Errorf("engine closed")
 	}
 
 	if len(points) == 0 {
 		return nil
 	}
 
-	// 验证并自动创建 database/measurement，按 writer 分组
-	groups := make(map[Writer][]*types.Point)
+	// 预分配
+	walData := make([][]byte, 0, len(points))
+	memPoints := make([]types.MemPoint, 0, len(points))
+	releases := make([]func(), 0, len(points))
 
-	for _, p := range points {
-		if p == nil {
+	for _, point := range points {
+		if point == nil {
 			return ErrNilPoint
 		}
-		if p.Database == "" {
+		if point.Database == "" {
 			return ErrEmptyDatabase
 		}
-		if p.Measurement == "" {
+		if point.Measurement == "" {
 			return ErrEmptyMeasurement
 		}
-		if p.Timestamp < 0 {
+		if point.Timestamp < 0 {
 			return ErrInvalidTimestamp
 		}
 
-		if !e.catalog.DatabaseExists(p.Database) {
-			if err := e.catalog.CreateDatabase(p.Database); err != nil {
-				slog.Warn("auto-create database failed", "database", p.Database, "error", err)
+		if !e.catalog.DatabaseExists(point.Database) {
+			if err := e.catalog.CreateDatabase(point.Database); err != nil {
+				slog.Warn("auto-create database failed", "database", point.Database, "error", err)
 			}
 		}
-		if !e.catalog.MeasurementExists(p.Database, p.Measurement) {
-			if err := e.catalog.CreateMeasurement(p.Database, p.Measurement); err != nil {
-				slog.Warn("auto-create measurement failed", "database", p.Database, "measurement", p.Measurement, "error", err)
+		if !e.catalog.MeasurementExists(point.Database, point.Measurement) {
+			if err := e.catalog.CreateMeasurement(point.Database, point.Measurement); err != nil {
+				return err
 			}
 		}
 
-		w, err := e.getOrCreateWriter(p.Database, p.Measurement)
+		sid, err := e.seriesStore.AllocateSID(point.Database, point.Measurement, point.Tags)
 		if err != nil {
-			return fmt.Errorf("get writer: %w", err)
+			return fmt.Errorf("allocate sid: %w", err)
 		}
 
-		groups[w] = append(groups[w], p)
+		mp := types.PointToMemPoint(point, sid)
+		memPoints = append(memPoints, mp)
+
+		wp, release := wal.SerializePoint(mp.Timestamp, mp.Sid, mp.FieldData)
+		walData = append(walData, wp)
+		releases = append(releases, release)
 	}
 
-	// 对每组调用 Writer.WriteBatch
-	for w, group := range groups {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+	// 确保释放
+	defer func() {
+		for _, r := range releases {
+			r()
 		}
+	}()
 
-		n, err := w.WriteBatch(group)
-		if err != nil {
-			return fmt.Errorf("write batch: wrote %d/%d: %w", n, len(group), err)
-		}
-		if n != len(group) {
-			slog.Warn("write batch: partial write with nil error",
-				"written", n, "expected", len(group))
-		}
+	// 批量写 WAL
+	if _, err := e.wal.WriteBatch(walData); err != nil {
+		return fmt.Errorf("wal write batch: %w", err)
 	}
 
+	// 背压检查
+	if e.memTable.ActiveFull() {
+		return fmt.Errorf("memtable full")
+	}
+
+	// 批量写 MemTable
+	for _, mp := range memPoints {
+		if err := e.memTable.Write(mp); err != nil {
+			return fmt.Errorf("memtable write: %w", err)
+		}
+	}
 	return nil
 }

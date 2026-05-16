@@ -31,20 +31,17 @@ func (s *scopedSeriesStore) GetTags(database, measurement string, sid uint64) (m
 }
 
 // Iterator 返回流式查询迭代器。
-// 合并 Writer MemTable（未刷盘数据）和 Shard SSTable（已刷盘数据）。
+// 合并全局 MemTable（未刷盘数据）和 Shard SSTable（已刷盘数据）。
 func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*query.Iterator, error) {
 	if e.isClosed() {
 		return nil, fmt.Errorf("engine is closed")
 	}
 
-	// 获取已存在的 writer（查询不创建新的）
-	var writerMT *memtable.MemTable
-	if w := e.coordinator.GetWriter(req.Database, req.Measurement); w != nil {
-		writerMT = w.MemTable()
-	}
+	// 全局 MemTable 包含所有未刷盘数据
+	writerMT := e.memTable
 
 	shards := e.flusher.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
-	if len(shards) == 0 && writerMT == nil {
+	if len(shards) == 0 && (writerMT == nil || writerMT.Count() == 0) {
 		return nil, fmt.Errorf("no shards found")
 	}
 

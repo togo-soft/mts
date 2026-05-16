@@ -1,30 +1,17 @@
 // Package engine 定义存储引擎核心接口。
 //
-// 本文件定义了 Writer、Flusher、Catalog、SeriesStore、ShardIndex
-// 五个核心接口，用于解耦 Engine 具体实现与外部依赖。
+// 本文件定义了 Flusher、Catalog、SeriesStore、ShardIndex
+// 四个核心接口，用于解耦 Engine 具体实现与外部依赖。
 package engine
 
 import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
-	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/types"
 )
-
-// ===================================
-// Writer — WAL/MemTable 写入处理
-// ===================================
-
-// Writer 接收单个 measurement 的数据写入，管理 WAL 和 MemTable 生命周期。
-type Writer interface {
-	Write(point *types.Point) error
-	WriteBatch(points []*types.Point) (int, error)
-	MemTable() *memtable.MemTable
-	Close() error
-}
 
 // ===================================
 // Flusher — SSTable/Compaction 处理

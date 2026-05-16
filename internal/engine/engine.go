@@ -7,7 +7,7 @@
 //
 //	Engine → Flusher → ShardManager → Shards → SSTable
 //	Engine → Catalog / SeriesStore / ShardIndex → metadata.Manager
-//	Engine → FlushCoordinator → Writer(WAL+MemTable)
+//	Engine → FlushCoordinator(全局WAL+全局MemTable) → unordered
 //
 // Engine 是并发安全的，所有公共方法都可以从多个 goroutine 调用。
 package engine
@@ -24,7 +24,8 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
-	"codeberg.org/micro-ts/mts/internal/storage/writer"
+	"codeberg.org/micro-ts/mts/internal/storage/unordered"
+	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -58,6 +59,8 @@ type Engine struct {
 	shardIndex  ShardIndex
 	flusher     Flusher
 	coordinator *FlushCoordinator
+	memTable    *memtable.MemTable     // 全局 MemTable
+	wal         *wal.WAL               // 全局 WAL
 	memTableCfg *types.MemTableConfig
 	metaManager *metadata.Manager
 	shardMgr    *shard.ShardManager
@@ -99,6 +102,32 @@ func New(cfg *Config) (*Engine, error) {
 	coordinator := NewFlushCoordinator(flusher)
 	coordinator.StartPeriodicCheck(time.Second)
 
+	// 初始化全局 WAL
+	walDir := wal.GlobalDir(cfg.DataDir)
+	walCfg := wal.Config{
+		Dir:          walDir,
+		SegmentSize:  64 * 1024 * 1024,
+		MaxSegments:  5,
+		SyncMode:     wal.SyncPeriodic,
+		SyncInterval: time.Minute,
+		Compressed:   true,
+	}
+	globalWAL, err := wal.Open(walCfg)
+	if err != nil {
+		return nil, fmt.Errorf("open wal: %w", err)
+	}
+
+	// 初始化全局 MemTable
+	globalMT := memtable.NewMemTable(memTableCfg)
+
+	// 初始化 unordered 目录和序列号恢复
+	if err := unordered.EnsureDir(cfg.DataDir); err != nil {
+		return nil, fmt.Errorf("create unordered dir: %w", err)
+	}
+	if err := unordered.RecoverSeq(cfg.DataDir); err != nil {
+		return nil, fmt.Errorf("recover unordered seq: %w", err)
+	}
+
 	engine := &Engine{
 		cfg:         cfg,
 		dataDir:     cfg.DataDir,
@@ -107,6 +136,8 @@ func New(cfg *Config) (*Engine, error) {
 		shardIndex:  mgr.Shards(),
 		flusher:     flusher,
 		coordinator: coordinator,
+		memTable:    globalMT,
+		wal:         globalWAL,
 		memTableCfg: memTableCfg,
 		metaManager: mgr,
 		shardMgr:    flusher,
@@ -122,13 +153,13 @@ func New(cfg *Config) (*Engine, error) {
 		engine.retentionSvc.Start()
 	}
 
-	// 后台发现已有 measurement 的 WAL 并重放
+	// 后台发现已有 measurement 的 Shard 并重放全局 WAL
 	go engine.discoverAndRecover()
 
 	return engine, nil
 }
 
-// discoverAndRecover 发现已存在的 measurement 并重放 WAL。
+// discoverAndRecover 发现已存在的 measurement 的 Shard，并重放全局 WAL 到全局 MemTable。
 func (e *Engine) discoverAndRecover() {
 	databases := e.catalog.ListDatabases()
 	for _, db := range databases {
@@ -139,19 +170,22 @@ func (e *Engine) discoverAndRecover() {
 		for _, meas := range measurements {
 			// 发现已有 Shard（填充 ShardManager 缓存）
 			_ = e.flusher.GetShards(db, meas, 0, 1<<62)
-
-			// 创建 Writer 并重放 WAL
-			w, err := e.getOrCreateWriter(db, meas)
-			if err != nil {
-				continue
-			}
-			if mw, ok := w.(*writer.MeasurementWriter); ok {
-				if err := mw.ReplayWAL(); err != nil {
-					slog.Warn("WAL replay failed", "db", db, "meas", meas, "error", err)
-				}
-			}
 		}
 	}
+
+	// 全局 WAL 重放到全局 MemTable
+	if err := e.wal.Replay(func(payload []byte) error {
+		mp, err := wal.DeserializePoint(payload)
+		if err != nil {
+			return err
+		}
+		return e.memTable.Write(mp)
+	}); err != nil {
+		slog.Warn("global WAL replay failed", "error", err)
+	}
+
+	// Replay 完成后排序
+	e.memTable.Sort()
 }
 
 // Close 关闭引擎，释放所有资源。
@@ -174,8 +208,10 @@ func (e *Engine) Close() error {
 	// 同步刷写所有数据
 	_ = e.coordinator.FlushAll()
 
-	// 关闭所有 Writer
-	_ = e.coordinator.CloseAllWriters()
+	// 关闭全局 WAL
+	if e.wal != nil {
+		_ = e.wal.Close()
+	}
 
 	// 关闭所有 Shard
 	_ = e.flusher.CloseAll()
@@ -198,7 +234,7 @@ func (e *Engine) isClosed() bool {
 	return e.closed
 }
 
-// Flush 将所有 MeasurementWriter 的 MemTable 数据刷写到 SSTable。
+// Flush 将全局 MemTable 的数据刷写到 SSTable。
 func (e *Engine) Flush() error {
 	return e.coordinator.FlushAll()
 }

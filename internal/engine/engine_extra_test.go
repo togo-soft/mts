@@ -328,12 +328,6 @@ func TestEngine_IteratorWithMemTable(t *testing.T) {
 		t.Fatalf("Write failed: %v", err)
 	}
 
-	// Get the writer's memtable
-	w := engine.coordinator.GetWriter("db1", "cpu")
-	if w == nil {
-		t.Fatal("expected writer for db1/cpu")
-	}
-
 	req := &types.QueryRangeRequest{
 		Database:    "db1",
 		Measurement: "cpu",
@@ -341,7 +335,8 @@ func TestEngine_IteratorWithMemTable(t *testing.T) {
 		EndTime:     now + 1e9,
 	}
 
-	it := IteratorWithMemTable(t.Context(), nil, w.MemTable(), engine.seriesStore, req)
+	// 使用全局 MemTable（数据已在其中）
+	it := IteratorWithMemTable(t.Context(), nil, engine.memTable, engine.seriesStore, req)
 	if it == nil {
 		t.Fatal("IteratorWithMemTable returned nil")
 	}
@@ -781,14 +776,6 @@ func TestEngine_FlushCoordinator_FlushAll_NoWriters(t *testing.T) {
 	fc := NewFlushCoordinator(nil)
 	if err := fc.FlushAll(); err != nil {
 		t.Errorf("FlushAll with no writers should succeed: %v", err)
-	}
-}
-
-func TestEngine_CloseAllWriters_Empty(t *testing.T) {
-	t.Parallel()
-	fc := NewFlushCoordinator(nil)
-	if err := fc.CloseAllWriters(); err != nil {
-		t.Errorf("CloseAllWriters with no writers should succeed: %v", err)
 	}
 }
 
