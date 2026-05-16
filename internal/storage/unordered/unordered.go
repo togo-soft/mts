@@ -15,10 +15,7 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-const (
-	dirName  = "unordered"
-	filePerm = 0600
-)
+const dirName = "unordered"
 
 var globalSeq atomic.Uint64
 
