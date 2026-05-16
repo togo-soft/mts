@@ -136,7 +136,8 @@ func (fc *FlushCoordinator) checkAndFlush() {
 	fc.mu.RUnlock()
 
 	for _, e := range entries {
-		if e.w.MemTable().ShouldSwap() && !e.w.MemTable().IsFlushing() {
+		mt := e.w.MemTable()
+		if !mt.IsFlushing() && (mt.NearFull() || mt.IdleExceeded()) {
 			_ = fc.flushWriterLocked(e.db, e.meas, e.w)
 		}
 	}

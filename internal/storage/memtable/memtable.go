@@ -208,6 +208,28 @@ func (m *MemTable) ActiveFull() bool {
 	return estimatedSize >= m.maxSize*2 || (m.maxCount > 0 && m.activeCount >= m.maxCount*2)
 }
 
+// NearFull 检查 active 是否接近容量上限（1.5x 阈值），用于触发预刷盘。
+// 相比 ShouldSwap（1x 阈值），NearFull 延迟刷盘触发以减少 I/O 频率，
+// 同时仍在 ActiveFull（2x 阈值）之前避免背压死锁。
+func (m *MemTable) NearFull() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.flushing.Load() {
+		return false
+	}
+	estimatedSize := int64(len(m.active)) * 1024
+	return estimatedSize >= m.maxSize*3/2 ||
+		(m.maxCount > 0 && m.activeCount >= m.maxCount*3/2)
+}
+
+// IdleExceeded 检查自上次写入后空闲时间是否超过配置的 idle 超时。
+func (m *MemTable) IdleExceeded() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.idleTimeout > 0 && m.activeCount > 0 &&
+		time.Since(m.lastWrite) >= m.idleTimeout
+}
+
 // Sort 对 active 进行排序，确保数据有序。
 // 用于 WAL Replay 后或任何需要防御性排序的场景。
 func (m *MemTable) Sort() {

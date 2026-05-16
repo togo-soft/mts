@@ -796,6 +796,117 @@ func TestMemTable_WriteUnsortedActive(t *testing.T) {
 	}
 }
 
+func TestMemTable_NearFull(t *testing.T) {
+	cfg := &MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          10,
+		IdleDurationNanos: 0,
+	}
+	m := NewMemTable(cfg)
+
+	if m.NearFull() {
+		t.Error("empty memtable should not be NearFull")
+	}
+
+	now := time.Now().UnixNano()
+	for i := 0; i < 5; i++ {
+		p := &types.Point{
+			Timestamp: now + int64(i)*1e9,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		}
+		_ = m.Write(types.PointToMemPoint(p, 0))
+	}
+	if m.NearFull() {
+		t.Error("5 points should not trigger NearFull with MaxCount=10")
+	}
+
+	for i := 0; i < 15; i++ {
+		p := &types.Point{
+			Timestamp: now + int64(i+5)*1e9,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		}
+		_ = m.Write(types.PointToMemPoint(p, 0))
+	}
+	if !m.NearFull() {
+		t.Error("15 points should trigger NearFull with MaxCount=10 (1.5x threshold)")
+	}
+}
+
+func TestMemTable_NearFull_WhenFlushing(t *testing.T) {
+	m := NewMemTable(&MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          5,
+		IdleDurationNanos: 0,
+	})
+
+	now := time.Now().UnixNano()
+	for i := 0; i < 10; i++ {
+		p := &types.Point{
+			Timestamp: now + int64(i)*1e9,
+			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
+		}
+		_ = m.Write(types.PointToMemPoint(p, 0))
+	}
+
+	if !m.NearFull() {
+		t.Fatal("NearFull should be true with 10 points and MaxCount=5")
+	}
+
+	_ = m.Swap()
+	if m.NearFull() {
+		t.Error("NearFull should return false while flushing")
+	}
+}
+
+func TestMemTable_IdleExceeded(t *testing.T) {
+	cfg := &MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          1000,
+		IdleDurationNanos: int64(50 * time.Millisecond),
+	}
+	m := NewMemTable(cfg)
+
+	if m.IdleExceeded() {
+		t.Error("empty memtable should not exceed idle timeout")
+	}
+
+	now := time.Now().UnixNano()
+	p := &types.Point{
+		Timestamp: now,
+		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)},
+	}
+	_ = m.Write(types.PointToMemPoint(p, 0))
+
+	if m.IdleExceeded() {
+		t.Error("should not exceed idle timeout immediately after write")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if !m.IdleExceeded() {
+		t.Error("should exceed idle timeout after 100ms with 50ms timeout")
+	}
+}
+
+func TestMemTable_IdleExceeded_ZeroTimeout(t *testing.T) {
+	cfg := &MemTableConfig{
+		MaxSize:           64 * 1024 * 1024,
+		MaxCount:          1000,
+		IdleDurationNanos: 0,
+	}
+	m := NewMemTable(cfg)
+
+	now := time.Now().UnixNano()
+	p := &types.Point{
+		Timestamp: now,
+		Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(1.0)},
+	}
+	_ = m.Write(types.PointToMemPoint(p, 0))
+
+	if m.IdleExceeded() {
+		t.Error("IdleExceeded should return false when IdleDurationNanos=0")
+	}
+}
+
 func TestMemTable_ShouldSwap_IdleTimeout_ZeroMaxCount(t *testing.T) {
 	cfg := &MemTableConfig{
 		MaxSize:           64 * 1024 * 1024,
