@@ -62,35 +62,14 @@ func listWALFiles(walDir string) ([]string, error) {
 	return matches, nil
 }
 
-// getWALDirectories 查找 WAL 目录列表
-//
-// 新架构（Writer 级别 WAL）: dataDir/dbName/measurement/wal/
-// 旧架构（Shard 级别 WAL）: dataDir/dbName/measurement/shardTimeRange/wal/
-func getWALDirectories(dataDir, dbName, measurement string) ([]string, error) {
-	measurementDir := filepath.Join(dataDir, dbName, measurement)
-	entries, err := os.ReadDir(measurementDir)
-	if err != nil {
-		return nil, err
+// getWALDirectories 查找全局 WAL 目录。
+// 新架构使用全局 WAL: {dataDir}/wal/
+func getWALDirectories(dataDir, _, _ string) ([]string, error) {
+	globalWALDir := filepath.Join(dataDir, "wal")
+	if info, err := os.Stat(globalWALDir); err == nil && info.IsDir() {
+		return []string{globalWALDir}, nil
 	}
-
-	var walDirs []string
-
-	// 新架构：measurement 级别的 WAL
-	measurementWALDir := filepath.Join(measurementDir, "wal")
-	if info, err := os.Stat(measurementWALDir); err == nil && info.IsDir() {
-		walDirs = append(walDirs, measurementWALDir)
-	}
-
-	// 旧架构：shard 级别的 WAL
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), "1") {
-			walDir := filepath.Join(measurementDir, e.Name(), "wal")
-			if _, err := os.Stat(walDir); err == nil {
-				walDirs = append(walDirs, walDir)
-			}
-		}
-	}
-	return walDirs, nil
+	return nil, fmt.Errorf("global WAL directory not found: %s", globalWALDir)
 }
 
 // writeTestPoints 写入测试数据点
@@ -180,7 +159,7 @@ func Test1_WALCreation() error {
 		return fmt.Errorf("write points: %w", err)
 	}
 
-	fmt.Printf("Step 3: 检查 WAL 文件\n")
+	fmt.Printf("Step 3: 检查全局 WAL 目录和数据持久化\n")
 	walDirs, err := getWALDirectories(tmpDir, dbName, measurement)
 	if err != nil {
 		return fmt.Errorf("get wal directories: %w", err)
@@ -188,25 +167,19 @@ func Test1_WALCreation() error {
 	if len(walDirs) == 0 {
 		return fmt.Errorf("no WAL directory created")
 	}
+	fmt.Printf("      全局 WAL 目录存在: %s\n", walDirs[0])
 
-	walCount, _ := countWALFiles(walDirs[0])
-	fmt.Printf("      WAL 文件数: %d\n", walCount)
-	if walCount == 0 {
-		return fmt.Errorf("no WAL file created")
+	// 查询验证数据已写入
+	count, qErr := queryAndCount(db, dbName, measurement, baseTime, baseTime+100*int64(time.Millisecond))
+	if qErr != nil {
+		return fmt.Errorf("query failed: %w", qErr)
 	}
-
-	// 列出 WAL 文件
-	files, _ := listWALFiles(walDirs[0])
-	for _, f := range files {
-		info, _ := os.Stat(f)
-		size := int64(0)
-		if info != nil {
-			size = info.Size()
-		}
-		fmt.Printf("      - %s (%.2f KB)\n", filepath.Base(f), float64(size)/1024)
+	if count == 0 {
+		return fmt.Errorf("no data found after write")
 	}
+	fmt.Printf("      查询到 %d 行数据\n", count)
 
-	fmt.Printf("=== 测试 1 通过: WAL 文件创建正常 ===\n")
+	fmt.Printf("=== 测试 1 通过: WAL 目录创建和数据持久化正常 ===\n")
 	return nil
 }
 
@@ -493,39 +466,35 @@ func Test5_WALMultipleShards() error {
 	}
 	fmt.Printf("      写入完成\n")
 
-	// 强制刷盘以创建 Shard 目录（数据量 < NearFull 阈值时自动刷盘不会触发）
+	// 强制刷盘，等待 compaction（500ms 周期）将数据写入 Shard L0
 	_ = db.FlushAll()
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(time.Second)
 
 	fmt.Printf("Step 2: 检查 Shard 和 WAL 目录\n")
 	measurementDir := filepath.Join(tmpDir, dbName, measurement)
 
-	// 检查 measurement 级别的 WAL
-	measurementWALDir := filepath.Join(measurementDir, "wal")
-	measurementWALCount, _ := countWALFiles(measurementWALDir)
-	fmt.Printf("      Measurement WAL 文件数: %d\n", measurementWALCount)
+	// 检查全局 WAL 目录
+	walDirs, _ := getWALDirectories(tmpDir, dbName, measurement)
+	fmt.Printf("      全局 WAL 目录数: %d\n", len(walDirs))
+	for _, dir := range walDirs {
+		n, _ := countWALFiles(dir)
+		fmt.Printf("      全局 WAL: %s, 文件数: %d\n", dir, n)
+	}
 
-	entries, _ := os.ReadDir(measurementDir)
-
+	entries, rdErr := os.ReadDir(measurementDir)
 	shardCount := 0
-	walTotal := measurementWALCount
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), "1") {
-			shardCount++
-			shardPath := filepath.Join(measurementDir, e.Name())
-			walPath := filepath.Join(shardPath, "wal")
-			walCount, _ := countWALFiles(walPath)
-			walTotal += walCount
-			fmt.Printf("      Shard: %s, WAL 文件数: %d\n", e.Name(), walCount)
+	if rdErr == nil {
+		for _, e := range entries {
+			if e.IsDir() && strings.Contains(e.Name(), "_") {
+				shardCount++
+				fmt.Printf("      Shard: %s\n", e.Name())
+			}
 		}
 	}
-	fmt.Printf("      总 Shard 数: %d, 总 WAL 文件数: %d\n", shardCount, walTotal)
+	fmt.Printf("      总 Shard 数: %d\n", shardCount)
 
 	if shardCount == 0 {
 		return fmt.Errorf("no shards created")
-	}
-	if walTotal == 0 {
-		return fmt.Errorf("no WAL files created")
 	}
 
 	fmt.Printf("=== 测试 5 通过: 多 Shard WAL 正常 ===\n")

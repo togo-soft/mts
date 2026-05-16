@@ -195,38 +195,6 @@ func (m *ShardManager) Flush(points []types.MemPoint) error {
 	return nil
 }
 
-type flushGroup struct {
-	shard  *Shard
-	points []types.MemPoint
-}
-
-func (m *ShardManager) groupByShard(db, measurement string, points []types.MemPoint) []flushGroup {
-	shardDur := int64(m.shardDuration)
-	groupMap := make(map[int64]*flushGroup)
-	var groupOrder []int64
-
-	for _, mp := range points {
-		startTime := (mp.Timestamp / shardDur) * shardDur
-		g, ok := groupMap[startTime]
-		if !ok {
-			shard, err := m.GetShard(db, measurement, mp.Timestamp)
-			if err != nil {
-				continue
-			}
-			g = &flushGroup{shard: shard, points: make([]types.MemPoint, 0, 1024)}
-			groupMap[startTime] = g
-			groupOrder = append(groupOrder, startTime)
-		}
-		g.points = append(g.points, mp)
-	}
-
-	result := make([]flushGroup, 0, len(groupOrder))
-	for _, ts := range groupOrder {
-		result = append(result, *groupMap[ts])
-	}
-	return result
-}
-
 // Compact 触发指定 shard 的后台 compaction。
 func (m *ShardManager) Compact(startTime int64) error {
 	// 新架构中 compaction 由定时任务触发。
@@ -291,8 +259,10 @@ func (m *ShardManager) L0Dir(db, measurement string, shardStart int64) (string, 
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(shard.DataDir(), "L0")
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	// SSTable 文件写入 shard 根目录下的 data/ 子目录，
+	// 与 listSSTableFiles 扫描路径对齐。
+	dir := shard.Dir()
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0700); err != nil {
 		return "", err
 	}
 	return dir, nil

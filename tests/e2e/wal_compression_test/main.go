@@ -35,30 +35,13 @@ func listWALFiles(walDir string) ([]string, error) {
 	return matches, nil
 }
 
-// getWALDirectory 获取 WAL 目录
-func getWALDirectory(dataDir, dbName, measurement string) (string, error) {
-	measurementDir := filepath.Join(dataDir, dbName, measurement)
-
-	// 新架构：measurement 级别的 WAL
-	measurementWALDir := filepath.Join(measurementDir, "wal")
-	if info, err := os.Stat(measurementWALDir); err == nil && info.IsDir() {
-		return measurementWALDir, nil
+// getWALDirectory 获取全局 WAL 目录（新架构: {dataDir}/wal/）。
+func getWALDirectory(dataDir, _, _ string) (string, error) {
+	globalWALDir := filepath.Join(dataDir, "wal")
+	if info, err := os.Stat(globalWALDir); err == nil && info.IsDir() {
+		return globalWALDir, nil
 	}
-
-	// 旧架构：shard 级别的 WAL
-	entries, err := os.ReadDir(measurementDir)
-	if err != nil {
-		return "", err
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			walDir := filepath.Join(measurementDir, e.Name(), "wal")
-			if _, err := os.Stat(walDir); err == nil {
-				return walDir, nil
-			}
-		}
-	}
-	return "", fmt.Errorf("WAL directory not found")
+	return "", fmt.Errorf("global WAL directory not found: %s", globalWALDir)
 }
 
 // getWALFileSize 获取 WAL 文件大小

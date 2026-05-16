@@ -14,11 +14,17 @@ const (
 	flushCooldown = 3 * time.Second
 )
 
+// Compactor 是 flush 后需要执行的 unordered→L0 compaction 接口。
+type Compactor interface {
+	Compact() error
+}
+
 // FlushCoordinator 编排全局 MemTable → unordered 的异步刷盘流程。
 type FlushCoordinator struct {
 	memTable    *memtable.MemTable
 	wal         *wal.WAL
 	flusher     Flusher
+	compactor   Compactor
 	dataDir     string
 	compression sstable.CompressionAlgorithm
 	lastFlush   time.Time
@@ -29,11 +35,12 @@ type FlushCoordinator struct {
 }
 
 // NewFlushCoordinator 创建新的 FlushCoordinator。
-func NewFlushCoordinator(mt *memtable.MemTable, w *wal.WAL, flusher Flusher, dataDir string, compression sstable.CompressionAlgorithm) *FlushCoordinator {
+func NewFlushCoordinator(mt *memtable.MemTable, w *wal.WAL, flusher Flusher, compactor Compactor, dataDir string, compression sstable.CompressionAlgorithm) *FlushCoordinator {
 	return &FlushCoordinator{
 		memTable:    mt,
 		wal:         w,
 		flusher:     flusher,
+		compactor:   compactor,
 		dataDir:     dataDir,
 		compression: compression,
 		stopCh:      make(chan struct{}),

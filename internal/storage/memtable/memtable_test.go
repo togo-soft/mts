@@ -472,21 +472,23 @@ func TestMemTable_ConcurrentWriteSwap(t *testing.T) {
 		}(g)
 	}
 
-	// 并发 swap + clear
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			passive := m.Swap()
-			_ = passive
+	// 并发写入的同时触发 swap（模拟刷盘触发，由单个 goroutine 串行执行）
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5; i++ {
 			time.Sleep(time.Microsecond)
-			m.ClearPassive()
-		}()
-	}
+			if m.TrySetFlushing() {
+				_ = m.Swap()
+				// 不立即 ClearPassive，保持 passive 有数据
+				// 引擎中 ClearPassive 在 flush 完成后才调用
+			}
+		}
+	}()
 
 	wg.Wait()
 
-	// 验证数据完整性：iterator 返回的结果应有序且无重复
+	// 验证数据完整性：iterator 合并 active + passive，所有数据应有序
 	iter := m.Iterator()
 	count := 0
 	var lastTs int64

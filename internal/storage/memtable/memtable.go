@@ -84,6 +84,13 @@ func (m *MemTable) ActiveCount() int {
 	return m.activeCount
 }
 
+// PassiveCount 返回 passive 中的条目数，用于查询时检查是否有未刷盘的 swap 数据。
+func (m *MemTable) PassiveCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.passive)
+}
+
 // ShouldFlush 检查 MemTable 是否满足刷盘条件（向后兼容）。
 func (m *MemTable) ShouldFlush() bool {
 	return m.ShouldSwap()

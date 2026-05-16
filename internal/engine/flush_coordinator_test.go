@@ -9,7 +9,7 @@ import (
 
 func TestFlushCoordinator_New(t *testing.T) {
 	mt := memtable.NewMemTable(memtable.DefaultMemTableConfig())
-	fc := NewFlushCoordinator(mt, nil, nil, "/tmp", sstable.CompressionNone)
+	fc := NewFlushCoordinator(mt, nil, nil, nil, "/tmp", sstable.CompressionNone)
 	if fc == nil {
 		t.Fatal("expected non-nil FlushCoordinator")
 	}
@@ -20,7 +20,7 @@ func TestFlushCoordinator_New(t *testing.T) {
 
 func TestFlushCoordinator_FlushAll_Empty(t *testing.T) {
 	mt := memtable.NewMemTable(memtable.DefaultMemTableConfig())
-	fc := NewFlushCoordinator(mt, nil, nil, t.TempDir(), sstable.CompressionNone)
+	fc := NewFlushCoordinator(mt, nil, nil, nil, t.TempDir(), sstable.CompressionNone)
 	if err := fc.FlushAll(); err != nil {
 		t.Errorf("FlushAll on empty MemTable should not error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestFlushCoordinator_FlushAll_Empty(t *testing.T) {
 
 func TestFlushCoordinator_Close(t *testing.T) {
 	mt := memtable.NewMemTable(memtable.DefaultMemTableConfig())
-	fc := NewFlushCoordinator(mt, nil, nil, t.TempDir(), sstable.CompressionNone)
+	fc := NewFlushCoordinator(mt, nil, nil, nil, t.TempDir(), sstable.CompressionNone)
 	fc.Close()
 	// Second close should be safe (sync.Once)
 	fc.Close()

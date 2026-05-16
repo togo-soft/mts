@@ -30,7 +30,7 @@ func SerializePoint(db, meas string, ts int64, sid uint64, fieldData []byte) ([]
 	putUint64LE(&buf, sid)
 	// fieldData
 	buf = append(buf, fieldData...)
-	return buf, func() { walBufPool.Put(buf[:0]) }
+	return buf, func() { walBufPool.Put(buf[:0]) } //nolint:staticcheck // SA6002: []byte is pointer-like, allocation unavoidable for interface boxing
 }
 
 // DeserializePoint 从 WAL payload 反序列化 MemPoint。

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/unordered"
@@ -27,6 +28,7 @@ type UnorderedCompactor struct {
 	dataDir     string
 	shardMgr    UnorderedShardManager
 	compression sstable.CompressionAlgorithm
+	mu          sync.Mutex
 }
 
 // NewUnorderedCompactor 创建新的 UnorderedCompactor。
@@ -47,8 +49,11 @@ type pointGroup struct {
 }
 
 // Compact 扫描 unordered 下所有文件，按 (db, measurement, shard) 分拣排序，
-// 写入对应 stable/{db}/{meas}/{shardStart}_{endTime}/L0/ 目录。
+// 写入对应 shard 的 data/ 目录（L0）。
 func (uc *UnorderedCompactor) Compact() error {
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+
 	files, err := unordered.ListFiles(uc.dataDir)
 	if err != nil {
 		return err
@@ -60,11 +65,13 @@ func (uc *UnorderedCompactor) Compact() error {
 	// 分组: key = "db\000meas\000shardStart"
 	groupMap := make(map[string]*pointGroup)
 	var groupOrder []string
+	// 追踪成功读取的文件（用于后续安全删除）
+	readFiles := make(map[string]bool)
 
 	for _, file := range files {
 		db, meas, _, ok := unordered.ParseFilePath(uc.dataDir, file)
 		if !ok {
-			// 非法路径格式，可能是旧版平铺文件，跳过
+			// 非法路径格式，可能是旧版平铺文件，跳过（不删除）
 			continue
 		}
 
@@ -77,6 +84,8 @@ func (uc *UnorderedCompactor) Compact() error {
 		if err != nil {
 			continue
 		}
+
+		readFiles[file] = true
 
 		for _, row := range rows {
 			shardStart := (row.Timestamp / uc.shardMgr.ShardDurationNanos()) * uc.shardMgr.ShardDurationNanos()
@@ -136,8 +145,11 @@ func (uc *UnorderedCompactor) Compact() error {
 		}
 	}
 
-	// 删除已处理的 unordered 文件
+	// 仅删除成功读取并已处理的 unordered 文件
 	for _, file := range files {
+		if !readFiles[file] {
+			continue
+		}
 		_ = os.Remove(file)
 
 		// 清理空目录（递归向上清理）

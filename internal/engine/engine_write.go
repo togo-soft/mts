@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
+
+const maxFlushRetries = 10
+
+const flushRetryInterval = 50 * time.Millisecond
 
 // Write 写入单个数据点到存储引擎。
 // 直接写入全局 WAL 和全局 MemTable。
@@ -65,15 +70,33 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 		return fmt.Errorf("wal write: %w", err)
 	}
 
-	// 写 MemTable（背压检查）
+	// 背压：满时触发同步刷盘，并发场景下等待其他 goroutine 的刷盘完成
 	if e.memTable.ActiveFull() {
-		return fmt.Errorf("memtable full")
+		if err := e.flushWithRetry(); err != nil {
+			return err
+		}
 	}
 
 	if err := e.memTable.Write(mp); err != nil {
 		return fmt.Errorf("memtable write: %w", err)
 	}
 	return nil
+}
+
+// flushWithRetry 触发刷盘，若其他 goroutine 正在刷盘则等待其完成。
+// 并发写入场景下，多个 goroutine 可能同时发现 MemTable 满，
+// 但只有第一个能启动刷盘（TrySetFlushing），其他的需要等待。
+func (e *Engine) flushWithRetry() error {
+	for range maxFlushRetries {
+		if err := e.coordinator.FlushAll(); err != nil {
+			slog.Warn("flush on memtable full failed", "error", err)
+		}
+		if !e.memTable.ActiveFull() {
+			return nil
+		}
+		time.Sleep(flushRetryInterval)
+	}
+	return fmt.Errorf("memtable still full after %d flush attempts", maxFlushRetries)
 }
 
 // WriteBatch 批量写入数据点。
@@ -150,9 +173,11 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 		return fmt.Errorf("wal write batch: %w", err)
 	}
 
-	// 背压检查
+	// 背压：满时触发同步刷盘，并发场景下等待其他 goroutine 的刷盘完成
 	if e.memTable.ActiveFull() {
-		return fmt.Errorf("memtable full")
+		if err := e.flushWithRetry(); err != nil {
+			return err
+		}
 	}
 
 	// 批量写 MemTable

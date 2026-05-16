@@ -344,14 +344,25 @@ func TestShardManager_Flush(t *testing.T) {
 	ts := time.Now().UnixNano()
 	shardStart := (ts / int64(time.Hour)) * int64(time.Hour)
 
+	// Manually create shard and write SSTable directly
+	shard, err := sm.GetShard("db1", "cpu", shardStart+1000)
+	if err != nil {
+		t.Fatalf("GetShard failed: %v", err)
+	}
+
 	points := []types.MemPoint{
 		{Timestamp: shardStart + 1000, Sid: 1, FieldData: nil},
 		{Timestamp: shardStart + 2000, Sid: 2, FieldData: nil},
 		{Timestamp: shardStart + 3000, Sid: 1, FieldData: nil},
 	}
 
-	if err := sm.Flush(points); err != nil {
-		t.Fatalf("Flush failed: %v", err)
+	sstPath, sstSeq, minTime, maxTime, err := shard.WriteSSTable(points)
+	if err != nil {
+		t.Fatalf("WriteSSTable failed: %v", err)
+	}
+	fi, err := os.Stat(sstPath)
+	if err == nil {
+		shard.RegisterSSTable(sstSeq, minTime, maxTime, fi.Size())
 	}
 
 	// Verify shard was created and has data
@@ -407,7 +418,7 @@ func TestShardManager_Flush_EmptyPoints(t *testing.T) {
 	_ = sm.CloseAll()
 }
 
-func TestShardManager_Flush_InvalidName(t *testing.T) {
+func TestShardManager_Flush_Noop(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 
@@ -429,18 +440,13 @@ func TestShardManager_Flush_InvalidName(t *testing.T) {
 		mgr.Shards(),
 	)
 
+	// Flush 在当前架构中为桩方法，应总是返回 nil
 	points := []types.MemPoint{
 		{Timestamp: 1000, Sid: 1},
 	}
 
-	err = sm.Flush(points)
-	if err == nil {
-		t.Error("expected error for empty database name")
-	}
-
-	err = sm.Flush(points)
-	if err == nil {
-		t.Error("expected error for empty measurement name")
+	if err := sm.Flush(points); err != nil {
+		t.Errorf("Flush should be a no-op returning nil, got: %v", err)
 	}
 
 	_ = sm.CloseAll()
@@ -468,15 +474,34 @@ func TestShardManager_Flush_MultipleShards(t *testing.T) {
 		mgr.Shards(),
 	)
 
-	// Create points in two different shards
-	points := []types.MemPoint{
+	// Manually create two shards and write SSTables
+	shard1, err := sm.GetShard("db1", "cpu", 100)
+	if err != nil {
+		t.Fatalf("GetShard failed: %v", err)
+	}
+	shard2, err := sm.GetShard("db1", "cpu", int64(smallDuration)+100)
+	if err != nil {
+		t.Fatalf("GetShard failed: %v", err)
+	}
+
+	points1 := []types.MemPoint{
 		{Timestamp: 100, Sid: 1, FieldData: nil},
+	}
+	points2 := []types.MemPoint{
 		{Timestamp: int64(smallDuration) + 100, Sid: 2, FieldData: nil},
 	}
 
-	if err := sm.Flush(points); err != nil {
-		t.Fatalf("Flush failed: %v", err)
+	_, sstSeq1, minTime1, maxTime1, err := shard1.WriteSSTable(points1)
+	if err != nil {
+		t.Fatalf("WriteSSTable failed: %v", err)
 	}
+	shard1.RegisterSSTable(sstSeq1, minTime1, maxTime1, 0)
+
+	_, sstSeq2, minTime2, maxTime2, err := shard2.WriteSSTable(points2)
+	if err != nil {
+		t.Fatalf("WriteSSTable failed: %v", err)
+	}
+	shard2.RegisterSSTable(sstSeq2, minTime2, maxTime2, 0)
 
 	shards := sm.GetAllShards()
 	if len(shards) != 2 {
@@ -678,8 +703,8 @@ func TestShard_EmptySSTableList(t *testing.T) {
 func TestIsNameSafe(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		safe  bool
+		name string
+		safe bool
 	}{
 		{"", false},
 		{".", false},
@@ -1013,7 +1038,7 @@ func TestIsNameSafe_PathTraversal(t *testing.T) {
 	}{
 		{"../etc", false},
 		{"a/b", false},
-		{"./foo", true},  // cleaned to "foo", which is safe
+		{"./foo", true}, // cleaned to "foo", which is safe
 		{"valid-name_123", true},
 		{"normal", true},
 	}
@@ -1158,25 +1183,26 @@ func TestShardManager_Flush_WriteSSTableError(t *testing.T) {
 
 	// Create a shard
 	ts := time.Now().UnixNano()
-	_, err = sm.GetShard("db1", "cpu", ts)
+	shard, err := sm.GetShard("db1", "cpu", ts)
 	if err != nil {
 		t.Fatalf("GetShard failed: %v", err)
 	}
 
-	// Valid points that flush successfully
+	// Valid points that write successfully
 	shardStart := (ts / int64(time.Hour)) * int64(time.Hour)
 	points := []types.MemPoint{
 		{Timestamp: shardStart + 100, Sid: 1, FieldData: nil},
 	}
 
-	if err := sm.Flush(points); err != nil {
-		t.Fatalf("Flush failed: %v", err)
+	_, _, _, _, err = shard.WriteSSTable(points)
+	if err != nil {
+		t.Fatalf("WriteSSTable failed: %v", err)
 	}
 
 	// Verify shards were created
 	shards := sm.GetAllShards()
 	if len(shards) < 1 {
-		t.Error("expected at least 1 shard after flush")
+		t.Error("expected at least 1 shard after write")
 	}
 
 	_ = sm.CloseAll()
@@ -1310,7 +1336,7 @@ func TestShardManager_discoverShardsLocked_WithEntries(t *testing.T) {
 	_ = sm.CloseAll()
 }
 
-func TestShardManager_Flush_GroupByShardError(t *testing.T) {
+func TestShardManager_Flush_Noop_WithPoints(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	mgr, err := metadata.NewManager(tmpDir)
@@ -1331,20 +1357,13 @@ func TestShardManager_Flush_GroupByShardError(t *testing.T) {
 		mgr.Shards(),
 	)
 
-	// Points with empty/invalid db/meas should cause Flush to return error
-	// (isNameSafe fails, checked at the top of Flush)
+	// Flush 在当前架构中为桩方法，应该总是返回 nil
 	points := []types.MemPoint{
 		{Timestamp: 1000, Sid: 1},
 	}
 
-	// This should return error because db name is empty
-	if err := sm.Flush(points); err == nil {
-		t.Error("expected error for empty db")
-	}
-
-	// This should return error because measurement name is empty
-	if err := sm.Flush(points); err == nil {
-		t.Error("expected error for empty measurement")
+	if err := sm.Flush(points); err != nil {
+		t.Error("expected no error from Flush stub, got:", err)
 	}
 
 	_ = sm.CloseAll()

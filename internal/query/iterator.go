@@ -5,7 +5,7 @@
 // 设计模式：
 //
 //	遵循 Go 迭代器模式，支持 for it.Next(ctx) { row := it.Points() } 用法。
-//	内部使用最小堆（min-heap）实现多 Shard 归并排序。
+//	内部使用最小堆（min-heap）实现多数据源归并排序。
 package query
 
 import (
@@ -17,10 +17,42 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// Iterator 是流式查询迭代器，支持多 Shard 归并排序和过滤。
+// heapItem 是归并堆中数据项的接口。
+// ShardIterator 和 sliceIterator 都实现此接口。
+type heapItem interface {
+	Current() *types.PointRow
+	Next() *types.PointRow
+	Close()
+}
+
+// sliceIterator 包装一个已排序的 PointRow 切片，实现 heapItem 接口。
+type sliceIterator struct {
+	rows []*types.PointRow
+	pos  int
+}
+
+func (s *sliceIterator) Current() *types.PointRow {
+	if s.pos >= len(s.rows) {
+		return nil
+	}
+	return s.rows[s.pos]
+}
+
+func (s *sliceIterator) Next() *types.PointRow {
+	s.pos++
+	if s.pos >= len(s.rows) {
+		return nil
+	}
+	return s.rows[s.pos]
+}
+
+func (s *sliceIterator) Close() {}
+
+// Iterator 是流式查询迭代器，支持多数据源归并排序和过滤。
 //
 // Iterator 提供按需加载数据的迭代接口，适合处理超出内存容量的大查询。
-// 内部使用最小堆（min-heap）实现多 Shard 数据的归并排序。
+// 内部使用最小堆（min-heap）实现多数据源的归并排序。
+// 数据源包括：Shard SSTable、全局 MemTable（未刷盘数据）、unordered 文件。
 //
 // 字段说明：
 //
@@ -50,8 +82,8 @@ import (
 type Iterator struct {
 	req *types.QueryRangeRequest
 
-	// Min-heap 用于多 Shard 归并排序
-	heap shardHeap
+	// Min-heap 用于多数据源归并排序
+	heap mergeHeap
 
 	// 当前行
 	currentRow *types.PointRow
@@ -60,11 +92,12 @@ type Iterator struct {
 	closed     bool  // 是否已关闭
 }
 
-type shardHeap []*shard.ShardIterator
+// mergeHeap 实现 container/heap.Interface，用于多数据源按时间戳升序归并。
+type mergeHeap []heapItem
 
-func (h shardHeap) Len() int { return len(h) }
+func (h mergeHeap) Len() int { return len(h) }
 
-func (h shardHeap) Less(i, j int) bool {
+func (h mergeHeap) Less(i, j int) bool {
 	iRow := h[i].Current()
 	jRow := h[j].Current()
 	if iRow == nil {
@@ -76,15 +109,15 @@ func (h shardHeap) Less(i, j int) bool {
 	return iRow.Timestamp < jRow.Timestamp
 }
 
-func (h shardHeap) Swap(i, j int) {
+func (h mergeHeap) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]
 }
 
-func (h *shardHeap) Push(x any) {
-	*h = append(*h, x.(*shard.ShardIterator))
+func (h *mergeHeap) Push(x any) {
+	*h = append(*h, x.(heapItem))
 }
 
-func (h *shardHeap) Pop() any {
+func (h *mergeHeap) Pop() any {
 	old := *h
 	n := len(old)
 	item := old[n-1]
@@ -115,18 +148,14 @@ func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRan
 		req: req,
 	}
 
-	// 使用请求中的原始时间（假设为纳秒）
 	startTimeNs := req.StartTime
 	endTimeNs := req.EndTime
 
-	// 为每个 Shard 创建 ShardIterator 并加入 heap
-	// 注意：不进行 shard boundary check，因为 ShardIterator 内部会进行时间过滤
-	// maxRows: 每个 shard 最多需要提供 req.Limit+req.Offset 行（最坏情况所有行来自同一 shard）
 	var maxRows int
 	if req.Limit > 0 {
 		maxRows = int(req.Limit + req.Offset)
 	}
-	q.heap = make(shardHeap, 0, len(shards))
+	q.heap = make(mergeHeap, 0, len(shards))
 	for _, s := range shards {
 		si := shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
 		if si.Current() != nil {
@@ -138,7 +167,6 @@ func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRan
 	}
 	heap.Init(&q.heap)
 
-	// 获取第一个有效的行
 	q.fetchNextValid()
 
 	return q
@@ -147,7 +175,8 @@ func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRan
 // NewIteratorWithMemTable 创建流式查询迭代器，合并 Writer MemTable 和 Shard SSTable。
 // writerMT 为 MeasurementWriter 的 MemTable（未刷盘数据），可为 nil。
 // extSeriesStore 用于 nil shard 场景下 SID→Tags 解析（可为 nil）。
-func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerMT *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest) *Iterator {
+// unorderedData 为 unordered 目录中已排序的 PointRow 切片列表，每个切片对应一个 unordered 文件。
+func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerMT *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest, unorderedData ...[]*types.PointRow) *Iterator {
 	q := &Iterator{
 		req: req,
 	}
@@ -159,7 +188,7 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 	if req.Limit > 0 {
 		maxRows = int(req.Limit + req.Offset)
 	}
-	q.heap = make(shardHeap, 0, len(shards)+1)
+	q.heap = make(mergeHeap, 0, len(shards)+1+len(unorderedData))
 
 	for i, s := range shards {
 		var si *shard.ShardIterator
@@ -185,6 +214,14 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 		}
 	}
 
+	// 添加 unordered 数据源
+	for _, rows := range unorderedData {
+		if len(rows) == 0 {
+			continue
+		}
+		q.heap = append(q.heap, &sliceIterator{rows: rows})
+	}
+
 	heap.Init(&q.heap)
 
 	q.fetchNextValid()
@@ -196,8 +233,8 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 func (q *Iterator) fetchNextValid() {
 	q.currentRow = nil
 	for len(q.heap) > 0 {
-		// 弹出最小 timestamp 的 ShardIterator
-		si := heap.Pop(&q.heap).(*shard.ShardIterator)
+		// 弹出最小 timestamp 的数据源
+		si := heap.Pop(&q.heap).(heapItem)
 		row := si.Current()
 
 		// 获取下一个元素用于后续归并
@@ -205,11 +242,11 @@ func (q *Iterator) fetchNextValid() {
 		if next != nil {
 			heap.Push(&q.heap, si)
 		} else {
-			// Shard 已耗尽，释放其持有的 SSTable 引用
+			// 数据源已耗尽，释放资源
 			si.Close()
 		}
 
-		// row 为 nil 表示该 Shard 已完全耗尽
+		// row 为 nil 表示该数据源已完全耗尽
 		if row == nil {
 			continue
 		}
@@ -328,15 +365,14 @@ func (q *Iterator) Points() *types.PointRow {
 	return row
 }
 
-// Close 关闭迭代器，释放底层 ShardIterator 持有的 SSTable 引用。
+// Close 关闭迭代器，释放底层资源。
 //
 // 返回：
 //   - error: 关闭失败时返回错误（当前总是返回 nil）
 //
 // 说明：
 //
-//	标记迭代器为已关闭，关闭所有 ShardIterator 以释放 SSTable 引用计数，
-//	防止 Compaction 因引用未释放而无法清理旧文件。
+//	标记迭代器为已关闭，关闭所有底层数据源以释放资源。
 //	建议配合 defer 使用以确保资源释放。
 func (q *Iterator) Close() error {
 	q.closed = true

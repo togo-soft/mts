@@ -96,7 +96,7 @@ func TestWriteAndList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	if reader.Flags != sstable.FlagUnordered {
 		t.Errorf("expected FlagUnordered, got 0x%04x", reader.Flags)
