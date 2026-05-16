@@ -24,3 +24,5 @@ check_schema
 *.test
 *.outwrite_100k_pprof
 *_bin
+*.out
+coverage*
