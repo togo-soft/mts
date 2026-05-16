@@ -367,8 +367,12 @@ func (w *WAL) TruncateBefore(seq uint64) error {
 		return err
 	}
 	for _, e := range entries {
-		if e.Num < seq {
-			_ = os.Remove(e.Path)
+		if e.Gen == w.gen && e.Num < seq {
+			if err := os.Remove(e.Path); err != nil && !os.IsNotExist(err) {
+				if w.cfg.Logger != nil {
+					w.cfg.Logger.Warn("failed to remove WAL segment", "path", e.Path, "error", err)
+				}
+			}
 		}
 	}
 	return nil

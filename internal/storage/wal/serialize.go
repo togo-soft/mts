@@ -37,9 +37,11 @@ func DeserializePoint(data []byte) (types.MemPoint, error) {
 	}
 	ts := int64(binary.LittleEndian.Uint64(data[1:9]))
 	sid := binary.LittleEndian.Uint64(data[9:17])
+	fieldData := make([]byte, len(data)-17)
+	copy(fieldData, data[17:])
 	return types.MemPoint{
 		Timestamp: ts,
 		Sid:       sid,
-		FieldData: data[17:],
+		FieldData: fieldData,
 	}, nil
 }
