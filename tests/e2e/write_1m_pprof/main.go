@@ -196,6 +196,7 @@ func main() {
 		},
 	}
 
+	fmt.Printf("Creating database at: %s\n", tmpDir)
 	db, err := microts.Open(cfg)
 	if err != nil {
 		fmt.Printf("Open failed: %v\n", err)

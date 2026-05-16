@@ -150,8 +150,9 @@ func (s *Shard) initCompaction(cfg ShardConfig) {
 	}
 }
 
-// writeSSTableWithTimeout 使用 goroutine + timeout 包装整个 SSTable 写入过程，
-// 避免在 Windows 上因杀毒软件或文件系统阻塞而导致死锁。
+// writeSSTableWithTimeout 在独立的 goroutine 中执行 SSTable 写入，并带有 5 秒超时。
+// 如果超时，主函数立即返回错误（goroutine 被 abandon，但不会泄漏，因为写入完成后会自然结束）。
+// 这种设计确保了即使在 Windows 上 I/O 阻塞，也不会永久卡死调用方。
 func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (sstPath string, sstSeq uint64, minTime, maxTime int64, err error) {
 	type result struct {
 		sstPath string
@@ -161,6 +162,9 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 		err     error
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	resCh := make(chan result, 1)
 	go func() {
 		sstPath := filepath.Join(s.DataDir(), fmt.Sprintf("sst_%d.bin", seq))
@@ -169,6 +173,14 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 		if mkdirErr := os.MkdirAll(s.DataDir(), 0700); mkdirErr != nil {
 			resCh <- result{"", 0, 0, 0, fmt.Errorf("create data dir: %w", mkdirErr)}
 			return
+		}
+
+		// 检查上下文是否已取消（避免在 I/O 期间长时间阻塞）
+		select {
+		case <-ctx.Done():
+			resCh <- result{"", 0, 0, 0, fmt.Errorf("write sstable cancelled")}
+			return
+		default:
 		}
 
 		w, wErr := sstable.NewWriter(s.dir, seq, 0, s.compressionAlgo)
@@ -202,9 +214,8 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 		resCh <- result{sstPath, seq, minTime, maxTime, nil}
 	}()
 
-	// 5 second timeout for the entire SSTable write process
 	select {
-	case <-time.After(5 * time.Second):
+	case <-ctx.Done():
 		return "", 0, 0, 0, fmt.Errorf("write sstable timeout after 5s")
 	case res := <-resCh:
 		return res.sstPath, res.sstSeq, res.minTime, res.maxTime, res.err
