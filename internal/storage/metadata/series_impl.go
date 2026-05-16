@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
 	bolt "go.etcd.io/bbolt"
@@ -99,25 +100,32 @@ func appendSIDToBuf(buf []byte, v uint64) []byte {
 }
 
 func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]string) (uint64, error) {
+	slog.Info("AllocateSID: called", "db", database, "meas", measurement)
 	h := tagsHash(tags)
 	hashKey := encodeSIDKey(h)
 
 	// 快速路径：hash 缓存命中直接返回 SID（跳过 bbolt 事务）
 	if sid, ok := s.loadHashSid(database, measurement, h); ok {
+		slog.Info("AllocateSID: cache hit", "db", database, "meas", measurement, "sid", sid)
 		return sid, nil
 	}
+	slog.Info("AllocateSID: cache miss", "db", database, "meas", measurement)
 
 	// 只读事务查找已存在的 SID（不触发 fsync）
 	if sid, ok := s.lookupSIDReadOnly(database, measurement, hashKey, tags); ok {
 		s.storeHashSid(database, measurement, h, sid)
+		slog.Info("AllocateSID: found in db", "db", database, "meas", measurement, "sid", sid)
 		return sid, nil
 	}
+	slog.Info("AllocateSID: not found, allocating new", "db", database, "meas", measurement)
 
 	// 未命中：走写事务分配新 SID
 	sid, err := s.allocateSIDWriteTx(database, measurement, tags, hashKey)
 	if err != nil {
+		slog.Info("AllocateSID: allocation failed", "db", database, "meas", measurement, "error", err)
 		return 0, err
 	}
+	slog.Info("AllocateSID: new sid allocated", "db", database, "meas", measurement, "sid", sid)
 
 	// 更新内存缓存
 	s.storeHashSid(database, measurement, h, sid)

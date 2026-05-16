@@ -66,12 +66,14 @@ func (mw *MeasurementWriter) Write(point *types.Point) error {
 	}
 
 	mw.mu.Lock()
+	slog.Info("writer.Write: got lock", "db", mw.db, "meas", mw.measurement)
 
 	sid, err := mw.seriesStore.AllocateSID(mw.db, mw.measurement, point.Tags)
 	if err != nil {
 		mw.mu.Unlock()
 		return fmt.Errorf("allocate SID: %w", err)
 	}
+	slog.Info("writer.Write: AllocateSID done", "db", mw.db, "meas", mw.measurement, "sid", sid)
 
 	mp := types.PointToMemPoint(point, sid)
 	mw.mu.Unlock()
@@ -84,6 +86,7 @@ func (mw *MeasurementWriter) Write(point *types.Point) error {
 	}
 
 	mw.mu.Lock()
+	slog.Info("writer.Write: got lock for WAL", "db", mw.db, "meas", mw.measurement)
 	if mw.wal != nil {
 		_, err := mw.wal.Write(walData)
 		if walRelease != nil {
