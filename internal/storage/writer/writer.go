@@ -63,14 +63,17 @@ var errBackpressureTimeout = fmt.Errorf("backpressure timeout: memtable still fu
 
 // Write 写入单个数据点。
 func (mw *MeasurementWriter) Write(point *types.Point) error {
-	deadline := time.Now().Add(backpressureTimeout)
-	for mw.memTable.ActiveFull() {
-		if time.Now().After(deadline) {
-			return errBackpressureTimeout
-		}
-		time.Sleep(backpressureSleep)
-		if mw.closed.Load() {
-			return fmt.Errorf("writer closed during backpressure wait")
+	// 快速路径：无背压时跳过 deadline 计算
+	if mw.memTable.ActiveFull() {
+		deadline := time.Now().Add(backpressureTimeout)
+		for mw.memTable.ActiveFull() {
+			if time.Now().After(deadline) {
+				return errBackpressureTimeout
+			}
+			time.Sleep(backpressureSleep)
+			if mw.closed.Load() {
+				return fmt.Errorf("writer closed during backpressure wait")
+			}
 		}
 	}
 
@@ -82,19 +85,23 @@ func (mw *MeasurementWriter) Write(point *types.Point) error {
 		return fmt.Errorf("allocate SID: %w", err)
 	}
 
-	mp := types.PointToMemPoint(point, sid)
-	mw.mu.Unlock()
-
-	// WAL 序列化（LZ4 压缩 + 编码）移出临界区，减少锁持有时间
+	var mp types.MemPoint
 	var walData []byte
 	var walRelease func()
 	if mw.wal != nil {
-		walData, walRelease = serializePointForWALPooled(mp.Timestamp, mp.Sid, mp.FieldData)
+		// 合并字段+WAL 序列化，单次 map 遍历直接写入 WAL 池缓冲区
+		mp, walData, walRelease = serializePointDirect(point.Timestamp, sid, point.Fields)
+	} else {
+		mp = types.PointToMemPoint(point, sid)
 	}
+	mw.mu.Unlock()
 
 	mw.mu.Lock()
 	if mw.closed.Load() {
 		mw.mu.Unlock()
+		if walRelease != nil {
+			walRelease()
+		}
 		return fmt.Errorf("writer closed")
 	}
 
@@ -129,14 +136,16 @@ func (mw *MeasurementWriter) WriteBatch(points []*types.Point) (int, error) {
 		return 0, nil
 	}
 
-	deadline := time.Now().Add(backpressureTimeout)
-	for mw.memTable.ActiveFull() {
-		if time.Now().After(deadline) {
-			return 0, errBackpressureTimeout
-		}
-		time.Sleep(backpressureSleep)
-		if mw.closed.Load() {
-			return 0, fmt.Errorf("writer closed during backpressure wait")
+	if mw.memTable.ActiveFull() {
+		deadline := time.Now().Add(backpressureTimeout)
+		for mw.memTable.ActiveFull() {
+			if time.Now().After(deadline) {
+				return 0, errBackpressureTimeout
+			}
+			time.Sleep(backpressureSleep)
+			if mw.closed.Load() {
+				return 0, fmt.Errorf("writer closed during backpressure wait")
+			}
 		}
 	}
 
@@ -166,13 +175,14 @@ func (mw *MeasurementWriter) WriteBatch(points []*types.Point) (int, error) {
 			}
 			return i, fmt.Errorf("allocate SID for point %d: %w", i, err)
 		}
-		mp := types.PointToMemPoint(point, sid)
-		mps = append(mps, mp)
 
 		if mw.wal != nil {
-			data, release := serializePointForWALPooled(mp.Timestamp, mp.Sid, mp.FieldData)
+			mp, data, release := serializePointDirect(point.Timestamp, sid, point.Fields)
+			mps = append(mps, mp)
 			walData = append(walData, data)
 			walReleases = append(walReleases, release)
+		} else {
+			mps = append(mps, types.PointToMemPoint(point, sid))
 		}
 	}
 

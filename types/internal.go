@@ -100,14 +100,42 @@ var fieldSerialPool = sync.Pool{
 	},
 }
 
-// serializeFieldsFromMap 直接将 map[string]*FieldValue 序列化为 FieldData 格式。
-// 跳过 []InternalField 中间态，内部缓冲区池化减少 GC 压力。
-//
+// AppendFieldData 将 fields 序列化为 FieldData 格式并追加到 dst。
 // 格式: FieldCount(2B BE) + [KeyLen(2B BE) + Key + Type(1B) + Value]...
-func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
-	if len(fields) == 0 {
-		return nil
+func AppendFieldData(dst []byte, fields map[string]*FieldValue) []byte {
+	dst = appendU16(dst, uint16(len(fields)))
+	for k, v := range fields {
+		dst = appendU16(dst, uint16(len(k)))
+		dst = append(dst, k...)
+		switch val := v.GetValue().(type) {
+		case *FieldValue_FloatValue:
+			dst = append(dst, 0)
+			var vb [8]byte
+			binary.BigEndian.PutUint64(vb[:], math.Float64bits(val.FloatValue))
+			dst = append(dst, vb[:]...)
+		case *FieldValue_IntValue:
+			dst = append(dst, 1)
+			var vb [8]byte
+			binary.BigEndian.PutUint64(vb[:], uint64(val.IntValue))
+			dst = append(dst, vb[:]...)
+		case *FieldValue_StringValue:
+			dst = append(dst, 2)
+			dst = appendU16(dst, uint16(len(val.StringValue)))
+			dst = append(dst, val.StringValue...)
+		case *FieldValue_BoolValue:
+			dst = append(dst, 3)
+			if val.BoolValue {
+				dst = append(dst, 1)
+			} else {
+				dst = append(dst, 0)
+			}
+		}
 	}
+	return dst
+}
+
+// FieldDataSize 返回 fields 序列化后的字节数。
+func FieldDataSize(fields map[string]*FieldValue) int {
 	size := 2 // fieldCount
 	for k, v := range fields {
 		size += 2 + len(k) + 1 // keyLen + key + type
@@ -120,6 +148,16 @@ func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 			size += 1
 		}
 	}
+	return size
+}
+
+// serializeFieldsFromMap 直接将 map[string]*FieldValue 序列化为 FieldData 格式。
+// 内部缓冲区池化减少 GC 压力。
+func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
+	if len(fields) == 0 {
+		return nil
+	}
+	size := FieldDataSize(fields)
 
 	bufPtr := fieldSerialPool.Get().(*[]byte)
 	buf := *bufPtr
@@ -128,36 +166,8 @@ func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 		buf = make([]byte, 0, size)
 	}
 
-	buf = appendU16(buf, uint16(len(fields)))
-	for k, v := range fields {
-		buf = appendU16(buf, uint16(len(k)))
-		buf = append(buf, k...)
-		switch val := v.GetValue().(type) {
-		case *FieldValue_FloatValue:
-			buf = append(buf, 0)
-			var vb [8]byte
-			binary.BigEndian.PutUint64(vb[:], math.Float64bits(val.FloatValue))
-			buf = append(buf, vb[:]...)
-		case *FieldValue_IntValue:
-			buf = append(buf, 1)
-			var vb [8]byte
-			binary.BigEndian.PutUint64(vb[:], uint64(val.IntValue))
-			buf = append(buf, vb[:]...)
-		case *FieldValue_StringValue:
-			buf = append(buf, 2)
-			buf = appendU16(buf, uint16(len(val.StringValue)))
-			buf = append(buf, val.StringValue...)
-		case *FieldValue_BoolValue:
-			buf = append(buf, 3)
-			if val.BoolValue {
-				buf = append(buf, 1)
-			} else {
-				buf = append(buf, 0)
-			}
-		}
-	}
+	buf = AppendFieldData(buf, fields)
 
-	// 复制结果后归还缓冲区到池
 	result := make([]byte, len(buf))
 	copy(result, buf)
 	*bufPtr = buf[:0]

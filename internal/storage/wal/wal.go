@@ -13,7 +13,7 @@ import (
 
 const (
 	defaultSegmentSize  = 64 * 1024 * 1024 // 默认 segment 大小 64MB
-	writeBufSize        = 64 * 1024        // 写缓冲大小 64KB
+	writeBufSize        = 1 * 1024 * 1024  // 写缓冲大小 1MB，减少慢 I/O 平台上 file.Write 频率
 	defaultSyncInterval = time.Second      // 默认同步间隔
 )
 

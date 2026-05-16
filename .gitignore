@@ -22,4 +22,5 @@ check_fields
 check_schema
 .worktrees
 *.test
-*.out
+*.outwrite_100k_pprof
+*_bin
