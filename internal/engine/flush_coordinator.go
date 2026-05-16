@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -12,10 +11,12 @@ import (
 // FlushCoordinator 编排 Writer → Flusher 的异步刷盘流程。
 // 管理 Writer 注册、查询和同步刷盘。
 type FlushCoordinator struct {
-	writers map[string]Writer // key: "db/meas"
-	flusher Flusher
-	mu      sync.RWMutex
-	closed  bool
+	writers  map[string]Writer // key: "db/meas"
+	flusher  Flusher
+	mu       sync.RWMutex
+	closed   bool
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 // NewFlushCoordinator 创建新的 FlushCoordinator。
@@ -23,7 +24,25 @@ func NewFlushCoordinator(flusher Flusher) *FlushCoordinator {
 	return &FlushCoordinator{
 		writers: make(map[string]Writer),
 		flusher: flusher,
+		stopCh:  make(chan struct{}),
 	}
+}
+
+// StartPeriodicCheck 启动周期性自动检查，当 ShouldSwap 为 true 时触发刷盘。
+// interval 为检查间隔，建议 1s。
+func (fc *FlushCoordinator) StartPeriodicCheck(interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				fc.checkAndFlush()
+			case <-fc.stopCh:
+				return
+			}
+		}
+	}()
 }
 
 // RegisterWriter 注册一个 Writer（按 db/meas 索引）。
@@ -77,9 +96,14 @@ func (fc *FlushCoordinator) FlushAll() error {
 // CloseAllWriters 关闭所有注册的 Writer。
 func (fc *FlushCoordinator) CloseAllWriters() error {
 	fc.mu.Lock()
+	fc.closed = true
+	fc.mu.Unlock()
+
+	fc.stopOnce.Do(func() { close(fc.stopCh) })
+
+	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
-	fc.closed = true
 	var firstErr error
 	for _, w := range fc.writers {
 		if err := w.Close(); err != nil && firstErr == nil {
@@ -89,18 +113,39 @@ func (fc *FlushCoordinator) CloseAllWriters() error {
 	return firstErr
 }
 
-// flushWriterLocked 内部同步刷写（调用者持有锁或保证线程安全）。
-func (fc *FlushCoordinator) flushWriterLocked(db, measurement string, w Writer) error {
-	// 等待正在进行的 flush 完成
-	waitStart := time.Now()
-	for w.MemTable().IsFlushing() {
-		time.Sleep(time.Millisecond)
-		if time.Since(waitStart) > 3*time.Second {
-			slog.Warn("flushWriterLocked: IsFlushing timeout waiting", "db", db, "meas", measurement)
+// checkAndFlush 检查所有已注册 Writer 的 ShouldSwap 状态，按需触发刷盘。
+func (fc *FlushCoordinator) checkAndFlush() {
+	fc.mu.RLock()
+	if fc.closed {
+		fc.mu.RUnlock()
+		return
+	}
+
+	type entry struct {
+		db, meas string
+		w        Writer
+	}
+	entries := make([]entry, 0, len(fc.writers))
+	for key, w := range fc.writers {
+		parts := strings.SplitN(key, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		entries = append(entries, entry{parts[0], parts[1], w})
+	}
+	fc.mu.RUnlock()
+
+	for _, e := range entries {
+		if e.w.MemTable().ShouldSwap() && !e.w.MemTable().IsFlushing() {
+			_ = fc.flushWriterLocked(e.db, e.meas, e.w)
 		}
 	}
-	if time.Since(waitStart) > time.Second {
-		slog.Info("flushWriterLocked: waited for IsFlushing", "db", db, "meas", measurement, "waited", time.Since(waitStart))
+}
+
+// flushWriterLocked 内部同步刷写（调用者持有锁或保证线程安全）。
+func (fc *FlushCoordinator) flushWriterLocked(db, measurement string, w Writer) error {
+	for w.MemTable().IsFlushing() {
+		time.Sleep(time.Millisecond)
 	}
 
 	passive := w.MemTable().Swap()
@@ -109,14 +154,9 @@ func (fc *FlushCoordinator) flushWriterLocked(db, measurement string, w Writer) 
 		return nil
 	}
 
-	flushStart := time.Now()
 	if err := fc.flusher.Flush(db, measurement, passive); err != nil {
-		slog.Error("flushWriterLocked: Flush failed", "db", db, "meas", measurement, "error", err)
 		w.MemTable().MergePassiveBack()
 		return err
-	}
-	if time.Since(flushStart) > time.Second {
-		slog.Info("flushWriterLocked: Flush completed", "db", db, "meas", measurement, "duration", time.Since(flushStart))
 	}
 
 	w.MemTable().ClearPassive()

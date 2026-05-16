@@ -31,7 +31,6 @@ func (e *Engine) getOrCreateWriter(db, measurement string) (Writer, error) {
 	}
 
 	measDir := filepath.Join(e.dataDir, db, measurement)
-	slog.Info("getOrCreateWriter: creating new writer", "db", db, "meas", measurement, "dir", measDir)
 	mw, err := writer.New(writer.Config{
 		DB:          db,
 		Measurement: measurement,

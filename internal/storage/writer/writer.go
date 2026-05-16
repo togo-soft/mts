@@ -54,11 +54,20 @@ type MeasurementWriter struct {
 	closeOnce sync.Once
 }
 
-const backpressureSleep = time.Millisecond
+const (
+	backpressureSleep    = time.Millisecond
+	backpressureTimeout  = 30 * time.Second
+)
+
+var errBackpressureTimeout = fmt.Errorf("backpressure timeout: memtable still full after 30s")
 
 // Write 写入单个数据点。
 func (mw *MeasurementWriter) Write(point *types.Point) error {
+	deadline := time.Now().Add(backpressureTimeout)
 	for mw.memTable.ActiveFull() {
+		if time.Now().After(deadline) {
+			return errBackpressureTimeout
+		}
 		time.Sleep(backpressureSleep)
 		if mw.closed.Load() {
 			return fmt.Errorf("writer closed during backpressure wait")
@@ -66,14 +75,12 @@ func (mw *MeasurementWriter) Write(point *types.Point) error {
 	}
 
 	mw.mu.Lock()
-	slog.Info("writer.Write: got lock", "db", mw.db, "meas", mw.measurement)
 
 	sid, err := mw.seriesStore.AllocateSID(mw.db, mw.measurement, point.Tags)
 	if err != nil {
 		mw.mu.Unlock()
 		return fmt.Errorf("allocate SID: %w", err)
 	}
-	slog.Info("writer.Write: AllocateSID done", "db", mw.db, "meas", mw.measurement, "sid", sid)
 
 	mp := types.PointToMemPoint(point, sid)
 	mw.mu.Unlock()
@@ -86,7 +93,11 @@ func (mw *MeasurementWriter) Write(point *types.Point) error {
 	}
 
 	mw.mu.Lock()
-	slog.Info("writer.Write: got lock for WAL", "db", mw.db, "meas", mw.measurement)
+	if mw.closed.Load() {
+		mw.mu.Unlock()
+		return fmt.Errorf("writer closed")
+	}
+
 	if mw.wal != nil {
 		_, err := mw.wal.Write(walData)
 		if walRelease != nil {
@@ -118,7 +129,11 @@ func (mw *MeasurementWriter) WriteBatch(points []*types.Point) (int, error) {
 		return 0, nil
 	}
 
+	deadline := time.Now().Add(backpressureTimeout)
 	for mw.memTable.ActiveFull() {
+		if time.Now().After(deadline) {
+			return 0, errBackpressureTimeout
+		}
 		time.Sleep(backpressureSleep)
 		if mw.closed.Load() {
 			return 0, fmt.Errorf("writer closed during backpressure wait")
@@ -126,6 +141,11 @@ func (mw *MeasurementWriter) WriteBatch(points []*types.Point) (int, error) {
 	}
 
 	mw.mu.Lock()
+
+	if mw.closed.Load() {
+		mw.mu.Unlock()
+		return 0, fmt.Errorf("writer closed")
+	}
 
 	if mw.memTable.ActiveFull() {
 		mw.mu.Unlock()
@@ -203,19 +223,38 @@ func New(cfg Config) (*MeasurementWriter, error) {
 	}
 
 	walDir := filepath.Join(cfg.Dir, "wal")
-	logger.Info("writer.New: opening WAL", "walDir", walDir)
-	w, err := wal.Open(wal.Config{
-		Dir:          walDir,
-		SegmentSize:  64 * 1024 * 1024,
-		MaxSegments:  5,
-		SyncMode:     wal.SyncPeriodic,
-		SyncInterval: time.Minute,
-		Logger:       logger,
-	})
-	if err != nil {
+	logger.Debug("writer.New: opening WAL", "walDir", walDir)
+
+	type walResult struct {
+		w   *wal.WAL
+		err error
+	}
+	walCh := make(chan walResult, 1)
+	go func() {
+		w, err := wal.Open(wal.Config{
+			Dir:          walDir,
+			SegmentSize:  64 * 1024 * 1024,
+			MaxSegments:  5,
+			SyncMode:     wal.SyncPeriodic,
+			SyncInterval: time.Minute,
+			Logger:       logger,
+		})
+		walCh <- walResult{w, err}
+	}()
+
+	var w *wal.WAL
+	select {
+	case res := <-walCh:
+		w = res.w
+		if res.err != nil {
+			w = nil
+			logger.Warn("failed to open WAL, writes will not be durable",
+				"walDir", walDir, "error", res.err)
+		}
+	case <-time.After(10 * time.Second):
 		w = nil
-		logger.Warn("failed to open WAL, writes will not be durable",
-			"walDir", walDir, "error", err)
+		logger.Warn("WAL open timed out after 10s, writes will not be durable",
+			"walDir", walDir)
 	}
 
 	mt := memtable.NewMemTable(cfg.MemTableCfg)

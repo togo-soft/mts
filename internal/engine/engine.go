@@ -95,6 +95,7 @@ func New(cfg *Config) (*Engine, error) {
 	)
 
 	coordinator := NewFlushCoordinator(flusher)
+	coordinator.StartPeriodicCheck(time.Second)
 
 	engine := &Engine{
 		cfg:         cfg,
