@@ -150,6 +150,46 @@ func (s *Shard) initCompaction(cfg ShardConfig) {
 	}
 }
 
+// writeSSTableIOWithTimeout 使用 goroutine + timeout 包装 NewWriter 的 I/O 操作，
+// 避免在 Windows 上因杀毒软件或文件系统阻塞而导致死锁。
+// 返回已创建的 Writer（由 caller 负责关闭）和 sstPath。
+func (s *Shard) writeSSTableIOWithTimeout(seq uint64) (w *sstable.Writer, sstPath string, err error) {
+	type result struct {
+		w    *sstable.Writer
+		path string
+		err  error
+	}
+	dataDir := s.DataDir()
+	sstPath = filepath.Join(dataDir, fmt.Sprintf("sst_%d.bin", seq))
+
+	resCh := make(chan result, 1)
+	go func() {
+		// MkdirAll + NewWriter 内部的多个 SafeCreate 调用都可能阻塞
+		if mkdirErr := os.MkdirAll(dataDir, 0700); mkdirErr != nil {
+			resCh <- result{nil, "", fmt.Errorf("create data dir: %w", mkdirErr)}
+			return
+		}
+
+		w, wErr := sstable.NewWriter(s.dir, seq, 0, s.compressionAlgo)
+		if wErr != nil {
+			resCh <- result{nil, "", fmt.Errorf("create sstable writer: %w", wErr)}
+			return
+		}
+		resCh <- result{w, sstPath, nil}
+	}()
+
+	// 5 second timeout for I/O operations
+	select {
+	case <-time.After(5 * time.Second):
+		return nil, "", fmt.Errorf("write sstable I/O timeout after 5s")
+	case res := <-resCh:
+		if res.err != nil {
+			return nil, "", res.err
+		}
+		return res.w, res.path, nil
+	}
+}
+
 // WriteSSTable 将 MemPoint 写入 SSTable 文件。
 func (s *Shard) WriteSSTable(points []types.MemPoint) (sstPath string, sstSeq uint64, minTime, maxTime int64, err error) {
 	s.mu.Lock()
@@ -157,21 +197,16 @@ func (s *Shard) WriteSSTable(points []types.MemPoint) (sstPath string, sstSeq ui
 	s.sstSeq++
 	s.mu.Unlock()
 
-	dataDir := s.DataDir()
-	if mkdirErr := os.MkdirAll(dataDir, 0700); mkdirErr != nil {
-		return "", 0, 0, 0, fmt.Errorf("create data dir: %w", mkdirErr)
+	// 使用带超时的 I/O 避免 Windows 上阻塞导致死锁
+	w, sstPath, err := s.writeSSTableIOWithTimeout(sstSeq)
+	if err != nil {
+		return "", 0, 0, 0, err
 	}
+	// 注意：w 由 caller（此函数）负责关闭
 
-	sstPath = filepath.Join(dataDir, fmt.Sprintf("sst_%d.bin", sstSeq))
-
-	w, wErr := sstable.NewWriter(s.dir, sstSeq, 0, s.compressionAlgo)
-	if wErr != nil {
-		return "", 0, 0, 0, fmt.Errorf("create sstable writer: %w", wErr)
-	}
-
-	if wErr := w.WriteMemPoints(points); wErr != nil {
+	if err := w.WriteMemPoints(points); err != nil {
 		_ = w.Close()
-		return "", 0, 0, 0, fmt.Errorf("write mempoints: %w", wErr)
+		return "", 0, 0, 0, fmt.Errorf("write mempoints: %w", err)
 	}
 
 	if closeErr := w.Close(); closeErr != nil {

@@ -379,8 +379,8 @@ func TestScopedSeriesStore_AllocateSID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllocateSID failed: %v", err)
 	}
-	if sid == 0 && sid != 0 {
-		// Just verify SID is allocated (valid non-zero for non-first allocation)
+	if sid == 0 {
+		t.Error("expected non-zero SID after allocation")
 	}
 }
 
@@ -445,8 +445,9 @@ func TestEngine_CreateDatabase_AlreadyExists(t *testing.T) {
 	}
 	defer func() { _ = engine.Close() }()
 
-	if engine.CreateDatabase("db1") {
-		// First create returns true
+	first := engine.CreateDatabase("db1")
+	if !first {
+		t.Error("CreateDatabase should return true for first creation")
 	}
 	if engine.CreateDatabase("db1") {
 		t.Error("CreateDatabase should return false for existing database")

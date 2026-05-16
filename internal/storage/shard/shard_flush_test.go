@@ -1396,7 +1396,7 @@ func TestShard_WriteSSTable_NewWriterError(t *testing.T) {
 		SeriesStore: metadata.NewSimpleSeriesStore(),
 		SchemaStore: metadata.NewSimpleSchemaStore(),
 	})
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	points := []types.MemPoint{
 		{Timestamp: 1000000000, Sid: 1, FieldData: nil},
