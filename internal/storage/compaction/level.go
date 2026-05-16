@@ -342,7 +342,7 @@ func (lcm *LevelManager) merge(ctx context.Context, level int, inputPaths []stri
 		_, _ = fmt.Sscanf(parts[1], "%d", &seq)
 	}
 
-	w, err := sstable.NewWriter(lcm.shard.Dir(), seq, 0, lcm.shard.CompressionAlgorithm())
+	w, err := sstable.NewWriter(lcm.shard.Dir(), seq, 0, lcm.shard.CompressionAlgorithm(), sstable.FlagSorted)
 	if err != nil {
 		return err
 	}

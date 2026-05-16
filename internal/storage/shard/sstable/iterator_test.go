@@ -13,7 +13,7 @@ func TestIterator_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 创建 writer 并关闭（不写入任何数据）
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestIterator_Empty(t *testing.T) {
 func TestIterator_SingleRecord(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestIterator_SingleRecord(t *testing.T) {
 func TestIterator_MultipleRecords(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestIterator_MultipleRecords(t *testing.T) {
 func TestIterator_NextBeyondRange(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestIterator_NextBeyondRange(t *testing.T) {
 
 func TestIterator_ProjectedFields(t *testing.T) {
 	tmpDir := t.TempDir()
-	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestIterator_ProjectedFields(t *testing.T) {
 
 func TestIterator_AllFieldsNil(t *testing.T) {
 	tmpDir := t.TempDir()
-	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}

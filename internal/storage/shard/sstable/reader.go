@@ -16,6 +16,7 @@ type Reader struct {
 	sectionTable    SectionTable
 	blockIndex      *BlockIndex
 	blockSectionMap *BlockSectionMap // 每个 section 内各 block 的字节偏移
+	Flags           uint16
 	schema          Schema
 }
 
@@ -86,6 +87,7 @@ func NewReader(filePath string, schema Schema) (*Reader, error) {
 	return &Reader{
 		file:            f,
 		header:          header,
+		Flags:           header.Flags,
 		sectionTable:    sectionTable,
 		blockIndex:      blockIndex,
 		blockSectionMap: blockSectionMap,

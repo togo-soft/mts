@@ -183,7 +183,7 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 		default:
 		}
 
-		w, wErr := sstable.NewWriter(s.dir, seq, 0, s.compressionAlgo)
+		w, wErr := sstable.NewWriter(s.dir, seq, 0, s.compressionAlgo, sstable.FlagSorted)
 		if wErr != nil {
 			resCh <- result{"", 0, 0, 0, fmt.Errorf("create sstable writer: %w", wErr)}
 			return

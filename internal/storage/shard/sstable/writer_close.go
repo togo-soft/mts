@@ -213,6 +213,7 @@ func (w *Writer) Close() error {
 		FieldCount:         uint16(len(fieldNames)),
 		BlockCount:         uint16(w.blockIndex.Len()),
 		BlockSize:          uint16(w.blockSize),
+		Flags:              w.flags,
 		TimestampsOffset:   timestampsOffset,
 		SidsOffset:         sidsOffset,
 		BlockIndexOffset:   blockIndexOffset,

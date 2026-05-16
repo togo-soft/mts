@@ -16,7 +16,7 @@ func (n *nilRefManager) ReleaseSSTRef(path string) {}
 
 func writeTestSSTable(t *testing.T, dir string, seq uint64, points []*types.Point) (string, Schema) {
 	t.Helper()
-	w, err := NewWriter(dir, seq, 0, CompressionNone)
+	w, err := NewWriter(dir, seq, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

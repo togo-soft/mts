@@ -91,7 +91,7 @@ func (cm *Manager) Merge(ctx context.Context, task *Task) error {
 	if _, err := fmt.Sscanf(seqStr, "sst_%d", &outputSeq); err != nil {
 		return fmt.Errorf("parse output seq from path: %w", err)
 	}
-	w, err := sstable.NewWriter(cm.ShardAccess.Dir(), outputSeq, 0, cm.ShardAccess.CompressionAlgorithm())
+	w, err := sstable.NewWriter(cm.ShardAccess.Dir(), outputSeq, 0, cm.ShardAccess.CompressionAlgorithm(), sstable.FlagSorted)
 	if err != nil {
 		return err
 	}

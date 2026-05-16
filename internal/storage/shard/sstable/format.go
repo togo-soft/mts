@@ -25,6 +25,13 @@ const (
 	SectionField      SectionType = 3
 )
 
+// FlagSorted 表示 SSTable 是有序的（默认值，与旧格式兼容）。
+// FlagUnordered 表示 SSTable 是无序的，需要排序后才能 compact。
+const (
+	FlagSorted    uint16 = 0x0000
+	FlagUnordered uint16 = 0x0001
+)
+
 // FileHeader 是单文件 SSTable 的文件头 (64 字节)。
 type FileHeader struct {
 	Magic              [8]byte // "TSERSTBL"
@@ -33,7 +40,7 @@ type FileHeader struct {
 	FieldCount         uint16
 	BlockCount         uint16
 	BlockSize          uint16
-	_                  uint16 // padding
+	Flags              uint16 // 0=有序, 1=无序 (原 padding 位)
 	TimestampsOffset   uint64
 	SidsOffset         uint64
 	BlockIndexOffset   uint64
@@ -50,6 +57,7 @@ func (h *FileHeader) Marshal() [HeaderSize]byte {
 	binary.BigEndian.PutUint16(buf[16:18], h.FieldCount)
 	binary.BigEndian.PutUint16(buf[18:20], h.BlockCount)
 	binary.BigEndian.PutUint16(buf[20:22], h.BlockSize)
+	binary.BigEndian.PutUint16(buf[22:24], h.Flags)
 	binary.BigEndian.PutUint64(buf[24:32], h.TimestampsOffset)
 	binary.BigEndian.PutUint64(buf[32:40], h.SidsOffset)
 	binary.BigEndian.PutUint64(buf[40:48], h.BlockIndexOffset)
@@ -72,6 +80,7 @@ func UnmarshalFileHeader(data [HeaderSize]byte) (FileHeader, error) {
 	h.FieldCount = binary.BigEndian.Uint16(data[16:18])
 	h.BlockCount = binary.BigEndian.Uint16(data[18:20])
 	h.BlockSize = binary.BigEndian.Uint16(data[20:22])
+	h.Flags = binary.BigEndian.Uint16(data[22:24])
 	h.TimestampsOffset = binary.BigEndian.Uint64(data[24:32])
 	h.SidsOffset = binary.BigEndian.Uint64(data[32:40])
 	h.BlockIndexOffset = binary.BigEndian.Uint64(data[40:48])

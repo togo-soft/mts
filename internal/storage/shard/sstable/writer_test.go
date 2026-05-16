@@ -24,7 +24,7 @@ func pointsToInternalWithSids(points []*types.Point, sids []uint64) []types.Inte
 func TestWriter_WritePoints(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestWriter_WritePoints(t *testing.T) {
 func TestWriter_WritePointsWithSids(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestWriter_DictEncodingRoundTrip(t *testing.T) {
 		}
 	}
 
-	w, err := NewWriter(dir, 0, 512, CompressionNone)
+	w, err := NewWriter(dir, 0, 512, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestWriter_DictEncodingLargeDataset(t *testing.T) {
 		}
 	}
 
-	w, err := NewWriter(dir, 0, 64*1024, CompressionNone)
+	w, err := NewWriter(dir, 0, 64*1024, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestWriter_DictEncodingFallback(t *testing.T) {
 		}
 	}
 
-	w, err := NewWriter(dir, 0, 64*1024, CompressionNone)
+	w, err := NewWriter(dir, 0, 64*1024, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}

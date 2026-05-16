@@ -57,12 +57,13 @@ type Writer struct {
 	writtenPool   sync.Pool      // []bool 池化，用于追踪每行已写入字段
 
 	compressAlgo CompressionAlgorithm
+	flags        uint16
 	syncOnClose  bool // Close 时是否 fsync，默认 true
 }
 
 // NewWriter 创建 SSTable Writer。
 // 在 shardDir/data/ 下创建 sst_{seq}.bin 单文件。
-func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo CompressionAlgorithm) (*Writer, error) {
+func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo CompressionAlgorithm, flags uint16) (*Writer, error) {
 	if blockSize <= 0 {
 		blockSize = BlockSize
 	}
@@ -110,6 +111,7 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 		fieldIdx:         make(map[string]int),
 		writtenPool:      sync.Pool{New: func() any { s := make([]bool, 0, 16); return &s }},
 		compressAlgo:     compressAlgo,
+		flags:            flags,
 		syncOnClose:      true,
 	}
 

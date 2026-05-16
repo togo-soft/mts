@@ -20,7 +20,7 @@ func pointsToInternal(points []*types.Point) []types.InternalPoint {
 func TestIterator_DecodeString(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestIterator_DecodeString(t *testing.T) {
 func TestIterator_DecodeFieldValueFromData(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestIterator_DecodeFieldValueFromData(t *testing.T) {
 func TestReader_ReadAll_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestReader_ReadAll_Empty(t *testing.T) {
 func TestReader_FieldSize(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestReader_FieldSize(t *testing.T) {
 func TestWriter_Close_WithEmptyData(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestWriter_Close_WithEmptyData(t *testing.T) {
 func TestWriter_WritePoints_MultipleFields(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestWriter_DetectFieldType_NilValue(t *testing.T) {
 func TestWriter_AppendZeroValue_AllTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestBlockIndex_Read_EmptyFile(t *testing.T) {
 func TestIterator_LoadBlock_InvalidIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestIterator_LoadBlock_InvalidIndex(t *testing.T) {
 func TestIterator_DecodeFieldValueFromData_String(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestIterator_DecodeFieldValueFromData_String(t *testing.T) {
 func TestIterator_Point_InvalidPositions(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestIterator_Point_InvalidPositions(t *testing.T) {
 func TestIterator_CurrentBlockTimestamps_NoIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestIterator_CurrentBlockTimestamps_NoIndex(t *testing.T) {
 func TestIterator_SeekToTime_BeyondAll(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestIterator_SeekToTime_BeyondAll(t *testing.T) {
 func TestIterator_Done_EdgeCases(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -529,7 +529,7 @@ func TestIterator_Done_EdgeCases(t *testing.T) {
 func TestIterator_Next_ErrorHandling(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -565,7 +565,7 @@ func TestIterator_Next_ErrorHandling(t *testing.T) {
 func TestIterator_DecodeFieldValueFromData_Int64(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -609,7 +609,7 @@ func TestIterator_DecodeFieldValueFromData_Int64(t *testing.T) {
 func TestIterator_DecodeFieldValueFromData_Bool(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -653,7 +653,7 @@ func TestIterator_DecodeFieldValueFromData_Bool(t *testing.T) {
 func TestIterator_DecodeFieldValueFromData_Float64(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -697,7 +697,7 @@ func TestIterator_DecodeFieldValueFromData_Float64(t *testing.T) {
 func TestWriter_AppendFieldValue_AllTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -743,7 +743,7 @@ func TestWriter_AppendFieldValue_AllTypes(t *testing.T) {
 func TestWriter_AppendFieldValue_NilFieldValuePtr(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -763,7 +763,7 @@ func TestWriter_AppendFieldValue_NilFieldValuePtr(t *testing.T) {
 func TestWriter_AppendFieldValue_NilFieldValueValue(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -783,7 +783,7 @@ func TestWriter_AppendFieldValue_NilFieldValueValue(t *testing.T) {
 func TestWriter_AppendFieldValue_BareTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -803,7 +803,7 @@ func TestWriter_AppendFieldValue_BareTypes(t *testing.T) {
 func TestWriter_Close_WithError(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -826,7 +826,7 @@ func TestWriter_Close_WithError(t *testing.T) {
 func TestReader_DecodeFieldValue_String(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -866,7 +866,7 @@ func TestReader_DecodeFieldValue_String(t *testing.T) {
 func TestReader_DecodeFieldValue_OffsetBeyond(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -899,7 +899,7 @@ func TestReader_DecodeFieldValue_OffsetBeyond(t *testing.T) {
 func TestReader_ReadRange_InvalidRange(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -935,7 +935,7 @@ func TestReader_ReadRange_InvalidRange(t *testing.T) {
 func TestReader_DecodeFieldValue_UnknownType(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -972,7 +972,7 @@ func TestReader_DecodeFieldValue_UnknownType(t *testing.T) {
 func TestIterator_LoadBlock_ReadDirError(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -1011,7 +1011,7 @@ func TestIterator_LoadBlock_ReadDirError(t *testing.T) {
 func TestReadRange_EarlyTermination(t *testing.T) {
 	tmpDir := t.TempDir()
 	// NOTE: NewWriter(dir, seq, blockSize, compressAlgo). blockSize=0 uses default 64KB.
-	w, err := NewWriter(tmpDir, 1, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 1, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}

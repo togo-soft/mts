@@ -11,7 +11,7 @@ func TestIterator_SeekToTime(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 创建包含多条记录的 SSTable
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestIterator_SeekToTime(t *testing.T) {
 func TestIterator_SeekToTime_BeforeFirst(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestIterator_SeekToTime_BeforeFirst(t *testing.T) {
 func TestIterator_CurrentBlockTimestamps(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestIterator_CurrentBlockTimestamps(t *testing.T) {
 func TestIterator_Done(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestIterator_Done(t *testing.T) {
 func TestReader_ReadRange(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestReader_ReadRange(t *testing.T) {
 func TestReader_ReadRange_All(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestReader_ReadRange_All(t *testing.T) {
 func TestReader_ReadRange_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestReader_ReadRange_Empty(t *testing.T) {
 func TestWriter_FieldTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestWriter_FieldTypes(t *testing.T) {
 func TestWriter_DetectFieldType(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestWriter_DetectFieldType(t *testing.T) {
 func TestWriter_AppendZeroValue(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestBlockIndex_Entry(t *testing.T) {
 func TestReader_HasBlockIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestReader_HasBlockIndex(t *testing.T) {
 func TestIterator_MultipleBlocks(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -621,7 +621,7 @@ func TestIterator_MultipleBlocks(t *testing.T) {
 func TestWriter_ZeroValue_AllTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -703,7 +703,7 @@ func TestWriter_DetectFieldType_AllTypes(t *testing.T) {
 func TestWriter_AppendFieldValue_NilFieldValue(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -725,7 +725,7 @@ func TestWriter_AppendFieldValue_NilFieldValue(t *testing.T) {
 func TestWriter_AppendFieldValue_UnsupportedType(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -749,7 +749,7 @@ func TestWriter_NewWriter(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 正常情况
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -762,7 +762,7 @@ func TestWriter_NewWriter(t *testing.T) {
 func TestWriter_FieldTypeSize(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -789,7 +789,7 @@ func TestWriter_FieldTypeSize(t *testing.T) {
 func TestWriter_WritePoints_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -807,7 +807,7 @@ func TestWriter_WritePoints_Empty(t *testing.T) {
 func TestWriter_FlushBlock_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -823,7 +823,7 @@ func TestWriter_FlushBlock_Empty(t *testing.T) {
 func TestWriter_Close_WithFields(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -853,7 +853,7 @@ func TestWriter_Close_WithFields(t *testing.T) {
 func TestReader_DecodeFieldValue(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -914,7 +914,7 @@ func TestReader_DecodeFieldValue(t *testing.T) {
 func TestReader_FieldSize_AllTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -975,7 +975,7 @@ func TestReader_NewReader_Nonexistent(t *testing.T) {
 func TestReader_ComputeFieldOffsets(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -1024,7 +1024,7 @@ func TestIterator_LoadAllData_Error(t *testing.T) {
 func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -1080,7 +1080,7 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 func TestReader_ReadRange_WithLimit(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -1120,7 +1120,7 @@ func TestReader_ReadRange_WithLimit(t *testing.T) {
 func TestReader_ReadRange_WithLimitZero(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionNone)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionNone, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}

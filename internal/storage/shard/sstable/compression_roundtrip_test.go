@@ -12,7 +12,7 @@ func testWriteReadRoundtrip(t *testing.T, algo CompressionAlgorithm, numPoints i
 	t.Helper()
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, algo)
+	w, err := NewWriter(tmpDir, 0, 0, algo, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter(%s) failed: %v", algo.String(), err)
 	}
@@ -102,7 +102,7 @@ func TestCompressionRoundtrip_LZ4_Large(t *testing.T) {
 func TestCompressionRoundtrip_MixedFieldTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	w, err := NewWriter(tmpDir, 0, 0, CompressionLZ4)
+	w, err := NewWriter(tmpDir, 0, 0, CompressionLZ4, FlagSorted)
 	if err != nil {
 		t.Fatalf("NewWriter failed: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestCompressionRoundtrip_FileSizeComparison(t *testing.T) {
 	for _, algo := range []CompressionAlgorithm{CompressionNone, CompressionSnappy, CompressionLZ4} {
 		algoDir := t.TempDir()
 
-		w, err := NewWriter(algoDir, 0, 0, algo)
+		w, err := NewWriter(algoDir, 0, 0, algo, FlagSorted)
 		if err != nil {
 			t.Fatalf("NewWriter(%s) failed: %v", algo.String(), err)
 		}
