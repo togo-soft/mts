@@ -102,9 +102,9 @@ func TestListSegments(t *testing.T) {
 		_ = seg.Close()
 	}
 
-	entries, err := listSegments(tmpDir)
+	entries, err := ListSegments(tmpDir)
 	if err != nil {
-		t.Fatalf("listSegments: %v", err)
+		t.Fatalf("ListSegments: %v", err)
 	}
 	if len(entries) != 3 {
 		t.Errorf("expected 3 entries, got %d", len(entries))
@@ -129,9 +129,9 @@ func TestListSegments_Sorted(t *testing.T) {
 		_ = seg.Close()
 	}
 
-	entries, err := listSegments(tmpDir)
+	entries, err := ListSegments(tmpDir)
 	if err != nil {
-		t.Fatalf("listSegments: %v", err)
+		t.Fatalf("ListSegments: %v", err)
 	}
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))

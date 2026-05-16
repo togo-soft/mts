@@ -2,6 +2,7 @@ package wal
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestWAL_OpenAndClose(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	entries, _ := listSegments(tmpDir)
+	entries, _ := ListSegments(tmpDir)
 	if len(entries) != 1 {
 		t.Errorf("expected 1 segment, got %d", len(entries))
 	}
@@ -144,7 +145,7 @@ func TestWAL_Rotation(t *testing.T) {
 	_ = w.Sync()
 	_ = w.Close()
 
-	entries, _ := listSegments(tmpDir)
+	entries, _ := ListSegments(tmpDir)
 	if len(entries) < 2 {
 		t.Errorf("expected at least 2 segments after rotation, got %d", len(entries))
 	}
@@ -221,7 +222,7 @@ func TestWAL_FilePermissions(t *testing.T) {
 	}
 	_ = w.Close()
 
-	entries, _ := listSegments(tmpDir)
+	entries, _ := ListSegments(tmpDir)
 	for _, e := range entries {
 		info, _ := os.Stat(e.Path)
 		if info != nil && info.Mode().Perm() != 0600 {
@@ -240,7 +241,7 @@ func TestWAL_CRC_Corruption_Skip(t *testing.T) {
 	_ = w.Sync()
 	_ = w.Close()
 
-	entries, _ := listSegments(tmpDir)
+	entries, _ := ListSegments(tmpDir)
 	if len(entries) > 0 {
 		data, _ := os.ReadFile(entries[0].Path)
 		if len(data) > segmentHeaderSize+4 {
@@ -319,7 +320,7 @@ func TestWAL_TruncateAfterFlush_Basic(t *testing.T) {
 	}
 
 	// 验证只剩 1 个 segment
-	entries, _ := listSegments(tmpDir)
+	entries, _ := ListSegments(tmpDir)
 	if len(entries) != 1 {
 		t.Errorf("expected 1 segment after truncate, got %d", len(entries))
 	}
@@ -356,7 +357,7 @@ func TestWAL_TruncateAfterFlush_EmptyWAL(t *testing.T) {
 		t.Fatalf("TruncateAfterFlush on empty WAL: %v", err)
 	}
 
-	entries, _ := listSegments(tmpDir)
+	entries, _ := ListSegments(tmpDir)
 	if len(entries) != 1 {
 		t.Errorf("expected 1 segment, got %d", len(entries))
 	}
@@ -386,7 +387,7 @@ func TestWAL_TruncateAfterFlush_MultiSegment(t *testing.T) {
 	_ = w.Sync()
 
 	// 验证有多个 segment
-	entriesBefore, _ := listSegments(tmpDir)
+	entriesBefore, _ := ListSegments(tmpDir)
 	if len(entriesBefore) < 2 {
 		t.Fatalf("need at least 2 segments for multi-segment test, got %d", len(entriesBefore))
 	}
@@ -397,7 +398,7 @@ func TestWAL_TruncateAfterFlush_MultiSegment(t *testing.T) {
 	}
 
 	// 验证只剩 1 个新 segment
-	entriesAfter, _ := listSegments(tmpDir)
+	entriesAfter, _ := ListSegments(tmpDir)
 	if len(entriesAfter) != 1 {
 		t.Errorf("expected 1 segment after multi-segment truncate, got %d", len(entriesAfter))
 	}
@@ -573,4 +574,104 @@ func TestTruncateAfterFlush_ClearsCheckpoint(t *testing.T) {
 	}
 
 	_ = w.Close()
+}
+
+func TestSerializeDeserializePoint_RoundTrip(t *testing.T) {
+	ts := int64(1620000000000000000)
+	sid := uint64(42)
+	fieldData := []byte{0, 1, 1, 'v', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63} // float64(1.0)
+
+	data, release := SerializePoint(ts, sid, fieldData)
+	defer release()
+
+	mp, err := DeserializePoint(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mp.Timestamp != ts {
+		t.Errorf("expected ts %d, got %d", ts, mp.Timestamp)
+	}
+	if mp.Sid != sid {
+		t.Errorf("expected sid %d, got %d", sid, mp.Sid)
+	}
+}
+
+func TestDeserializePoint_InvalidData(t *testing.T) {
+	_, err := DeserializePoint(nil)
+	if err == nil {
+		t.Error("expected error for nil data")
+	}
+	_, err = DeserializePoint([]byte{0, 1}) // too short
+	if err == nil {
+		t.Error("expected error for short data")
+	}
+	// wrong version
+	data := []byte{99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	_, err = DeserializePoint(data)
+	if err == nil {
+		t.Error("expected error for wrong version")
+	}
+}
+
+func TestGlobalDir(t *testing.T) {
+	path := GlobalDir("/data")
+	if path != filepath.Join("/data", "wal") {
+		t.Errorf("expected /data/wal, got %s", path)
+	}
+}
+
+func TestTruncateBefore(t *testing.T) {
+	dir := t.TempDir()
+	walDir := filepath.Join(dir, "wal")
+	if err := os.MkdirAll(walDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create some segment files
+	for i := uint64(1); i <= 5; i++ {
+		name := segmentName(1, i)
+		f, err := os.Create(filepath.Join(walDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Close()
+	}
+
+	// Open WAL instance to call TruncateBefore
+	cfg := Config{
+		Dir:         walDir,
+		SegmentSize: 64 * 1024 * 1024,
+		MaxSegments: 10,
+		SyncMode:    SyncNone,
+	}
+	w, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	if err := w.TruncateBefore(3); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := ListSegments(walDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) >= 5 {
+		t.Errorf("expected fewer than 5 entries after truncation, got %d", len(entries))
+	}
+}
+
+func TestDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	w, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	if w.Dir() != tmpDir {
+		t.Errorf("expected dir %q, got %q", tmpDir, w.Dir())
+	}
 }

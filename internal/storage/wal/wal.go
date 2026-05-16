@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,11 @@ const (
 
 // ErrWALClosed 表示 WAL 已关闭。
 var ErrWALClosed = errors.New("wal closed")
+
+// GlobalDir 返回全局 WAL 目录路径
+func GlobalDir(dataDir string) string {
+	return filepath.Join(dataDir, "wal")
+}
 
 // SyncMode 定义同步模式。
 type SyncMode int
@@ -92,7 +98,7 @@ func Open(cfg Config) (*WAL, error) {
 	}
 
 	// 发现现有 segment，确定 generation 和 segment 号
-	entries, err := listSegments(cfg.Dir)
+	entries, err := ListSegments(cfg.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +304,7 @@ func (w *WAL) TruncateCurrent() error {
 
 	// 当前 segment 已 sync，数据安全
 	// 删除当前 generation 的所有旧 segment（segNum < w.segNum）
-	entries, err := listSegments(w.dir)
+	entries, err := ListSegments(w.dir)
 	if err != nil {
 		return err
 	}
@@ -333,7 +339,7 @@ func (w *WAL) TruncateAfterFlush() error {
 	}
 
 	// 删除所有旧 segment（仅保留 rotateLocked 刚创建的新空 segment）
-	entries, err := listSegments(w.dir)
+	entries, err := ListSegments(w.dir)
 	if err != nil {
 		return err
 	}
@@ -348,6 +354,23 @@ func (w *WAL) TruncateAfterFlush() error {
 
 	_ = ClearCheckpoint(w.dir)
 
+	return nil
+}
+
+// TruncateBefore 删除编号小于 seq 的所有 WAL 段（flush 完成后调用）
+func (w *WAL) TruncateBefore(seq uint64) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	entries, err := ListSegments(w.dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.Num < seq {
+			_ = os.Remove(e.Path)
+		}
+	}
 	return nil
 }
 
@@ -387,7 +410,7 @@ func (w *WAL) Purge() error {
 	}
 
 	// 删除所有 segment 文件
-	entries, err := listSegments(w.dir)
+	entries, err := ListSegments(w.dir)
 	if err != nil {
 		return err
 	}
@@ -442,6 +465,11 @@ func (w *WAL) Close() error {
 	return nil
 }
 
+// Dir 返回 WAL 目录路径
+func (w *WAL) Dir() string {
+	return w.dir
+}
+
 // Generation 返回当前世代号。
 func (w *WAL) Generation() uint64 {
 	return w.gen
@@ -468,7 +496,7 @@ func (w *WAL) ReplayedSegments() int {
 // 通过 checkpoint 跳过已持久化到 SSTable 的旧 segment，减少重启恢复时间。
 // 去重由上层（memtable）通过 timestamp + tags 处理。
 func (w *WAL) Replay(fn func(payload []byte) error) error {
-	entries, err := listSegments(w.dir)
+	entries, err := ListSegments(w.dir)
 	if err != nil {
 		return err
 	}

@@ -155,8 +155,8 @@ type segmentEntry struct {
 	Path string
 }
 
-// listSegments 列出目录中所有 WAL segment，按 (gen, num) 排序。
-func listSegments(dir string) ([]segmentEntry, error) {
+// ListSegments 列出目录中所有 WAL segment，按 (gen, num) 排序。
+func ListSegments(dir string) ([]segmentEntry, error) {
 	pattern := filepath.Join(dir, "*.wal")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
