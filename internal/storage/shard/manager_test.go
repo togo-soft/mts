@@ -512,7 +512,7 @@ func TestShardManager_Compact_NotFound(t *testing.T) {
 	m := newTestShardManager(t, dir, time.Hour)
 
 	// Compact for non-existent shard should not error
-	if err := m.Compact("db1", "cpu", 1000); err != nil {
+	if err := m.Compact(1000); err != nil {
 		t.Errorf("Compact for non-existent shard should not error: %v", err)
 	}
 }

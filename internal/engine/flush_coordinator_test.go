@@ -16,21 +16,20 @@ type mockFlusher struct {
 	flushErr error
 }
 
-func (f *mockFlusher) Flush(db, measurement string, points []types.MemPoint) error {
+func (f *mockFlusher) Flush(points []types.MemPoint) error {
 	if f.flushErr != nil {
 		return f.flushErr
 	}
 	f.mu.Lock()
-	key := db + "/" + measurement
 	if f.flushed == nil {
 		f.flushed = make(map[string][]types.MemPoint)
 	}
-	f.flushed[key] = append(f.flushed[key], points...)
+	f.flushed["global"] = append(f.flushed["global"], points...)
 	f.mu.Unlock()
 	return nil
 }
 
-func (f *mockFlusher) Compact(db, measurement string, startTime int64) error { return nil }
+func (f *mockFlusher) Compact(startTime int64) error { return nil }
 
 func (f *mockFlusher) GetShards(db, measurement string, startTime, endTime int64) []*shard.Shard {
 	return nil

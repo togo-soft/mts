@@ -16,6 +16,12 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 		return fmt.Errorf("engine closed")
 	}
 
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	if point == nil {
 		return ErrNilPoint
 	}
@@ -77,6 +83,12 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 	if e.isClosed() {
 		return fmt.Errorf("engine closed")
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	if len(points) == 0 {

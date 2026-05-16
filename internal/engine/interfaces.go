@@ -19,8 +19,8 @@ import (
 
 // Flusher 管理 SSTable 写入和 Compaction。
 type Flusher interface {
-	Flush(db, measurement string, points []types.MemPoint) error
-	Compact(db, measurement string, startTime int64) error
+	Flush(points []types.MemPoint) error
+	Compact(startTime int64) error
 	GetShards(db, measurement string, startTime, endTime int64) []*shard.Shard
 	CloseAll() error
 	SetConfig(config *compaction.Config)

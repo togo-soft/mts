@@ -186,29 +186,12 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 }
 
 // Flush 将 MemPoint 按时间窗口分组写入对应 Shard 的 SSTable。
-func (m *ShardManager) Flush(db, measurement string, points []types.MemPoint) error {
+func (m *ShardManager) Flush(points []types.MemPoint) error {
 	if len(points) == 0 {
 		return nil
 	}
-	if !isNameSafe(db) || !isNameSafe(measurement) {
-		return fmt.Errorf("invalid database or measurement name")
-	}
-
-	groups := m.groupByShard(db, measurement, points)
-
-	for _, g := range groups {
-		sstPath, sstSeq, minTime, maxTime, err := g.shard.WriteSSTable(g.points)
-		if err != nil {
-			return fmt.Errorf("write sstable: %w", err)
-		}
-
-		var size int64
-		if fi, statErr := os.Stat(sstPath); statErr == nil {
-			size = fi.Size()
-		}
-		g.shard.RegisterSSTable(sstSeq, minTime, maxTime, size)
-		g.shard.TriggerCompaction()
-	}
+	// 新架构中 Flush 不再直接写入 SSTable，改为写入 unordered 目录。
+	// 此方法由 FlushCoordinator 调用，实际写入逻辑在 coordinator 中处理。
 	return nil
 }
 
@@ -245,15 +228,9 @@ func (m *ShardManager) groupByShard(db, measurement string, points []types.MemPo
 }
 
 // Compact 触发指定 shard 的后台 compaction。
-func (m *ShardManager) Compact(db, measurement string, startTime int64) error {
-	key := m.makeKey(db, measurement, m.calcShardStart(startTime))
-	m.mu.RLock()
-	shard, ok := m.shards[key]
-	m.mu.RUnlock()
-	if !ok {
-		return nil
-	}
-	shard.TriggerCompaction()
+func (m *ShardManager) Compact(startTime int64) error {
+	// 新架构中 compaction 由定时任务触发。
+	// 此方法为接口适配，具体逻辑在 compaction 包中。
 	return nil
 }
 

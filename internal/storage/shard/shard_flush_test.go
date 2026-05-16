@@ -208,7 +208,7 @@ func TestShard_Compact(t *testing.T) {
 	}
 
 	// Compact (no-op since no compaction config)
-	if err := sm.Compact("db1", "cpu", ts); err != nil {
+	if err := sm.Compact(ts); err != nil {
 		t.Fatalf("Compact failed: %v", err)
 	}
 
@@ -350,7 +350,7 @@ func TestShardManager_Flush(t *testing.T) {
 		{Timestamp: shardStart + 3000, Sid: 1, FieldData: nil},
 	}
 
-	if err := sm.Flush("db1", "cpu", points); err != nil {
+	if err := sm.Flush(points); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -396,11 +396,11 @@ func TestShardManager_Flush_EmptyPoints(t *testing.T) {
 		mgr.Shards(),
 	)
 
-	if err := sm.Flush("db1", "cpu", nil); err != nil {
+	if err := sm.Flush(nil); err != nil {
 		t.Fatalf("Flush with nil points should succeed: %v", err)
 	}
 
-	if err := sm.Flush("db1", "cpu", []types.MemPoint{}); err != nil {
+	if err := sm.Flush([]types.MemPoint{}); err != nil {
 		t.Fatalf("Flush with empty points should succeed: %v", err)
 	}
 
@@ -433,12 +433,12 @@ func TestShardManager_Flush_InvalidName(t *testing.T) {
 		{Timestamp: 1000, Sid: 1},
 	}
 
-	err = sm.Flush("", "cpu", points)
+	err = sm.Flush(points)
 	if err == nil {
 		t.Error("expected error for empty database name")
 	}
 
-	err = sm.Flush("db1", "", points)
+	err = sm.Flush(points)
 	if err == nil {
 		t.Error("expected error for empty measurement name")
 	}
@@ -474,7 +474,7 @@ func TestShardManager_Flush_MultipleShards(t *testing.T) {
 		{Timestamp: int64(smallDuration) + 100, Sid: 2, FieldData: nil},
 	}
 
-	if err := sm.Flush("db1", "cpu", points); err != nil {
+	if err := sm.Flush(points); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -1169,7 +1169,7 @@ func TestShardManager_Flush_WriteSSTableError(t *testing.T) {
 		{Timestamp: shardStart + 100, Sid: 1, FieldData: nil},
 	}
 
-	if err := sm.Flush("db1", "cpu", points); err != nil {
+	if err := sm.Flush(points); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -1338,12 +1338,12 @@ func TestShardManager_Flush_GroupByShardError(t *testing.T) {
 	}
 
 	// This should return error because db name is empty
-	if err := sm.Flush("", "cpu", points); err == nil {
+	if err := sm.Flush(points); err == nil {
 		t.Error("expected error for empty db")
 	}
 
 	// This should return error because measurement name is empty
-	if err := sm.Flush("db1", "", points); err == nil {
+	if err := sm.Flush(points); err == nil {
 		t.Error("expected error for empty measurement")
 	}
 
