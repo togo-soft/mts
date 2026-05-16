@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/metrics"
@@ -11,20 +13,28 @@ import (
 // FlushCoordinator 编排 Writer → Flusher 的异步刷盘流程。
 // 管理 Writer 注册、查询和同步刷盘。
 type FlushCoordinator struct {
-	writers  map[string]Writer // key: "db/meas"
-	flusher  Flusher
-	mu       sync.RWMutex
-	closed   bool
-	stopCh   chan struct{}
-	stopOnce sync.Once
+	writers             map[string]Writer    // key: "db/meas"
+	lastFlushAt         map[string]time.Time // 上次刷盘完成时间，用于冷却期判断
+	lastMu              sync.Mutex           // 保护 lastFlushAt
+	flusher             Flusher
+	mu                  sync.RWMutex
+	closed              bool
+	stopCh              chan struct{}
+	stopOnce            sync.Once
+	flushAllInProgress  atomic.Bool // 标记 FlushAll 正在执行，防止 checkAndFlush 并发冲突
 }
+
+const flushSpinTimeout = 30 * time.Second // IsFlushing 自旋等待超时
+
+const flushCooldown = 3 * time.Second // 刷盘冷却期，防止背靠背刷盘导致 I/O 竞争
 
 // NewFlushCoordinator 创建新的 FlushCoordinator。
 func NewFlushCoordinator(flusher Flusher) *FlushCoordinator {
 	return &FlushCoordinator{
-		writers: make(map[string]Writer),
-		flusher: flusher,
-		stopCh:  make(chan struct{}),
+		writers:     make(map[string]Writer),
+		lastFlushAt: make(map[string]time.Time),
+		flusher:     flusher,
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -72,11 +82,14 @@ func (fc *FlushCoordinator) FlushWriter(db, measurement string) error {
 		return nil
 	}
 
-	return fc.flushWriterLocked(db, measurement, w)
+	return fc.flushWriterLocked(db, measurement, key, w)
 }
 
 // FlushAll 同步刷写所有 Writer 的 MemTable。
 func (fc *FlushCoordinator) FlushAll() error {
+	fc.flushAllInProgress.Store(true)
+	defer fc.flushAllInProgress.Store(false)
+
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
 
@@ -86,7 +99,7 @@ func (fc *FlushCoordinator) FlushAll() error {
 		if len(parts) != 2 {
 			continue
 		}
-		if err := fc.flushWriterLocked(parts[0], parts[1], w); err != nil && firstErr == nil {
+		if err := fc.flushWriterLocked(parts[0], parts[1], key, w); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -113,8 +126,16 @@ func (fc *FlushCoordinator) CloseAllWriters() error {
 	return firstErr
 }
 
-// checkAndFlush 检查所有已注册 Writer 的 ShouldSwap 状态，按需触发刷盘。
+// checkAndFlush 检查所有已注册 Writer 的状态，按需触发刷盘。
+//
+// 触发条件：
+//   - NearFull 且自上次刷盘完成已超过冷却期（3s），防止刷盘 I/O 与写入 I/O 持续竞争
+//   - IdleExceeded：空闲超时立即触发，不受冷却期限制（无写入竞争）
 func (fc *FlushCoordinator) checkAndFlush() {
+	if fc.flushAllInProgress.Load() {
+		return
+	}
+
 	fc.mu.RLock()
 	if fc.closed {
 		fc.mu.RUnlock()
@@ -124,28 +145,45 @@ func (fc *FlushCoordinator) checkAndFlush() {
 	type entry struct {
 		db, meas string
 		w        Writer
+		key      string
 	}
 	entries := make([]entry, 0, len(fc.writers))
+	now := time.Now()
 	for key, w := range fc.writers {
 		parts := strings.SplitN(key, "/", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		entries = append(entries, entry{parts[0], parts[1], w})
+		entries = append(entries, entry{parts[0], parts[1], w, key})
 	}
 	fc.mu.RUnlock()
 
 	for _, e := range entries {
 		mt := e.w.MemTable()
-		if !mt.IsFlushing() && (mt.NearFull() || mt.IdleExceeded()) {
-			_ = fc.flushWriterLocked(e.db, e.meas, e.w)
+		if mt.IsFlushing() {
+			continue
+		}
+		if mt.IdleExceeded() {
+			_ = fc.flushWriterLocked(e.db, e.meas, e.key, e.w)
+			continue
+		}
+		fc.lastMu.Lock()
+		lastAt := fc.lastFlushAt[e.key]
+		fc.lastMu.Unlock()
+		if mt.NearFull() && now.Sub(lastAt) >= flushCooldown {
+			_ = fc.flushWriterLocked(e.db, e.meas, e.key, e.w)
 		}
 	}
 }
 
-// flushWriterLocked 内部同步刷写（调用者持有锁或保证线程安全）。
-func (fc *FlushCoordinator) flushWriterLocked(db, measurement string, w Writer) error {
+// flushWriterLocked 内部同步刷写。
+// flushKey 是 "db/meas" 格式的键，用于更新冷却期记录。
+func (fc *FlushCoordinator) flushWriterLocked(db, measurement, flushKey string, w Writer) error {
+	spinDeadline := time.Now().Add(flushSpinTimeout)
 	for w.MemTable().IsFlushing() {
+		if time.Now().After(spinDeadline) {
+			return fmt.Errorf("timeout waiting for flush to complete on %s/%s (30s)", db, measurement)
+		}
 		time.Sleep(time.Millisecond)
 	}
 
@@ -161,6 +199,10 @@ func (fc *FlushCoordinator) flushWriterLocked(db, measurement string, w Writer) 
 	}
 
 	w.MemTable().ClearPassive()
+
+	fc.lastMu.Lock()
+	fc.lastFlushAt[flushKey] = time.Now()
+	fc.lastMu.Unlock()
 
 	metrics.Incr(metrics.FlushTotal, 1)
 	metrics.Incr(metrics.FlushPoints, int64(len(passive)))

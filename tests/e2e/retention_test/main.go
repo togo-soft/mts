@@ -22,7 +22,7 @@ func main() {
 		framework.WithIdleDuration(100*time.Millisecond),
 		framework.WithRetentionPeriod(retentionPeriod),
 		framework.WithRetentionCheckInterval(checkInterval),
-		framework.WithShardDuration(shardDuration), // 在创建时设置
+		framework.WithShardDuration(shardDuration),
 	)
 	if err != nil {
 		fmt.Printf("Setup failed: %v\n", err)
@@ -30,8 +30,9 @@ func main() {
 	}
 	defer func() { _ = h.Close() }()
 
-	// 写入一个数据点，使用较老的时间戳
-	oldTimestamp := time.Now().Add(-10 * time.Second).UnixNano()
+	// 写入一个数据点，使用当前时间戳（非过期），避免 RetentionService 在 FlushAll 期间竞争删除 Shard
+	writeTime := time.Now()
+	oldTimestamp := writeTime.UnixNano()
 	p := &types.Point{
 		Database:    h.Config().DBName,
 		Measurement: h.Config().MeasurementName,
@@ -42,8 +43,7 @@ func main() {
 		},
 	}
 
-	fmt.Printf("Writing point with old timestamp: %d\n", oldTimestamp)
-	fmt.Printf("Current time: %d\n", time.Now().UnixNano())
+	fmt.Printf("Writing point with timestamp: %d (now)\n", oldTimestamp)
 	fmt.Printf("Shard duration: %v\n", h.Config().ShardDuration)
 	fmt.Printf("Retention period: %v\n", retentionPeriod)
 
@@ -52,9 +52,10 @@ func main() {
 		return
 	}
 
-	// 等待数据刷盘到 SSTable
-	fmt.Printf("\nWaiting for flush to SSTable...\n")
-	time.Sleep(500 * time.Millisecond)
+	// 强制刷盘到 SSTable（当前时间戳未过期，RetentionService 不会干扰）
+	fmt.Printf("\nForcing flush to SSTable...\n")
+	_ = h.DB().FlushAll()
+	time.Sleep(300 * time.Millisecond)
 
 	// 检查数据目录
 	dataDir := h.DataDir()
@@ -79,19 +80,24 @@ func main() {
 	}
 	fmt.Printf("\nBefore retention: got %d rows\n", len(resp))
 
+	if len(resp) == 0 {
+		fmt.Printf("FAIL: Expected data to exist before retention, got 0 rows\n")
+		os.Exit(1)
+	}
+
 	// 计算 shard 的时间范围
 	shardDurationNs := int64(h.Config().ShardDuration)
 	shardStart := (oldTimestamp / shardDurationNs) * shardDurationNs
 	shardEnd := shardStart + shardDurationNs
 	fmt.Printf("Shard time range: [%d, %d)\n", shardStart, shardEnd)
-	fmt.Printf("Current time: %d\n", time.Now().UnixNano())
+	fmt.Printf("Write time: %d\n", writeTime.UnixNano())
 	fmt.Printf("Retention cutoff would be: %d\n", time.Now().Add(-retentionPeriod).UnixNano())
 	fmt.Printf("Should delete (EndTime < cutoff): %v\n", shardEnd < time.Now().Add(-retentionPeriod).UnixNano())
 
-	// 等待 retention 服务删除过期数据
-	fmt.Printf("\nWaiting for retention to kick in (retention=%v, checkInterval=%v)...\n",
+	// 等待数据过期：需要等待 retentionPeriod + shardDuration 确保 shard end time 早于 cutoff
+	fmt.Printf("\nWaiting for data to expire (retention=%v, checkInterval=%v)...\n",
 		retentionPeriod, checkInterval)
-	waitTime := retentionPeriod + checkInterval + 500*time.Millisecond
+	waitTime := retentionPeriod + shardDuration + checkInterval + 500*time.Millisecond
 	fmt.Printf("Total wait time: %v\n", waitTime)
 	time.Sleep(waitTime)
 

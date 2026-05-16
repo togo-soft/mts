@@ -38,6 +38,14 @@ func listWALFiles(walDir string) ([]string, error) {
 // getWALDirectory 获取 WAL 目录
 func getWALDirectory(dataDir, dbName, measurement string) (string, error) {
 	measurementDir := filepath.Join(dataDir, dbName, measurement)
+
+	// 新架构：measurement 级别的 WAL
+	measurementWALDir := filepath.Join(measurementDir, "wal")
+	if info, err := os.Stat(measurementWALDir); err == nil && info.IsDir() {
+		return measurementWALDir, nil
+	}
+
+	// 旧架构：shard 级别的 WAL
 	entries, err := os.ReadDir(measurementDir)
 	if err != nil {
 		return "", err

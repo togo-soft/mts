@@ -415,20 +415,18 @@ func TestMemTable_TrySetFlushing(t *testing.T) {
 
 func TestMemTable_ActiveFull(t *testing.T) {
 	cfg := &MemTableConfig{
-		MaxSize:           64 * 1024 * 1024, // 足够大，仅通过 MaxCount 触发
+		MaxSize:           64 * 1024 * 1024,
 		MaxCount:          10,
 		IdleDurationNanos: 0,
 	}
 	m := NewMemTable(cfg)
 
-	// 初始不超限
 	if m.ActiveFull() {
 		t.Error("empty memtable should not be ActiveFull")
 	}
 
-	// 写入少量数据，不超过 2x 阈值
 	now := time.Now().UnixNano()
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 30; i++ {
 		p := &types.Point{
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
@@ -436,19 +434,18 @@ func TestMemTable_ActiveFull(t *testing.T) {
 		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	if m.ActiveFull() {
-		t.Error("5 points should not trigger ActiveFull with MaxCount=10")
+		t.Error("30 points should not trigger ActiveFull with MaxCount=10 (5x threshold)")
 	}
 
-	// 写入超过 2x MaxCount
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 30; i++ {
 		p := &types.Point{
-			Timestamp: now + int64(i+5)*1e9,
+			Timestamp: now + int64(i+30)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
 		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	if !m.ActiveFull() {
-		t.Error("25 points should trigger ActiveFull with MaxCount=10")
+		t.Error("60 points should trigger ActiveFull with MaxCount=10 (5x threshold)")
 	}
 }
 
@@ -809,7 +806,7 @@ func TestMemTable_NearFull(t *testing.T) {
 	}
 
 	now := time.Now().UnixNano()
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10; i++ {
 		p := &types.Point{
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
@@ -817,18 +814,18 @@ func TestMemTable_NearFull(t *testing.T) {
 		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	if m.NearFull() {
-		t.Error("5 points should not trigger NearFull with MaxCount=10")
+		t.Error("10 points should not trigger NearFull with MaxCount=10 (2x threshold)")
 	}
 
 	for i := 0; i < 15; i++ {
 		p := &types.Point{
-			Timestamp: now + int64(i+5)*1e9,
+			Timestamp: now + int64(i+10)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
 		}
 		_ = m.Write(types.PointToMemPoint(p, 0))
 	}
 	if !m.NearFull() {
-		t.Error("15 points should trigger NearFull with MaxCount=10 (1.5x threshold)")
+		t.Error("25 points should trigger NearFull with MaxCount=10 (2x threshold)")
 	}
 }
 
@@ -840,7 +837,7 @@ func TestMemTable_NearFull_WhenFlushing(t *testing.T) {
 	})
 
 	now := time.Now().UnixNano()
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 12; i++ {
 		p := &types.Point{
 			Timestamp: now + int64(i)*1e9,
 			Fields:    map[string]*types.FieldValue{"v": types.NewFieldValue(float64(i))},
@@ -849,7 +846,7 @@ func TestMemTable_NearFull_WhenFlushing(t *testing.T) {
 	}
 
 	if !m.NearFull() {
-		t.Fatal("NearFull should be true with 10 points and MaxCount=5")
+		t.Fatal("NearFull should be true with 12 points and MaxCount=5 (2x threshold)")
 	}
 
 	_ = m.Swap()

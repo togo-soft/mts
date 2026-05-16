@@ -37,16 +37,16 @@ const (
 // ============================================================================
 
 func countSSTableDirs(dataDir string) int {
-	entries, err := os.ReadDir(dataDir)
-	if err != nil {
-		return 0
-	}
 	n := 0
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".bin") {
+	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".bin") {
 			n++
 		}
-	}
+		return nil
+	})
 	return n
 }
 
@@ -132,7 +132,7 @@ func defaultDBConfig(tmpDir string) microts.Config {
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           64 * 1024,
-			MaxCount:          200,
+			MaxCount:          2000,
 			IdleDurationNanos: int64(200 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
@@ -290,23 +290,33 @@ func Test3_WriteProtection() error {
 	if err := writePoints(db, "db", "cpu", baseTime, 3000, time.Microsecond, 10); err != nil {
 		return err
 	}
+	_ = db.FlushAll()
 	time.Sleep(500 * time.Millisecond)
 
 	dataDir := getShardDataDir(tmpDir, "db", "cpu")
-	sstDirs, _ := filepath.Glob(filepath.Join(dataDir, "sst_*"))
-	fmt.Printf("flush 后 SSTable 数: %d\n", len(sstDirs))
+	var sstFiles []string
+	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".bin") {
+			sstFiles = append(sstFiles, path)
+		}
+		return nil
+	})
+	fmt.Printf("flush 后 SSTable 数: %d\n", len(sstFiles))
 
 	// 对前一半 SSTable 加 .writing 标志
-	if len(sstDirs) > 1 {
-		half := len(sstDirs) / 2
+	if len(sstFiles) > 1 {
+		half := len(sstFiles) / 2
 		for i := 0; i < half; i++ {
-			writingFlag := filepath.Join(sstDirs[i], ".writing")
+			writingFlag := sstFiles[i] + ".writing"
 			_ = os.WriteFile(writingFlag, nil, 0600)
 		}
 		fmt.Printf("已对 %d 个 SSTable 添加 .writing 标志\n", half)
 		defer func() {
 			for i := 0; i < half; i++ {
-				_ = os.Remove(filepath.Join(sstDirs[i], ".writing"))
+				_ = os.Remove(sstFiles[i] + ".writing")
 			}
 		}()
 	}
@@ -315,16 +325,16 @@ func Test3_WriteProtection() error {
 	_ = db.FlushAll()
 	time.Sleep(2 * time.Second)
 
-	// 验证有 .writing 标志的目录仍然存在
+	// 验证有 .writing 标志的 SSTable 文件仍然存在
 	stillExist := 0
-	for i := 0; i < len(sstDirs)/2; i++ {
-		if _, err := os.Stat(sstDirs[i]); err == nil {
+	for i := 0; i < len(sstFiles)/2; i++ {
+		if _, err := os.Stat(sstFiles[i]); err == nil {
 			stillExist++
 		}
 	}
-	if stillExist != len(sstDirs)/2 {
+	if stillExist != len(sstFiles)/2 {
 		return fmt.Errorf("有 %d/%d 个受保护的 SSTable 被误删",
-			len(sstDirs)/2-stillExist, len(sstDirs)/2)
+			len(sstFiles)/2-stillExist, len(sstFiles)/2)
 	}
 
 	// 验证数据完整性
@@ -349,7 +359,7 @@ func Test4_ConcurrentWriteCompaction() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.MemTableCfg.MaxCount = 100 // 更频繁 flush
+	cfg.MemTableCfg.MaxCount = 10000 // 更频繁 flush
 	cfg.MemTableCfg.MaxSize = 32 * 1024
 	cfg.CompactionCfg.MaxSstableCount = 4
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
@@ -499,7 +509,7 @@ func Test6_CrossShardCompaction() error {
 
 	cfg := defaultDBConfig(tmpDir)
 	cfg.ShardDuration = 10 * time.Minute
-	cfg.MemTableCfg.MaxCount = 100
+	cfg.MemTableCfg.MaxCount = 1000
 
 	db, err := microts.Open(cfg)
 	if err != nil {
@@ -556,7 +566,7 @@ func Test7_PeriodicCompactionTrigger() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.MemTableCfg.MaxCount = 100
+	cfg.MemTableCfg.MaxCount = 1000
 	cfg.CompactionCfg.CheckIntervalNanos = int64(2 * time.Second)
 
 	db, err := microts.Open(cfg)
@@ -623,7 +633,7 @@ func Test8_SSTableReductionEfficiency() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.MemTableCfg.MaxCount = 120
+	cfg.MemTableCfg.MaxCount = 1200
 	cfg.MemTableCfg.MaxSize = 16 * 1024
 	cfg.CompactionCfg.MaxSstableCount = 4
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)

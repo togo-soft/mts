@@ -493,12 +493,22 @@ func Test5_WALMultipleShards() error {
 	}
 	fmt.Printf("      写入完成\n")
 
+	// 强制刷盘以创建 Shard 目录（数据量 < NearFull 阈值时自动刷盘不会触发）
+	_ = db.FlushAll()
+	time.Sleep(200 * time.Millisecond)
+
 	fmt.Printf("Step 2: 检查 Shard 和 WAL 目录\n")
 	measurementDir := filepath.Join(tmpDir, dbName, measurement)
+
+	// 检查 measurement 级别的 WAL
+	measurementWALDir := filepath.Join(measurementDir, "wal")
+	measurementWALCount, _ := countWALFiles(measurementWALDir)
+	fmt.Printf("      Measurement WAL 文件数: %d\n", measurementWALCount)
+
 	entries, _ := os.ReadDir(measurementDir)
 
 	shardCount := 0
-	walTotal := 0
+	walTotal := measurementWALCount
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), "1") {
 			shardCount++

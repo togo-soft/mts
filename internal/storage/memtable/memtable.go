@@ -200,17 +200,19 @@ func (m *MemTable) ClearFlushing() {
 	m.flushing.Store(false)
 }
 
-// ActiveFull 检查 active 是否超过硬限制（2x maxSize/maxCount），需要背压。
+// ActiveFull 检查 active 是否超过硬限制（5x maxSize/maxCount），需要背压。
+// 大幅提高阈值以在 Windows 等慢 I/O 平台上为刷盘提供充足缓冲空间。
 func (m *MemTable) ActiveFull() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	estimatedSize := int64(len(m.active)) * 1024
-	return estimatedSize >= m.maxSize*2 || (m.maxCount > 0 && m.activeCount >= m.maxCount*2)
+	return estimatedSize >= m.maxSize*5 || (m.maxCount > 0 && m.activeCount >= m.maxCount*5)
 }
 
-// NearFull 检查 active 是否接近容量上限（1.5x 阈值），用于触发预刷盘。
+// NearFull 检查 active 是否接近容量上限（2x 阈值），用于触发预刷盘。
 // 相比 ShouldSwap（1x 阈值），NearFull 延迟刷盘触发以减少 I/O 频率，
-// 同时仍在 ActiveFull（2x 阈值）之前避免背压死锁。
+// 同时仍在 ActiveFull（5x 阈值）之前留有充足空间避免背压。
+// 在慢 I/O 平台上（Windows+杀软），刷盘间隔从 ~0.75s 增加到 ~1.5s 以上。
 func (m *MemTable) NearFull() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -218,8 +220,8 @@ func (m *MemTable) NearFull() bool {
 		return false
 	}
 	estimatedSize := int64(len(m.active)) * 1024
-	return estimatedSize >= m.maxSize*3/2 ||
-		(m.maxCount > 0 && m.activeCount >= m.maxCount*3/2)
+	return estimatedSize >= m.maxSize*2 ||
+		(m.maxCount > 0 && m.activeCount >= m.maxCount*2)
 }
 
 // IdleExceeded 检查自上次写入后空闲时间是否超过配置的 idle 超时。

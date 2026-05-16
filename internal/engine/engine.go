@@ -60,6 +60,8 @@ type Engine struct {
 	coordinator *FlushCoordinator
 	memTableCfg *types.MemTableConfig
 	metaManager *metadata.Manager
+	shardMgr    *shard.ShardManager
+	retentionSvc *shard.RetentionService
 	mu          sync.RWMutex
 	queryWg     sync.WaitGroup
 	closed      bool
@@ -107,6 +109,17 @@ func New(cfg *Config) (*Engine, error) {
 		coordinator: coordinator,
 		memTableCfg: memTableCfg,
 		metaManager: mgr,
+		shardMgr:    flusher,
+	}
+
+	// 启动数据保留清理服务
+	if cfg.RetentionPeriod > 0 {
+		checkInterval := cfg.RetentionCheckInterval
+		if checkInterval <= 0 {
+			checkInterval = time.Hour
+		}
+		engine.retentionSvc = shard.NewRetentionService(engine.shardMgr, cfg.RetentionPeriod, checkInterval)
+		engine.retentionSvc.Start()
 	}
 
 	// 后台发现已有 measurement 的 WAL 并重放
@@ -152,6 +165,11 @@ func (e *Engine) Close() error {
 	e.shutdownMu.Unlock()
 
 	e.queryWg.Wait()
+
+	// 停止数据保留清理服务
+	if e.retentionSvc != nil {
+		e.retentionSvc.Stop()
+	}
 
 	// 同步刷写所有数据
 	_ = e.coordinator.FlushAll()

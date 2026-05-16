@@ -57,6 +57,8 @@ func main() {
 
 	// 等待数据刷盘
 	time.Sleep(300 * time.Millisecond)
+	// 强制刷盘并等待完成
+	_ = db1.FlushAll()
 
 	// 关闭数据库
 	if err := db1.Close(); err != nil {
@@ -167,6 +169,9 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("Write succeeded\n")
+
+		// 强制刷盘，避免 Close 时与周期性 checkAndFlush 竞争
+		_ = db2.FlushAll()
 	}()
 
 	// 验证 metadata.db 仍然存在

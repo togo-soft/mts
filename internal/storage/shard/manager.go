@@ -117,14 +117,13 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 	defer m.mu.RUnlock()
 
 	var result []*Shard
+	prefix := db + "/" + measurementName + "/"
 
-	shardDuration := int64(m.shardDuration)
-	shardStart := (startTime / shardDuration) * shardDuration
-
-	for ts := shardStart; ts < endTime; ts += shardDuration {
-		key := m.makeKey(db, measurementName, ts)
-		if s, ok := m.shards[key]; ok {
-			result = append(result, s)
+	for key, s := range m.shards {
+		if strings.HasPrefix(key, prefix) {
+			if s.startTime < endTime && s.endTime > startTime {
+				result = append(result, s)
+			}
 		}
 	}
 
