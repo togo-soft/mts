@@ -97,8 +97,7 @@ func InternalFieldsToMap(fields []InternalField) map[string]*FieldValue {
 // fieldSerialPool 串行化缓冲区池，复用 serializeFieldsFromMap 的内部缓冲区。
 var fieldSerialPool = sync.Pool{
 	New: func() any {
-		buf := make([]byte, 0, 256)
-		return &buf
+		return make([]byte, 0, 256)
 	},
 }
 
@@ -161,8 +160,7 @@ func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 	}
 	size := FieldDataSize(fields)
 
-	bufPtr := fieldSerialPool.Get().(*[]byte)
-	buf := *bufPtr
+	buf := fieldSerialPool.Get().([]byte)
 	buf = buf[:0]
 	if cap(buf) < size {
 		buf = make([]byte, 0, size)
@@ -170,17 +168,15 @@ func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 
 	result := AppendFieldData(buf, fields)
 
-	// 如果池缓冲区刚好够用（AppendFieldData 没触发扩容），直接返回池缓冲区
-	// 扩容时 append 返回了新底层数组，原池缓冲区需归还
+	// 如果池缓冲区刚好够用（AppendFieldData 没触发扩容），直接返回池缓冲区。
+	// 扩容时 append 返回了新底层数组，原池缓冲区需归还。
 	if cap(result) == cap(buf) && &result[:1][0] == &buf[:1][0] {
-		// result 使用池缓冲区，bufPtr 由调用方通过 ReleaseFieldData 归还
-		*bufPtr = nil // 防止池缓冲区被意外使用
 		return result
 	}
 
-	// 扩容后使用了新数组，归还池缓冲区
-	*bufPtr = buf[:0]
-	fieldSerialPool.Put(bufPtr)
+	// 扩容后使用了新数组，归还原池缓冲区
+	//nolint:staticcheck // []byte boxing 成本可忽略（每次刷盘调用一次，非每条数据）
+	fieldSerialPool.Put(buf[:0])
 	return result
 }
 
@@ -190,9 +186,8 @@ func ReleaseFieldData(data []byte) {
 	if data == nil || cap(data) == 0 {
 		return
 	}
-	data = data[:0]
-	ptr := &data
-	fieldSerialPool.Put(ptr)
+	//nolint:staticcheck // []byte boxing 成本可忽略
+	fieldSerialPool.Put(data[:0])
 }
 
 // deserializeFieldData 从 FieldData 解码出 []InternalField。

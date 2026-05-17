@@ -48,8 +48,9 @@ type pointGroup struct {
 	points     []types.MemPoint
 }
 
-// Compact 扫描 unordered 下所有文件，按 (db, measurement, shard) 分拣排序，
-// 写入对应 shard 的 data/ 目录（L0）。
+// Compact 扫描 unordered 下所有文件，逐文件处理：
+// 读取 → 按 (db, measurement, shard) 分拣排序 → 写入 L0 → 删除源文件。
+// 逐文件处理可避免同时持有所有 unordered 数据，控制峰值内存。
 func (uc *UnorderedCompactor) Compact() error {
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
@@ -62,63 +63,65 @@ func (uc *UnorderedCompactor) Compact() error {
 		return nil
 	}
 
-	// 分组: key = "db\000meas\000shardStart"
+	for _, file := range files {
+		if err := uc.compactFile(file); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// compactFile 处理单个 unordered 文件：读取、分组、排序、写入 L0、删除。
+func (uc *UnorderedCompactor) compactFile(file string) error {
+	db, meas, _, ok := unordered.ParseFilePath(uc.dataDir, file)
+	if !ok {
+		return nil // 非法路径格式，跳过
+	}
+
+	reader, err := sstable.NewReader(file, sstable.Schema{})
+	if err != nil {
+		return nil // 跳过损坏文件
+	}
+	rows, err := reader.ReadAll(nil)
+	_ = reader.Close()
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+
+	// 按 (db, meas, shard) 分组
 	groupMap := make(map[string]*pointGroup)
 	var groupOrder []string
-	// 追踪成功读取的文件（用于后续安全删除）
-	readFiles := make(map[string]bool)
 
-	for _, file := range files {
-		db, meas, _, ok := unordered.ParseFilePath(uc.dataDir, file)
+	for _, row := range rows {
+		shardStart := (row.Timestamp / uc.shardMgr.ShardDurationNanos()) * uc.shardMgr.ShardDurationNanos()
+		key := pointGroupKey(db, meas, shardStart)
+
+		g, ok := groupMap[key]
 		if !ok {
-			// 非法路径格式，可能是旧版平铺文件，跳过（不删除）
-			continue
-		}
-
-		reader, err := sstable.NewReader(file, sstable.Schema{})
-		if err != nil {
-			continue // 跳过损坏文件
-		}
-		rows, err := reader.ReadAll(nil)
-		_ = reader.Close()
-		if err != nil {
-			continue
-		}
-
-		readFiles[file] = true
-
-		for _, row := range rows {
-			shardStart := (row.Timestamp / uc.shardMgr.ShardDurationNanos()) * uc.shardMgr.ShardDurationNanos()
-			key := db + "\000" + meas + "\000" + fmt.Sprintf("%d", shardStart)
-
-			g, ok := groupMap[key]
-			if !ok {
-				g = &pointGroup{
-					db:         db,
-					meas:       meas,
-					shardStart: shardStart,
-				}
-				groupMap[key] = g
-				groupOrder = append(groupOrder, key)
+			g = &pointGroup{
+				db:         db,
+				meas:       meas,
+				shardStart: shardStart,
 			}
-
-			// 将 PointRow 转回 MemPoint
-			mp := types.MemPoint{
-				Database:    db,
-				Measurement: meas,
-				Timestamp:   row.Timestamp,
-				Sid:         row.Sid,
-				FieldData:   rowToFieldData(row.Fields),
-			}
-			g.points = append(g.points, mp)
+			groupMap[key] = g
+			groupOrder = append(groupOrder, key)
 		}
+
+		mp := types.MemPoint{
+			Database:    db,
+			Measurement: meas,
+			Timestamp:   row.Timestamp,
+			Sid:         row.Sid,
+			FieldData:   rowToFieldData(row.Fields),
+		}
+		g.points = append(g.points, mp)
 	}
 
 	// 对每组排序并写入 L0
 	for _, key := range groupOrder {
 		g := groupMap[key]
 
-		// 排序: (timestamp, sid)
 		sort.Slice(g.points, func(i, j int) bool {
 			if g.points[i].Timestamp != g.points[j].Timestamp {
 				return g.points[i].Timestamp < g.points[j].Timestamp
@@ -143,28 +146,33 @@ func (uc *UnorderedCompactor) Compact() error {
 		if err := w.Close(); err != nil {
 			return fmt.Errorf("close L0 writer: %w", err)
 		}
+
+		// 写入成功后释放 FieldData
+		for _, mp := range g.points {
+			types.ReleaseFieldData(mp.FieldData)
+		}
 	}
 
-	// 仅删除成功读取并已处理的 unordered 文件
-	for _, file := range files {
-		if !readFiles[file] {
-			continue
-		}
-		_ = os.Remove(file)
+	// 删除已处理的源文件
+	_ = os.Remove(file)
 
-		// 清理空目录（递归向上清理）
-		dir := filepath.Dir(file)
-		for strings.Count(dir, string(filepath.Separator)) >= strings.Count(uc.dataDir, string(filepath.Separator)) {
-			entries, _ := os.ReadDir(dir)
-			if len(entries) > 0 {
-				break
-			}
-			_ = os.Remove(dir)
-			dir = filepath.Dir(dir)
+	// 清理空目录（递归向上清理）
+	dir := filepath.Dir(file)
+	for strings.Count(dir, string(filepath.Separator)) >= strings.Count(uc.dataDir, string(filepath.Separator)) {
+		entries, _ := os.ReadDir(dir)
+		if len(entries) > 0 {
+			break
 		}
+		_ = os.Remove(dir)
+		dir = filepath.Dir(dir)
 	}
 
 	return nil
+}
+
+// pointGroupKey 生成分组 key。
+func pointGroupKey(db, meas string, shardStart int64) string {
+	return db + "\000" + meas + "\000" + fmt.Sprintf("%d", shardStart)
 }
 
 // rowToFieldData 将 []*FieldEntry 序列化为 FieldData 字节。
