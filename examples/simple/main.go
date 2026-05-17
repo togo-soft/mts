@@ -1,21 +1,16 @@
 // examples/simple/main.go
 //
-// # Simple Write and Query Example
+// 本示例展示 microts 完整数据流：写入 → MemTable → flush → unordered → compaction → ordered SSTable。
 //
-// 本示例展示如何使用 microts 写入和查询数据。
+// 配置:
+//   - MaxCount=25, IdleDuration=10s: 控制刷盘阈值
+//   - 写入 70 条数据 (< ActiveFull=125)，手动触发刷盘
+//   - 刷盘后数据进入 unordered/（未排序 SSTable）
+//   - UnorderedCompactor 每 500ms 分拣排序到 stable Shard 的 L0 目录
 //
-// 配置说明：
+// 运行:
 //
-//   - MemTableCfg.MaxCount = 100：MemTable 最多存储 100 条数据，超出后触发刷盘
-//   - MemTableCfg.IdleDurationNanos = 5 秒：空闲 5 秒后触发刷盘
-//
-// 数据流程：
-//
-//	写入 → WAL → MemTable → (触发刷盘) → SSTable
-//
-// 运行方式：
-//
-//	cd examples/simple && go run main.go
+//	go run examples/simple/main.go
 package main
 
 import (
@@ -24,6 +19,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
@@ -31,21 +28,19 @@ import (
 )
 
 func main() {
-	// 创建临时数据目录
 	tmpDir := filepath.Join(os.TempDir(), "microts_simple_example")
-	// 使用 CLEANUP=1 环境变量清除旧数据（只在启动时清除）
 	if os.Getenv("CLEANUP") == "1" {
 		_ = os.RemoveAll(tmpDir)
 	}
 
-	// 数据库配置
+	const maxCount int32 = 25
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          100,
-			IdleDurationNanos: int64(5 * time.Second),
+			MaxCount:          maxCount,
+			IdleDurationNanos: int64(10 * time.Second),
 		},
 	}
 
@@ -53,51 +48,98 @@ func main() {
 	if err != nil {
 		log.Fatalf("打开数据库失败: %v", err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Printf("关闭数据库失败: %v", err)
-		}
-	}()
+	defer func() { _ = db.Close() }()
 
-	fmt.Println("=== MicroTS 简单读写示例 ===")
-	fmt.Printf("数据目录: %s\n\n", tmpDir)
+	fmt.Println("╔══════════════════════════════════════════════╗")
+	fmt.Println("║   MicroTS 完整数据流 Demo                     ║")
+	fmt.Println("╚══════════════════════════════════════════════╝")
+	fmt.Printf("\n数据目录: %s\n", tmpDir)
+	fmt.Printf("MemTable: MaxCount=%d, NearFull=%d, ActiveFull=%d\n",
+		maxCount, 2*maxCount, 5*maxCount)
 
-	// ============ 写入数据 ============
-	fmt.Println("Step 1: 写入 100 条数据")
+	// ── Step 1: 写入数据 ──
 	dbName := "testdb"
-	measurement := "cpu"
+	meas := "cpu"
 	baseTime := time.Now().UnixNano()
+	const totalPoints = 70 // < ActiveFull(125)，不会在写入过程中自动刷盘
 
-	for i := 0; i < 100; i++ {
+	fmt.Printf("\n═══ Step 1: 写入 %d 条数据 ═══\n", totalPoints)
+	for i := 0; i < totalPoints; i++ {
 		p := &types.Point{
 			Database:    dbName,
-			Measurement: measurement,
-			Tags: map[string]string{
-				"host": fmt.Sprintf("server%d", i%3+1),
-			},
-			Timestamp: baseTime + int64(i)*int64(time.Millisecond),
+			Measurement: meas,
+			Tags:        map[string]string{"host": fmt.Sprintf("server%d", i%3+1)},
+			Timestamp:   baseTime + int64(i)*int64(time.Millisecond),
 			Fields: map[string]*types.FieldValue{
-				"usage": types.NewFieldValue(float64(50.0 + float64(i%50))),
+				"usage": types.NewFieldValue(float64(50.0 + float64(i%30))),
 				"count": types.NewFieldValue(int64(i * 10)),
 			},
 		}
 		if err := db.Write(context.Background(), p); err != nil {
-			log.Fatalf("写入数据点 %d 失败: %v", i, err)
+			log.Fatalf("写入失败 %d: %v", i, err)
 		}
 	}
-	fmt.Printf("写入完成，当前会话时间范围: [%d, %d]\n", baseTime, baseTime+100*int64(time.Millisecond))
+	fmt.Printf("写入完成: %d 条数据 (均在 MemTable 内存中)\n", totalPoints)
 
-	// ============ 查询数据 ============
-	// 查询时间范围：所有累积数据（从 0 到未来一个月）
+	// ── Step 2: 写入后状态 —— 只有 WAL + metadata ──
+	fmt.Println("\n═══ Step 2: 写入后（数据仅在 MemTable）═══")
+	showSSTableInventory(tmpDir)
+
+	// ── Step 3: 手动触发刷盘 ──
+	fmt.Println("\n═══ Step 3: 手动触发 FlushAll ═══")
+	if err := db.FlushAll(); err != nil {
+		log.Printf("FlushAll: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond) // 等待异步写入完成
+
+	// ── Step 4: 刷盘后 —— 应看到 unordered/ 下的 SSTable ──
+	fmt.Println("\n═══ Step 4: 刷盘后（数据应已进入 unordered/）═══")
+	fmt.Println("预期: unordered/{db}/{meas}/sst_N.bin")
+	showSSTableInventory(tmpDir)
+
+	// ── Step 5: 等待 UnorderedCompactor 分拣排序 ──
+	fmt.Println("\n═══ Step 5: 等待 UnorderedCompactor ═══")
+	fmt.Println("Compactor 每 500ms 扫描 unordered/，分拣排序后写入 stable L0")
+	fmt.Println("如 unordered 文件已消失，说明已被 Compactor 处理")
+
+	var lastInventory []sstEntry
+	for attempt := 1; attempt <= 8; attempt++ {
+		time.Sleep(800 * time.Millisecond)
+		current := collectSSTables(tmpDir)
+		if len(current) != len(lastInventory) || !sameInventory(current, lastInventory) {
+			fmt.Printf("[%d] SSTable 文件快照:\n", attempt)
+			for _, e := range current {
+				fmt.Printf("    %s\n", e.path)
+			}
+			lastInventory = current
+		}
+
+		// 检查是否所有文件都在 ordered 区域
+		allOrdered := true
+		for _, e := range current {
+			if !strings.Contains(e.path, "data/") {
+				allOrdered = false
+				break
+			}
+		}
+		if allOrdered && len(current) > 0 {
+			fmt.Println("\n✓ 所有 SSTable 已进入 ordered 区域")
+			break
+		}
+	}
+
+	// ── Step 6: 最终状态 ──
+	fmt.Println("\n═══ Step 6: 最终目录结构 ═══")
+	printDirTree(tmpDir, 5)
+
+	// ── Step 7: 查询验证 ──
+	fmt.Println("\n═══ Step 7: 查询验证 ═══")
 	oneMonthLater := time.Now().Add(30 * 24 * time.Hour).UnixNano()
-	fmt.Println("\nStep 2: 查询所有累积数据（从 0 到未来一个月）")
 	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
-		Measurement: measurement,
+		Measurement: meas,
 		StartTime:   0,
 		EndTime:     oneMonthLater,
-		Offset:      0,
-		Limit:       0,
 	})
 	if err != nil {
 		log.Fatalf("查询失败: %v", err)
@@ -108,15 +150,139 @@ func main() {
 	for it.Next(context.Background()) {
 		rows = append(rows, it.Points())
 	}
-
-	fmt.Printf("查询结果: %d 条数据（时间范围 [0, %d]）\n\n", len(rows), oneMonthLater)
-
-	// 打印前几条数据
-	fmt.Println("前 5 条数据:")
-	for i := 0; i < 5 && i < len(rows); i++ {
-		row := rows[i]
-		fmt.Printf("  [%d] host=%s usage=%.1f\n", row.Timestamp, row.Tags["host"], row.GetFieldValue("usage").GetFloatValue())
+	fmt.Printf("预期: %d 条, 实际: %d 条", totalPoints, len(rows))
+	if len(rows) == totalPoints {
+		fmt.Println(" ✓")
+	} else {
+		fmt.Printf(" ✗ 缺失 %d 条\n", totalPoints-len(rows))
 	}
 
-	fmt.Println("\n=== 示例完成 ===")
+	fmt.Println("\n前 5 条:")
+	for i := 0; i < 5 && i < len(rows); i++ {
+		r := rows[i]
+		host := ""
+		if r.Tags != nil {
+			host = r.Tags["host"]
+		}
+		fmt.Printf("  ts=%d host=%s usage=%.1f\n", r.Timestamp, host,
+			r.GetFieldValue("usage").GetFloatValue())
+	}
+
+	// ── 总结 ──
+	fmt.Println("\n═══ 数据流总结 ═══")
+	fmt.Println("  Write → WAL → MemTable → FlushCoordinator → unordered/")
+	fmt.Println("                                                │")
+	fmt.Println("                                  UnorderedCompactor (500ms)")
+	fmt.Println("                                                │")
+	fmt.Println("                                          stable L0/")
+	fmt.Println("                                                │")
+	fmt.Println("                                      Level Compaction")
+	fmt.Println("                                                │")
+	fmt.Println("                                          data/sst_N.bin")
+	fmt.Println()
+	fmt.Println("查询时合并三层: MemTable + unordered + stable Shard")
+	fmt.Println("\n=== Demo 完成 ===")
+}
+
+// ── 辅助类型和函数 ──
+
+type sstEntry struct {
+	path string
+}
+
+func collectSSTables(dataDir string) []sstEntry {
+	var entries []sstEntry
+	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(info.Name(), ".bin") {
+			rel, _ := filepath.Rel(dataDir, path)
+			entries = append(entries, sstEntry{path: rel})
+		}
+		return nil
+	})
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	return entries
+}
+
+func sameInventory(a, b []sstEntry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].path != b[i].path {
+			return false
+		}
+	}
+	return true
+}
+
+func showSSTableInventory(dataDir string) {
+	entries := collectSSTables(dataDir)
+	if len(entries) == 0 {
+		fmt.Println("  (无 SSTable .bin 文件)")
+		return
+	}
+	for _, e := range entries {
+		// 标注文件位置类型
+		loc := ""
+		switch {
+		case strings.Contains(e.path, "unordered/"):
+			loc = " [unordered - 未排序]"
+		case strings.Contains(e.path, "/data/L0/"):
+			loc = " [L0 - 刚排序]"
+		case strings.Contains(e.path, "/data/"):
+			loc = " [ordered - 有序]"
+		}
+		fmt.Printf("  %s%s\n", e.path, loc)
+	}
+}
+
+func printDirTree(root string, maxDepth int) {
+	type entry struct {
+		path  string
+		isDir bool
+	}
+	var entries []entry
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		if rel == "." {
+			return nil
+		}
+		depth := strings.Count(rel, string(filepath.Separator))
+		if depth >= maxDepth {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		entries = append(entries, entry{path: rel, isDir: info.IsDir()})
+		return nil
+	})
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].path < entries[j].path
+	})
+
+	if len(entries) == 0 {
+		fmt.Println("  (空)")
+		return
+	}
+	for _, e := range entries {
+		depth := strings.Count(e.path, string(filepath.Separator))
+		indent := strings.Repeat("  ", depth+1)
+		name := filepath.Base(e.path)
+		if e.isDir {
+			fmt.Printf("%s%s/\n", indent, name)
+		} else {
+			fmt.Printf("%s%s\n", indent, name)
+		}
+	}
 }
