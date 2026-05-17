@@ -1,6 +1,6 @@
 // tests/e2e/diff_compact_disk_usage/main.go
 //
-// 磁盘空间压缩对比测试：对比 1M 数据点在开启/关闭压缩时的磁盘占用，计算压缩比。
+// 磁盘空间压缩对比测试：对比 1M 数据点在 none/snappy/lz4 压缩时的磁盘占用和写入性能。
 //
 // 运行方式：
 //
@@ -22,8 +22,15 @@ import (
 
 const totalPoints = 1_000_000
 
+type result struct {
+	name  string
+	size  int64
+	files int
+	tps   float64
+}
+
 // runTest 执行一轮测试，写入数据、等待落盘和 compaction 完成后统计磁盘占用。
-func runTest(dataDir string, compression sstable.CompressionAlgorithm, label string) (diskBytes int64, tps float64, err error) {
+func runTest(dataDir string, compression sstable.CompressionAlgorithm, label string) (int64, int, float64, error) {
 	_ = os.RemoveAll(dataDir)
 
 	cfg := microts.Config{
@@ -46,10 +53,10 @@ func runTest(dataDir string, compression sstable.CompressionAlgorithm, label str
 
 	db, err := microts.Open(cfg)
 	if err != nil {
-		return 0, 0, fmt.Errorf("open db: %w", err)
+		return 0, 0, 0, fmt.Errorf("open db: %w", err)
 	}
 
-	gen := data_gen.NewDataGenerator(42) // 固定种子，确保两次写入数据一致
+	gen := data_gen.NewDataGenerator(42)
 	baseTime := time.Now().UnixNano()
 
 	timer := metrics.NewWriteSummary(totalPoints)
@@ -58,33 +65,31 @@ func runTest(dataDir string, compression sstable.CompressionAlgorithm, label str
 		p := gen.GeneratePoint("db1", "cpu", ts)
 		if err := db.Write(context.Background(), p); err != nil {
 			_ = db.Close()
-			return 0, 0, fmt.Errorf("write point %d: %w", i, err)
+			return 0, 0, 0, fmt.Errorf("write point %d: %w", i, err)
 		}
 	}
 	timer.Finish()
-	writeTPS := timer.TPS()
 
 	fmt.Printf("  %s: %s\n", label, timer.Format())
 
-	// 等待 idle flush + compaction 完成（compaction 检查间隔 5s，等待 3 个周期确保完成）
+	// 等待 idle flush + compaction 完成（compaction 检查间隔 5s，等待 3 个周期）
 	fmt.Printf("  等待落盘和 compaction...\n")
 	time.Sleep(20 * time.Second)
 
 	if err := db.Close(); err != nil {
-		return 0, 0, fmt.Errorf("close db: %w", err)
+		return 0, 0, 0, fmt.Errorf("close db: %w", err)
 	}
 
-	// 统计 data 目录的磁盘占用
 	dataDirPath := filepath.Join(dataDir, "db1", "cpu")
 	stats, err := metrics.CalcDirSize(dataDirPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("calc dir size: %w", err)
+		return 0, 0, 0, fmt.Errorf("calc dir size: %w", err)
 	}
 
-	fmt.Printf("  磁盘占用: %s (%d 文件)\n", metrics.FormatBytes(uint64(stats.TotalSize)), stats.FileCount)
-	fmt.Printf("  每点字节: %.2f\n", stats.BytesPerPoint(totalPoints))
+	fmt.Printf("  磁盘占用: %s (%d 文件, %.1f B/点)\n",
+		metrics.FormatBytes(uint64(stats.TotalSize)), stats.FileCount, stats.BytesPerPoint(totalPoints))
 
-	return stats.TotalSize, writeTPS, nil
+	return stats.TotalSize, stats.FileCount, timer.TPS(), nil
 }
 
 func main() {
@@ -95,59 +100,71 @@ func main() {
 	tmpBase := filepath.Join(os.TempDir(), "microts_diff_compact_test")
 	defer func() { _ = os.RemoveAll(tmpBase) }()
 
-	// 第一轮：不压缩
-	fmt.Println("\n>>> 第 1 轮: 不压缩 (none) <<<")
-	dirNone := filepath.Join(tmpBase, "none")
-	sizeNone, tpsNone, err := runTest(dirNone, sstable.CompressionNone, "写入")
-	if err != nil {
-		fmt.Printf("❌ 不压缩测试失败: %v\n", err)
-		os.Exit(1)
+	compressions := []struct {
+		name string
+		dir  string
+		algo sstable.CompressionAlgorithm
+	}{
+		{"不压缩 (none)", "none", sstable.CompressionNone},
+		{"Snappy", "snappy", sstable.CompressionSnappy},
+		{"LZ4", "lz4", sstable.CompressionLZ4},
 	}
 
-	// 第二轮：snappy 压缩
-	fmt.Println("\n>>> 第 2 轮: Snappy 压缩 <<<")
-	dirSnappy := filepath.Join(tmpBase, "snappy")
-	sizeSnappy, tpsSnappy, err := runTest(dirSnappy, sstable.CompressionSnappy, "写入")
-	if err != nil {
-		fmt.Printf("❌ Snappy 压缩测试失败: %v\n", err)
-		os.Exit(1)
+	results := make([]result, len(compressions))
+
+	for i, c := range compressions {
+		fmt.Printf("\n>>> 第 %d 轮: %s <<<\n", i+1, c.name)
+		size, files, tps, err := runTest(filepath.Join(tmpBase, c.dir), c.algo, "写入")
+		if err != nil {
+			fmt.Printf("❌ %s 测试失败: %v\n", c.name, err)
+			os.Exit(1)
+		}
+		results[i] = result{name: c.name, size: size, files: files, tps: tps}
 	}
 
 	// 原始数据估算（每点 10 字段 + tags + timestamp）
-	// 5 float64 (8B) + 3 int64 (8B) + 1 string (~13B) + 1 bool (1B) + tags (~13B) + ts (8B) ≈ 99B
 	const rawBytesPerPoint = 99
 	rawSizeEst := int64(totalPoints * rawBytesPerPoint)
 	rawMB := float64(rawSizeEst) / (1024 * 1024)
 
-	// 对比结果
 	fmt.Println("\n================================================")
 	fmt.Println("对比结果")
 	fmt.Println("================================================")
 
-	noneMB := float64(sizeNone) / (1024 * 1024)
-	snappyMB := float64(sizeSnappy) / (1024 * 1024)
+	fmt.Printf("原始数据预估:     %.1f MB (%.0f B/点)\n\n", rawMB, float64(rawBytesPerPoint))
 
-	fmt.Printf("原始数据预估:     %.1f MB (%.0f B/点)\n", rawMB, float64(rawBytesPerPoint))
-	fmt.Printf("不压缩 (none):   %s (%.2f MB, %.1f B/点)\n", metrics.FormatBytes(uint64(sizeNone)), noneMB, float64(sizeNone)/float64(totalPoints))
-	fmt.Printf("Snappy 压缩:     %s (%.2f MB, %.1f B/点)\n", metrics.FormatBytes(uint64(sizeSnappy)), snappyMB, float64(sizeSnappy)/float64(totalPoints))
+	for _, r := range results {
+		fmt.Printf("  %s:  %s (%.2f MB, %.1f B/点, %d 文件)\n",
+			r.name, metrics.FormatBytes(uint64(r.size)),
+			float64(r.size)/(1024*1024), float64(r.size)/float64(totalPoints), r.files)
+	}
 
-	encodingRatio := float64(rawSizeEst) / float64(sizeNone)
-	fmt.Printf("\n编码压缩比 (原始→none):   %.2fx\n", encodingRatio)
+	fmt.Println()
+	baseline := results[0] // none
+	for i := 1; i < len(results); i++ {
+		r := results[i]
+		savings := float64(baseline.size-r.size) / float64(baseline.size) * 100
+		ratio := float64(baseline.size) / float64(r.size)
+		fmt.Printf("  块压缩比 (none→%s): %.2fx (节省 %.1f%%)\n", r.name, ratio, savings)
+	}
 
-	if sizeNone > 0 {
-		savings := float64(sizeNone-sizeSnappy) / float64(sizeNone) * 100
-		blockRatio := float64(sizeNone) / float64(sizeSnappy)
-		fmt.Printf("块压缩比   (none→snappy): %.2fx (节省 %.1f%%)\n", blockRatio, savings)
-
-		overallRatio := float64(rawSizeEst) / float64(sizeSnappy)
-		fmt.Printf("总压缩比   (原始→snappy): %.2fx\n", overallRatio)
+	encodingRatio := float64(rawSizeEst) / float64(baseline.size)
+	fmt.Printf("\n  编码压缩比 (原始→none): %.2fx\n", encodingRatio)
+	for i := 1; i < len(results); i++ {
+		overallRatio := float64(rawSizeEst) / float64(results[i].size)
+		fmt.Printf("  总压缩比 (原始→%s): %.2fx\n", results[i].name, overallRatio)
 	}
 
 	fmt.Printf("\n写入性能:\n")
-	fmt.Printf("  不压缩 TPS:  %.0f\n", tpsNone)
-	fmt.Printf("  Snappy TPS:  %.0f\n", tpsSnappy)
-	if tpsNone > 0 {
-		fmt.Printf("  性能影响:    %.1f%%\n", (1-tpsSnappy/tpsNone)*100)
+	for _, r := range results {
+		fmt.Printf("  %s TPS: %.0f\n", r.name, r.tps)
+	}
+
+	baselineTPS := results[0].tps
+	for i := 1; i < len(results); i++ {
+		if baselineTPS > 0 {
+			fmt.Printf("  %s 性能影响: %.1f%%\n", results[i].name, (1-results[i].tps/baselineTPS)*100)
+		}
 	}
 
 	fmt.Println("\n测试完成！")
