@@ -37,7 +37,7 @@ func DefaultConfig(name string) *Config {
 		MeasurementName:         "cpu",
 		ShardDuration:           time.Hour,
 		MaxSize:                 64 * 1024 * 1024,
-		MaxCount:                3000,
+		MaxCount:                50000,
 		IdleDurationNanos:       int64(10 * time.Second),
 		RetentionPeriod:         0,
 		RetentionCheckInterval:  time.Hour,

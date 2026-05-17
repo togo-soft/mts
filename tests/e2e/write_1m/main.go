@@ -23,7 +23,7 @@ func main() {
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
 			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          3000,
+			MaxCount:          50000,
 			IdleDurationNanos: int64(10 * time.Second),
 		},
 	}
