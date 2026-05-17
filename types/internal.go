@@ -154,7 +154,7 @@ func FieldDataSize(fields map[string]*FieldValue) int {
 }
 
 // serializeFieldsFromMap 直接将 map[string]*FieldValue 序列化为 FieldData 格式。
-// 内部缓冲区池化减少 GC 压力。
+// 返回池化缓冲区，调用方应在数据消费完毕后调用 ReleaseFieldData 归还。
 func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 	if len(fields) == 0 {
 		return nil
@@ -168,14 +168,31 @@ func serializeFieldsFromMap(fields map[string]*FieldValue) []byte {
 		buf = make([]byte, 0, size)
 	}
 
-	buf = AppendFieldData(buf, fields)
+	result := AppendFieldData(buf, fields)
 
-	result := make([]byte, len(buf))
-	copy(result, buf)
+	// 如果池缓冲区刚好够用（AppendFieldData 没触发扩容），直接返回池缓冲区
+	// 扩容时 append 返回了新底层数组，原池缓冲区需归还
+	if cap(result) == cap(buf) && &result[:1][0] == &buf[:1][0] {
+		// result 使用池缓冲区，bufPtr 由调用方通过 ReleaseFieldData 归还
+		*bufPtr = nil // 防止池缓冲区被意外使用
+		return result
+	}
+
+	// 扩容后使用了新数组，归还池缓冲区
 	*bufPtr = buf[:0]
 	fieldSerialPool.Put(bufPtr)
-
 	return result
+}
+
+// ReleaseFieldData 将池化的 FieldData 归还到缓冲区池。
+// 仅对 serializeFieldsFromMap 返回的非 nil FieldData 有效。
+func ReleaseFieldData(data []byte) {
+	if data == nil || cap(data) == 0 {
+		return
+	}
+	data = data[:0]
+	ptr := &data
+	fieldSerialPool.Put(ptr)
 }
 
 // deserializeFieldData 从 FieldData 解码出 []InternalField。

@@ -130,6 +130,11 @@ func Write(dataDir string, points []types.MemPoint, compressionAlgo sstable.Comp
 		// 清理空的 data 目录
 		_ = os.Remove(filepath.Join(parentDir, "data"))
 
+
+		// SSTable 写入成功，释放 FieldData 回池
+		for _, mp := range g.points {
+			types.ReleaseFieldData(mp.FieldData)
+		}
 		paths = append(paths, targetPath)
 	}
 

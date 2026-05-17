@@ -6,6 +6,10 @@ import (
 	lz4 "github.com/pierrec/lz4/v4"
 )
 
+// minCompressSize 是尝试 LZ4 压缩的最小 payload 大小。
+// 小于此值的 payload 压缩率很低（5 字节头开销占比大），直接跳过。
+const minCompressSize = 80
+
 // CompressPayload 使用 LZ4 压缩 payload。
 // 如果压缩后更大，则存储原始数据（标记为未压缩）。
 // 格式: [flag:1B][size:4B][data]
@@ -18,6 +22,16 @@ import (
 func CompressPayload(payload []byte) (data []byte, release func(), err error) {
 	if len(payload) == 0 {
 		return nil, nil, nil
+	}
+
+	// 小 payload 直接存储未压缩，避免无效的 LZ4 压缩尝试
+	if len(payload) < minCompressSize {
+		raw := getBuf(5 + len(payload))
+		raw = raw[:5+len(payload)]
+		raw[0] = 0
+		binary.BigEndian.PutUint32(raw[1:5], uint32(len(payload)))
+		copy(raw[5:], payload)
+		return raw, func() { putBuf(raw) }, nil
 	}
 
 	// 从池中获取足够大的缓冲区：5字节头 + 压缩数据（最坏情况比原数据大）
