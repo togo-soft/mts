@@ -26,3 +26,4 @@ check_schema
 *_bin
 *.out
 coverage*
+diff_compact_disk_usage
