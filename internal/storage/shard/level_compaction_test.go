@@ -106,11 +106,11 @@ func TestLevelCompactionManager_LevelMaxSize(t *testing.T) {
 	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 验证各层容量
-	if size := lcm.LevelMaxSize(0); size != 10*1024*1024 {
-		t.Errorf("L0 size should be 10MB, got %d", size)
+	if size := lcm.LevelMaxSize(0); size != 64*1024*1024 {
+		t.Errorf("L0 size should be 64MB, got %d", size)
 	}
-	if size := lcm.LevelMaxSize(1); size != 100*1024*1024 {
-		t.Errorf("L1 size should be 100MB, got %d", size)
+	if size := lcm.LevelMaxSize(1); size != 256*1024*1024 {
+		t.Errorf("L1 size should be 256MB, got %d", size)
 	}
 	if size := lcm.LevelMaxSize(2); size != 1024*1024*1024 {
 		t.Errorf("L2 size should be 1GB, got %d", size)
@@ -347,11 +347,8 @@ func TestLevelCompactionManager_LevelMaxSize_Extended(t *testing.T) {
 	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
 	// 验证各层容量
-	if size := lcm.LevelMaxSize(3); size != 10*1024*1024*1024 {
-		t.Errorf("L3 size should be 10GB, got %d", size)
-	}
-	if size := lcm.LevelMaxSize(4); size != 100*1024*1024*1024 {
-		t.Errorf("L4 size should be 100GB, got %d", size)
+	if size := lcm.LevelMaxSize(3); size != 4*1024*1024*1024 {
+		t.Errorf("L3 size should be 4GB, got %d", size)
 	}
 	// 无效层级应该返回 0
 	if size := lcm.LevelMaxSize(99); size != 0 {
@@ -377,7 +374,7 @@ func TestLevelCompactionManager_ShouldCompactLevel_WithParts(t *testing.T) {
 	lcmCfg := compaction.DefaultLevelConfig()
 	lcm, _ := compaction.NewLevelManager(shard, lcmCfg)
 
-	// L0 有多个 part（超过 MaxParts=10），应该触发 compaction
+	// L0 有多个 part（超过 MaxParts=4），应该触发 compaction
 	for i := 0; i < 12; i++ {
 		lcm.Manifest.AddPart(0, compaction.PartInfo{
 			Name:    fmt.Sprintf("sst_%020d", i),

@@ -36,7 +36,7 @@ func DefaultLevelConfig() *LevelConfig {
 	return &LevelConfig{
 		Enabled:             true,
 		LevelConfigs:        DefaultLevelSpecs(),
-		L0ToL1SizeThreshold: 5 * 1024 * 1024,
+		L0ToL1SizeThreshold: 64 * 1024 * 1024,
 		MaxCompactionParts:  10,
 		TombstoneRetention:  1 * time.Hour,
 		CheckInterval:       5 * time.Minute,
@@ -447,16 +447,18 @@ func (lcm *LevelManager) LevelMaxSize(level int) int64 {
 			return cfg.MaxSize
 		}
 	}
-	base := int64(100 * 1024 * 1024)
-	for i := 1; i < level; i++ {
-		base *= 10
-	}
-	return base
+	// 未配置的层级返回 0（用于检测无效层级）
+	return 0
 }
 
 func (lcm *LevelManager) ShouldCompactLevel(level int) bool {
 	l := lcm.Manifest.GetLevel(level)
 	if l == nil {
+		return false
+	}
+
+	// 终端层级：无下一级可压缩入
+	if lcm.Manifest.GetLevel(level+1) == nil {
 		return false
 	}
 

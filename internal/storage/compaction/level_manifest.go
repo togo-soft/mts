@@ -18,13 +18,13 @@ type LevelSpec struct {
 }
 
 // DefaultLevelSpecs 返回默认层次规格。
+// 4 层级，每级容量 4x 增长，L3 为终端层级不参与进一步压缩。
 func DefaultLevelSpecs() []LevelSpec {
 	return []LevelSpec{
-		{Level: 0, MaxSize: 10 * 1024 * 1024, MaxParts: 10},
-		{Level: 1, MaxSize: 100 * 1024 * 1024, MaxParts: 0},
-		{Level: 2, MaxSize: 1024 * 1024 * 1024, MaxParts: 0},
-		{Level: 3, MaxSize: 10 * 1024 * 1024 * 1024, MaxParts: 0},
-		{Level: 4, MaxSize: 100 * 1024 * 1024 * 1024, MaxParts: 0},
+		{Level: 0, MaxSize: 64 * 1024 * 1024, MaxParts: 4},       // L0:  64 MB, 最多 4 个文件
+		{Level: 1, MaxSize: 256 * 1024 * 1024, MaxParts: 0},      // L1: 256 MB
+		{Level: 2, MaxSize: 1024 * 1024 * 1024, MaxParts: 0},     // L2:   1 GB
+		{Level: 3, MaxSize: 4 * 1024 * 1024 * 1024, MaxParts: 0}, // L3:   4 GB（终端）
 	}
 }
 

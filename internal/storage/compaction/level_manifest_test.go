@@ -10,15 +10,15 @@ import (
 
 func TestLevelSpec_DefaultLevelSpecs(t *testing.T) {
 	configs := DefaultLevelSpecs()
-	if len(configs) != 5 {
-		t.Errorf("expected 5 level configs, got %d", len(configs))
+	if len(configs) != 4 {
+		t.Errorf("expected 4 level configs, got %d", len(configs))
 	}
 
-	if configs[0].Level != 0 || configs[0].MaxParts != 10 {
+	if configs[0].Level != 0 || configs[0].MaxParts != 4 {
 		t.Errorf("L0 config incorrect: %+v", configs[0])
 	}
 
-	if configs[1].Level != 1 || configs[1].MaxSize != 100*1024*1024 {
+	if configs[1].Level != 1 || configs[1].MaxSize != 256*1024*1024 {
 		t.Errorf("L1 config incorrect: %+v", configs[1])
 	}
 }
@@ -36,7 +36,7 @@ func TestLevelManifest_NewLevelManifest(t *testing.T) {
 		t.Fatal("manifest should not be nil")
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 4; i++ {
 		l := manifest.GetLevel(i)
 		if l == nil {
 			t.Errorf("level %d should exist", i)
@@ -47,7 +47,7 @@ func TestLevelManifest_NewLevelManifest(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 4; i++ {
 		levelPath := manifest.GetLevelPath(i)
 		if _, err := os.Stat(levelPath); os.IsNotExist(err) {
 			t.Errorf("level directory L%d should exist at %s", i, levelPath)

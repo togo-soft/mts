@@ -585,30 +585,30 @@ func TestLevelCompactionE2E_MultipleLevels(t *testing.T) {
 	// 验证各层容量配置
 	levelConfigs := lcm.Config().LevelConfigs
 
-	if levelConfigs[0].MaxSize != 10*1024*1024 {
-		t.Errorf("L0 MaxSize should be 10MB, got %d", levelConfigs[0].MaxSize)
+	if levelConfigs[0].MaxSize != 64*1024*1024 {
+		t.Errorf("L0 MaxSize should be 64MB, got %d", levelConfigs[0].MaxSize)
 	}
-	if levelConfigs[0].MaxParts != 10 {
-		t.Errorf("L0 MaxParts should be 10, got %d", levelConfigs[0].MaxParts)
+	if levelConfigs[0].MaxParts != 4 {
+		t.Errorf("L0 MaxParts should be 4, got %d", levelConfigs[0].MaxParts)
 	}
-	if levelConfigs[1].MaxSize != 100*1024*1024 {
-		t.Errorf("L1 MaxSize should be 100MB, got %d", levelConfigs[1].MaxSize)
+	if levelConfigs[1].MaxSize != 256*1024*1024 {
+		t.Errorf("L1 MaxSize should be 256MB, got %d", levelConfigs[1].MaxSize)
 	}
 	if levelConfigs[2].MaxSize != 1024*1024*1024 {
 		t.Errorf("L2 MaxSize should be 1GB, got %d", levelConfigs[2].MaxSize)
 	}
 
 	// 验证 levelMaxSize
-	if size := lcm.LevelMaxSize(0); size != 10*1024*1024 {
-		t.Errorf("L0 levelMaxSize should be 10MB, got %d", size)
+	if size := lcm.LevelMaxSize(0); size != 64*1024*1024 {
+		t.Errorf("L0 levelMaxSize should be 64MB, got %d", size)
 	}
-	if size := lcm.LevelMaxSize(1); size != 100*1024*1024 {
-		t.Errorf("L1 levelMaxSize should be 100MB, got %d", size)
+	if size := lcm.LevelMaxSize(1); size != 256*1024*1024 {
+		t.Errorf("L1 levelMaxSize should be 256MB, got %d", size)
 	}
 	if size := lcm.LevelMaxSize(2); size != 1024*1024*1024 {
 		t.Errorf("L2 levelMaxSize should be 1GB, got %d", size)
 	}
-	if size := lcm.LevelMaxSize(99); size != 0 {
-		t.Errorf("invalid level should return 0, got %d", size)
+	if size := lcm.LevelMaxSize(3); size != 4*1024*1024*1024 {
+		t.Errorf("L3 levelMaxSize should be 4GB, got %d", size)
 	}
 }
