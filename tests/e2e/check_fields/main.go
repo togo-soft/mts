@@ -32,16 +32,16 @@ func main() {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024 * 1024,
-			FlushPointCount:    3000,
-			FlushIdleNanos: int64(5 * time.Second),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 3000,
+			FlushIdleNanos:  int64(5 * time.Second),
 		},
 	}
 
-	db, _ := microts.Open(cfg)
+	db, _ := microts.Open(&cfg)
 	_ = db.Write(context.Background(), p)
 	time.Sleep(6 * time.Second)
 	_ = db.Close()

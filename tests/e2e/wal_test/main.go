@@ -133,12 +133,12 @@ func Test1_WALCreation() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024 * 1024,
-			FlushPointCount:    3000,
-			FlushIdleNanos: int64(time.Hour),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 3000,
+			FlushIdleNanos:  int64(time.Hour),
 		},
 	}
 
@@ -146,7 +146,7 @@ func Test1_WALCreation() error {
 	measurement := "cpu"
 
 	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -194,12 +194,12 @@ func Test2_WALPersistence() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024 * 1024,
-			FlushPointCount:    3000,
-			FlushIdleNanos: int64(time.Hour),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 3000,
+			FlushIdleNanos:  int64(time.Hour),
 		},
 	}
 
@@ -207,7 +207,7 @@ func Test2_WALPersistence() error {
 	measurement := "cpu"
 
 	fmt.Printf("Step 1: 打开数据库，写入数据\n")
-	db1, err := microts.Open(dbCfg)
+	db1, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db1: %w", err)
 	}
@@ -225,7 +225,7 @@ func Test2_WALPersistence() error {
 	}
 
 	fmt.Printf("Step 3: 重新打开数据库\n")
-	db2, err := microts.Open(dbCfg)
+	db2, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db2: %w", err)
 	}
@@ -274,12 +274,12 @@ func Test3_WALReplay() error {
 
 	// 使用极大 MemTable，避免自动刷盘
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       1024 * 1024 * 1024, // 1GB，不会自动刷盘
-			FlushPointCount:    10000000,
-			FlushIdleNanos: int64(24 * time.Hour),
+			FlushMemorySize: 1024 * 1024 * 1024, // 1GB，不会自动刷盘
+			FlushPointCount: 10000000,
+			FlushIdleNanos:  int64(24 * time.Hour),
 		},
 	}
 
@@ -287,7 +287,7 @@ func Test3_WALReplay() error {
 	measurement := "cpu"
 
 	fmt.Printf("Step 1: 第一次会话 - 写入数据（不触发刷盘）\n")
-	db1, err := microts.Open(dbCfg)
+	db1, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db1: %w", err)
 	}
@@ -319,7 +319,7 @@ func Test3_WALReplay() error {
 	}
 
 	fmt.Printf("Step 2: 第二次会话 - 写入新数据，验证旧数据存在\n")
-	db2, err := microts.Open(dbCfg)
+	db2, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db2: %w", err)
 	}
@@ -374,12 +374,12 @@ func Test4_WALCleanup() error {
 
 	// 小 MemTable，频繁触发刷盘
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       10 * 1024, // 10KB，频繁触发刷盘
-			FlushPointCount:    10,
-			FlushIdleNanos: int64(time.Second),
+			FlushMemorySize: 10 * 1024, // 10KB，频繁触发刷盘
+			FlushPointCount: 10,
+			FlushIdleNanos:  int64(time.Second),
 		},
 	}
 
@@ -387,7 +387,7 @@ func Test4_WALCleanup() error {
 	measurement := "cpu"
 
 	fmt.Printf("Step 1: 写入数据触发多次刷盘\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -440,12 +440,12 @@ func Test5_WALMultipleShards() error {
 
 	// 短 Shard 时间窗口，便于产生多个 Shard
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(200 * time.Millisecond),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024 * 1024,
-			FlushPointCount:    3000,
-			FlushIdleNanos: int64(time.Hour),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 3000,
+			FlushIdleNanos:  int64(time.Hour),
 		},
 	}
 
@@ -453,7 +453,7 @@ func Test5_WALMultipleShards() error {
 	measurement := "cpu"
 
 	fmt.Printf("Step 1: 写入跨越多个 Shard 的数据\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -519,12 +519,12 @@ func Test6_WALRestartRecovery() error {
 	// MemTable 配置：刷盘间隔 5 秒，最大 100 条
 	// 写入 100 条刚好触发边界条件（MaxCount=100），测试触发刷盘后的恢复行为。
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024 * 1024,
-			FlushPointCount:    100,                    // 边界：刚好等于写入数量，触发刷盘
-			FlushIdleNanos: int64(5 * time.Second), // 5 秒空闲触发刷盘
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 100,                    // 边界：刚好等于写入数量，触发刷盘
+			FlushIdleNanos:  int64(5 * time.Second), // 5 秒空闲触发刷盘
 		},
 	}
 
@@ -533,7 +533,7 @@ func Test6_WALRestartRecovery() error {
 
 	// ============ 第一次会话 ============
 	fmt.Printf("Step 1: 第一次会话 - 打开数据库\n")
-	db1, err := microts.Open(dbCfg)
+	db1, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db1: %w", err)
 	}
@@ -553,7 +553,7 @@ func Test6_WALRestartRecovery() error {
 
 	// ============ 第二次会话 ============
 	fmt.Printf("Step 4: 第二次会话 - 重新打开数据库（相同配置）\n")
-	db2, err := microts.Open(dbCfg)
+	db2, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db2: %w", err)
 	}

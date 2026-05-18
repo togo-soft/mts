@@ -126,20 +126,20 @@ func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.
 	return rows, nil
 }
 
-func defaultDBConfig(tmpDir string) microts.Config {
-	return microts.Config{
-		DataDir:       tmpDir,
+func defaultDBConfig(tmpDir string) *microts.Config {
+	return &microts.Config{
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024,
-			FlushPointCount:    2000,
-			FlushIdleNanos: int64(200 * time.Millisecond),
+			FlushMemorySize: 64 * 1024,
+			FlushPointCount: 2000,
+			FlushIdleNanos:  int64(200 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
-			MaxSstableCount: defaultMaxSSTable,
+			MaxSstableCount:    defaultMaxSSTable,
 			CheckIntervalNanos: int64(time.Hour),
 			TimeoutNanos:       int64(defaultTimeout),
-			ShardSizeLimit:  1 * 1024 * 1024 * 1024,
+			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
 		},
 	}
 }

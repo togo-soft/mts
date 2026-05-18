@@ -19,16 +19,16 @@ func main() {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024 * 1024,
-			FlushPointCount:    50000,
-			FlushIdleNanos: int64(10 * time.Second),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 50000,
+			FlushIdleNanos:  int64(10 * time.Second),
 		},
 	}
 
-	db, err := microts.Open(cfg)
+	db, err := microts.Open(&cfg)
 	if err != nil {
 		fmt.Printf("Open failed: %v\n", err)
 		os.Exit(1)

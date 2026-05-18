@@ -95,20 +95,20 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 	}
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(cfg.ShardDuration),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize: cfg.FlushMemorySize,
 			FlushPointCount: cfg.FlushPointCount,
 			FlushIdleNanos:  cfg.FlushIdleNanos,
 		},
-		CompactionCfg:            compCfg,
-		CompressionAlgorithm:     compressionAlgo,
-		RetentionPeriodNanos:    int64(cfg.RetentionPeriod),
+		CompactionCfg:               compCfg,
+		CompressionAlgorithm:        compressionAlgo,
+		RetentionPeriodNanos:        int64(cfg.RetentionPeriod),
 		RetentionCheckIntervalNanos: int64(cfg.RetentionCheckInterval),
 	}
 
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		return nil, fmt.Errorf("open db failed: %w", err)
 	}

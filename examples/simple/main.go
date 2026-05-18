@@ -44,7 +44,7 @@ func main() {
 		},
 	}
 
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		log.Fatalf("打开数据库失败: %v", err)
 	}

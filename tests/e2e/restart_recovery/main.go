@@ -44,12 +44,12 @@ func main() {
 	measurement := "cpu"
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:           64 * 1024 * 1024,
-			FlushPointCount:          pointsPerCycle, // 边界：等于写入数量，每次都会触发刷盘
-			FlushIdleNanos: int64(5 * time.Second),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: pointsPerCycle, // 边界：等于写入数量，每次都会触发刷盘
+			FlushIdleNanos:  int64(5 * time.Second),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -65,7 +65,7 @@ func main() {
 	for cycle := 1; cycle <= cycles; cycle++ {
 		fmt.Printf("第 %d 次: 打开 → 写入 %d 条 → 关闭\n", cycle, pointsPerCycle)
 
-		db, err := microts.Open(dbCfg)
+		db, err := microts.Open(&dbCfg)
 		if err != nil {
 			fmt.Printf("FATAL: 第 %d 次打开失败: %v\n", cycle, err)
 			os.Exit(1)
@@ -105,7 +105,7 @@ func main() {
 	}
 
 	fmt.Printf("\n验证: 第 %d 次打开 → 仅查询\n", cycles+1)
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		fmt.Printf("FATAL: 验证打开失败: %v\n", err)
 		os.Exit(1)

@@ -119,12 +119,12 @@ func Test1_WALCompressionVerify() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:           64 * 1024 * 1024,
-			FlushPointCount:          100000,
-			FlushIdleNanos: int64(time.Hour),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 100000,
+			FlushIdleNanos:  int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -139,7 +139,7 @@ func Test1_WALCompressionVerify() error {
 	measurement := "metrics"
 
 	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -194,12 +194,12 @@ func Test2_WALCompressionReplay() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:           64 * 1024 * 1024,
-			FlushPointCount:          100000,
-			FlushIdleNanos: int64(time.Hour),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 100000,
+			FlushIdleNanos:  int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -214,7 +214,7 @@ func Test2_WALCompressionReplay() error {
 	measurement := "metrics"
 
 	fmt.Printf("Step 1: 第一次会话 - 写入数据\n")
-	db1, err := microts.Open(dbCfg)
+	db1, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db1: %w", err)
 	}
@@ -238,7 +238,7 @@ func Test2_WALCompressionReplay() error {
 	fmt.Printf("      WAL 大小: %.2f KB\n", float64(walSize1)/1024)
 
 	fmt.Printf("Step 3: 第二次会话 - 重新打开数据库，验证回放\n")
-	db2, err := microts.Open(dbCfg)
+	db2, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db2: %w", err)
 	}
@@ -298,12 +298,12 @@ func Test3_WALCompressionRate() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:           256 * 1024 * 1024,
-			FlushPointCount:          1000000,
-			FlushIdleNanos: int64(time.Hour),
+			FlushMemorySize: 256 * 1024 * 1024,
+			FlushPointCount: 1000000,
+			FlushIdleNanos:  int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -318,7 +318,7 @@ func Test3_WALCompressionRate() error {
 	measurement := "metrics"
 
 	fmt.Printf("Step 1: 打开数据库\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -368,12 +368,12 @@ func Test4_WALCompressionSmallData() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:           64 * 1024 * 1024,
-			FlushPointCount:          1000,
-			FlushIdleNanos: int64(time.Hour),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 1000,
+			FlushIdleNanos:  int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -388,7 +388,7 @@ func Test4_WALCompressionSmallData() error {
 	measurement := "small_data"
 
 	fmt.Printf("Step 1: 写入小数据量\n")
-	db, err := microts.Open(dbCfg)
+	db, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
@@ -420,7 +420,7 @@ func Test4_WALCompressionSmallData() error {
 	}
 
 	fmt.Printf("Step 2: 重新打开数据库\n")
-	db2, err := microts.Open(dbCfg)
+	db2, err := microts.Open(&dbCfg)
 	if err != nil {
 		return fmt.Errorf("open db2: %w", err)
 	}

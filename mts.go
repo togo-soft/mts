@@ -199,7 +199,7 @@ type DB struct {
 //
 // 使用示例：
 //
-//	db, err := microts.Open(microts.Config{
+//	db, err := microts.Open(&microts.Config{
 //	    DataDir:       "/var/lib/microts",
 //	    ShardDuration: 7 * 24 * time.Hour,
 //	})
@@ -209,7 +209,7 @@ type DB struct {
 //	defer db.Close()
 //
 // 注意：必须调用 Close 释放资源。
-func Open(cfg Config) (*DB, error) {
+func Open(cfg *Config) (*DB, error) {
 	// 默认ShardDuration为7天
 	shardDuration := time.Duration(cfg.ShardDurationNanos)
 	if shardDuration == 0 {

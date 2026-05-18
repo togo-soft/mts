@@ -34,12 +34,12 @@ func runTest(dataDir string, compression sstable.CompressionAlgorithm, label str
 	_ = os.RemoveAll(dataDir)
 
 	cfg := microts.Config{
-		DataDir:       dataDir,
+		DataDir:            dataDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:       64 * 1024 * 1024,
-			FlushPointCount:    50000,
-			FlushIdleNanos: int64(30 * time.Second),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 50000,
+			FlushIdleNanos:  int64(30 * time.Second),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -51,7 +51,7 @@ func runTest(dataDir string, compression sstable.CompressionAlgorithm, label str
 		CompressionAlgorithm: compression,
 	}
 
-	db, err := microts.Open(cfg)
+	db, err := microts.Open(&cfg)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("open db: %w", err)
 	}

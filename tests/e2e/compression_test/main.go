@@ -128,7 +128,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 	}
 
 	dbCfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize: 64 * 1024 * 1024,
@@ -145,7 +145,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 		CompressionAlgorithm: compressionAlgo,
 	}
 
-	db2, err := microts.Open(dbCfg)
+	db2, err := microts.Open(&dbCfg)
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
 		fmt.Printf("  FAIL (reopen): %v\n", err)

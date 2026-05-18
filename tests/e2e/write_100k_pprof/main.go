@@ -43,19 +43,19 @@ func main() {
 	}
 
 	cfg := microts.Config{
-		DataDir:       tmpDir,
+		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:           64 * 1024 * 1024,
-			FlushPointCount:          50000,
-			FlushIdleNanos: int64(10 * time.Second),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 50000,
+			FlushIdleNanos:  int64(10 * time.Second),
 		},
 	}
 
 	fmt.Printf("Temp dir: %s\n", tmpDir)
 	fmt.Printf("CPU profile: %s\n", cpuProfilePath)
 
-	db, err := microts.Open(cfg)
+	db, err := microts.Open(&cfg)
 	if err != nil {
 		fmt.Printf("Open failed: %v\n", err)
 		os.Exit(1)
@@ -71,10 +71,10 @@ func main() {
 
 	// 阶段计时
 	var (
-		totalStart    = time.Now()
-		walTimeTotal  time.Duration
-		sidTimeTotal  time.Duration
-		mtTimeTotal   time.Duration
+		totalStart       = time.Now()
+		walTimeTotal     time.Duration
+		sidTimeTotal     time.Duration
+		mtTimeTotal      time.Duration
 		backpressureWait time.Duration
 	)
 
