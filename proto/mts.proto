@@ -340,13 +340,17 @@ message CompactionConfig {
 // 引擎配置
 //
 // Config 是数据库的完整配置结构。
-// 这是存储引擎使用的配置，包含数据目录、分片时长和内存表配置。
+// 包含数据目录、分片时长、内存表配置、压缩算法和数据保留策略。
 //
 // 字段说明：
 //
 //   - data_dir: 数据存储目录路径
 //   - shard_duration_nanos: Shard 时间窗口（纳秒），最小 1 小时
 //   - mem_table_cfg: 内存表配置
+//   - compaction_cfg: Compaction 配置
+//   - compression_algorithm: 压缩算法
+//   - retention_period_nanos: 数据保留期（纳秒），0 表示不自动删除
+//   - retention_check_interval_nanos: retention 检查间隔（纳秒）
 //
 // ShardDuration 说明：
 //
@@ -363,6 +367,18 @@ message Config {
 
   // 内存表配置
   MemTableConfig mem_table_cfg = 3;
+
+  // Compaction 配置
+  CompactionConfig compaction_cfg = 4;
+
+  // 压缩算法
+  CompressionAlgorithm compression_algorithm = 5;
+
+  // 数据保留期（纳秒），0 表示不自动删除过期数据
+  int64 retention_period_nanos = 6;
+
+  // Retention 检查间隔（纳秒）
+  int64 retention_check_interval_nanos = 7;
 }
 
 // ===================================

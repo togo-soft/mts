@@ -134,7 +134,7 @@ func Test1_WALCreation() error {
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:       64 * 1024 * 1024,
 			FlushPointCount:    3000,
@@ -195,7 +195,7 @@ func Test2_WALPersistence() error {
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:       64 * 1024 * 1024,
 			FlushPointCount:    3000,
@@ -275,7 +275,7 @@ func Test3_WALReplay() error {
 	// 使用极大 MemTable，避免自动刷盘
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:       1024 * 1024 * 1024, // 1GB，不会自动刷盘
 			FlushPointCount:    10000000,
@@ -375,7 +375,7 @@ func Test4_WALCleanup() error {
 	// 小 MemTable，频繁触发刷盘
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:       10 * 1024, // 10KB，频繁触发刷盘
 			FlushPointCount:    10,
@@ -441,7 +441,7 @@ func Test5_WALMultipleShards() error {
 	// 短 Shard 时间窗口，便于产生多个 Shard
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: 200 * time.Millisecond,
+		ShardDurationNanos: int64(200 * time.Millisecond),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:       64 * 1024 * 1024,
 			FlushPointCount:    3000,
@@ -520,7 +520,7 @@ func Test6_WALRestartRecovery() error {
 	// 写入 100 条刚好触发边界条件（MaxCount=100），测试触发刷盘后的恢复行为。
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:       64 * 1024 * 1024,
 			FlushPointCount:    100,                    // 边界：刚好等于写入数量，触发刷盘

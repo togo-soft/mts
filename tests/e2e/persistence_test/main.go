@@ -22,7 +22,7 @@ func main() {
 	shardDuration := 500 * time.Millisecond
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: shardDuration,
+		ShardDurationNanos: int64(shardDuration),
 	}
 
 	tags := map[string]string{"host": "server1", "region": "us-east"}

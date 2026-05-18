@@ -45,7 +45,7 @@ func main() {
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:           64 * 1024 * 1024,
 			FlushPointCount:          pointsPerCycle, // 边界：等于写入数量，每次都会触发刷盘

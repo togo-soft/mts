@@ -36,7 +36,7 @@ func main() {
 	const maxCount int32 = 25
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:           64 * 1024 * 1024,
 			FlushPointCount:          maxCount,

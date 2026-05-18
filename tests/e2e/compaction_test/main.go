@@ -129,7 +129,7 @@ func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.
 func defaultDBConfig(tmpDir string) microts.Config {
 	return microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:       64 * 1024,
 			FlushPointCount:    2000,
@@ -508,7 +508,7 @@ func Test6_CrossShardCompaction() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.ShardDuration = 10 * time.Minute
+	cfg.ShardDurationNanos = int64(10 * time.Minute)
 	cfg.MemTableCfg.FlushPointCount = 1000
 
 	db, err := microts.Open(cfg)

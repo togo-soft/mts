@@ -135,15 +135,7 @@ const (
 // CompactionCfg 配置 compaction 行为，使用 nil 时将采用默认配置。
 // RetentionPeriod 配置数据保留期，0 表示不自动删除过期数据。
 // RetentionCheckInterval 配置 retention 检查间隔，默认 1 小时。
-type Config struct {
-	DataDir                string
-	ShardDuration          time.Duration
-	MemTableCfg            *types.MemTableConfig
-	CompactionCfg          *types.CompactionConfig
-	CompressionAlgorithm   types.CompressionAlgorithm
-	RetentionPeriod        time.Duration
-	RetentionCheckInterval time.Duration
-}
+type Config = types.Config
 
 // DefaultMemTableConfig 返回默认的 MemTable 配置。
 //
@@ -219,7 +211,7 @@ type DB struct {
 // 注意：必须调用 Close 释放资源。
 func Open(cfg Config) (*DB, error) {
 	// 默认ShardDuration为7天
-	shardDuration := cfg.ShardDuration
+	shardDuration := time.Duration(cfg.ShardDurationNanos)
 	if shardDuration == 0 {
 		shardDuration = 7 * 24 * time.Hour
 	}
@@ -248,8 +240,8 @@ func Open(cfg Config) (*DB, error) {
 		MemTableCfg:            memTableCfg,
 		CompactionCfg:          cfg.CompactionCfg,
 		CompressionAlgorithm:   cfg.CompressionAlgorithm,
-		RetentionPeriod:        cfg.RetentionPeriod,
-		RetentionCheckInterval: cfg.RetentionCheckInterval,
+		RetentionPeriod:        time.Duration(cfg.RetentionPeriodNanos),
+		RetentionCheckInterval: time.Duration(cfg.RetentionCheckIntervalNanos),
 	})
 	if err != nil {
 		return nil, err

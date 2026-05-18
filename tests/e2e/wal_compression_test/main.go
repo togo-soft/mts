@@ -120,7 +120,7 @@ func Test1_WALCompressionVerify() error {
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:           64 * 1024 * 1024,
 			FlushPointCount:          100000,
@@ -195,7 +195,7 @@ func Test2_WALCompressionReplay() error {
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:           64 * 1024 * 1024,
 			FlushPointCount:          100000,
@@ -299,7 +299,7 @@ func Test3_WALCompressionRate() error {
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:           256 * 1024 * 1024,
 			FlushPointCount:          1000000,
@@ -369,7 +369,7 @@ func Test4_WALCompressionSmallData() error {
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
-		ShardDuration: time.Hour,
+		ShardDurationNanos: int64(time.Hour),
 		MemTableCfg: &microts.MemTableConfig{
 			FlushMemorySize:           64 * 1024 * 1024,
 			FlushPointCount:          1000,
