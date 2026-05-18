@@ -462,17 +462,13 @@ func (lcm *LevelManager) ShouldCompactLevel(level int) bool {
 		return false
 	}
 
-	if level == 0 {
-		if len(l.Parts) >= lcm.config.LevelConfigs[0].MaxParts {
-			return true
-		}
-		if l.Size >= lcm.config.L0ToL1SizeThreshold {
-			return true
-		}
-	} else {
-		if l.Size >= lcm.LevelMaxSize(level) {
-			return true
-		}
+	// 统一触发条件：文件数达标 或 容量达标
+	spec := &lcm.config.LevelConfigs[level]
+	if spec.MaxParts > 0 && len(l.Parts) >= spec.MaxParts {
+		return true
+	}
+	if l.Size >= lcm.LevelMaxSize(level) {
+		return true
 	}
 
 	return false
