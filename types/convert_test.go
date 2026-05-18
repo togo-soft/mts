@@ -87,25 +87,25 @@ func TestDefaultMemTableConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
 	}
-	if cfg.MaxSize != 64*1024*1024 {
-		t.Errorf("expected MaxSize 64MB, got %d", cfg.MaxSize)
+	if cfg.FlushSize != 64*1024*1024 {
+		t.Errorf("expected FlushSize 64MB, got %d", cfg.FlushSize)
 	}
-	if cfg.MaxCount != 50000 {
-		t.Errorf("expected MaxCount 50000, got %d", cfg.MaxCount)
+	if cfg.FlushCount != 50000 {
+		t.Errorf("expected FlushCount 50000, got %d", cfg.FlushCount)
 	}
-	if cfg.IdleDurationNanos != int64(time.Minute) {
-		t.Errorf("expected IdleDuration 1min, got %d ns", cfg.IdleDurationNanos)
+	if cfg.FlushIdleNanos != int64(time.Minute) {
+		t.Errorf("expected FlushIdle 1min, got %d ns", cfg.FlushIdleNanos)
 	}
 }
 
-func TestMemTableConfig_GetSetIdleDuration(t *testing.T) {
+func TestMemTableConfig_GetSetFlushIdle(t *testing.T) {
 	cfg := &MemTableConfig{}
-	cfg.SetIdleDuration(5 * time.Minute)
-	if cfg.IdleDurationNanos != int64(5*time.Minute) {
-		t.Errorf("expected 5min in nanos, got %d", cfg.IdleDurationNanos)
+	cfg.SetFlushIdle(5 * time.Minute)
+	if cfg.FlushIdleNanos != int64(5*time.Minute) {
+		t.Errorf("expected 5min in nanos, got %d", cfg.FlushIdleNanos)
 	}
-	if cfg.GetIdleDuration() != 5*time.Minute {
-		t.Errorf("expected 5min, got %v", cfg.GetIdleDuration())
+	if cfg.GetFlushIdle() != 5*time.Minute {
+		t.Errorf("expected 5min, got %v", cfg.GetFlushIdle())
 	}
 }
 

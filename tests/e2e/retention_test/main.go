@@ -19,7 +19,7 @@ func main() {
 	checkInterval := 200 * time.Millisecond
 
 	h, err := framework.NewTestHarness("retention_test",
-		framework.WithIdleDuration(100*time.Millisecond),
+		framework.WithFlushIdle(100*time.Millisecond),
 		framework.WithRetentionPeriod(retentionPeriod),
 		framework.WithRetentionCheckInterval(checkInterval),
 		framework.WithShardDuration(shardDuration),

@@ -23,28 +23,28 @@ import "time"
 // MemTableConfig 辅助函数
 // ===================================
 
-// GetIdleDuration 返回 IdleDurationNanos 的 time.Duration 形式。
-func (c *MemTableConfig) GetIdleDuration() time.Duration {
-	return time.Duration(c.IdleDurationNanos)
+// GetFlushIdle 返回 FlushIdleNanos 的 time.Duration 形式。
+func (c *MemTableConfig) GetFlushIdle() time.Duration {
+	return time.Duration(c.FlushIdleNanos)
 }
 
-// SetIdleDuration 设置 IdleDurationNanos。
-func (c *MemTableConfig) SetIdleDuration(d time.Duration) {
-	c.IdleDurationNanos = int64(d)
+// SetFlushIdle 设置 FlushIdleNanos。
+func (c *MemTableConfig) SetFlushIdle(d time.Duration) {
+	c.FlushIdleNanos = int64(d)
 }
 
 // DefaultMemTableConfig 返回默认的 MemTableConfig。
 //
 // 默认配置：
 //
-//   - MaxSize: 64MB
-//   - MaxCount: 50000
-//   - IdleDuration: 1分钟
+//   - FlushSize: 64MB
+//   - FlushCount: 50000
+//   - FlushIdle: 1分钟
 func DefaultMemTableConfig() *MemTableConfig {
 	return &MemTableConfig{
-		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          50000,
-		IdleDurationNanos: int64(time.Minute),
+		FlushSize:      64 * 1024 * 1024,
+		FlushCount:     50000,
+		FlushIdleNanos: int64(time.Minute),
 	}
 }
 

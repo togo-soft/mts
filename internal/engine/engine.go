@@ -76,7 +76,7 @@ type Engine struct {
 // New 创建新的存储引擎实例。
 func New(cfg *Config) (*Engine, error) {
 	var memTableCfg *types.MemTableConfig
-	if cfg.MemTableCfg == nil || cfg.MemTableCfg.MaxSize == 0 {
+	if cfg.MemTableCfg == nil || cfg.MemTableCfg.FlushSize == 0 {
 		memTableCfg = memtable.DefaultMemTableConfig()
 	} else {
 		memTableCfg = cfg.MemTableCfg

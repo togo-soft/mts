@@ -257,30 +257,30 @@ message HealthResponse {
 //
 // 刷新条件（满足任一即触发）：
 //
-//   - max_size: 内存占用（估算）达到上限
-//   - max_count: 条目数达到上限
-//   - idle_duration_nanos: 超过空闲时间没有新数据写入（纳秒）
+//   - flush_size: 内存占用（估算）达到此值
+//   - flush_count: 条目数达到此值
+//   - flush_idle_nanos: 超过此空闲时间没有新数据写入（纳秒）
 //
 // 性能调优建议：
 //
-//	增加 max_size 可以减少刷盘频率，但会增加内存占用和恢复时间。
-//	减少 idle_duration 可以更快释放内存，但会增加小文件数量。
-//	max_count 主要作为后备保护。
+//	增加 flush_size 可以减少刷盘频率，但会增加内存占用和恢复时间。
+//	减少 flush_idle_nanos 可以更快释放内存，但会增加小文件数量。
+//	flush_count 主要作为后备保护。
 //
 // 默认值：
 //
-//   - max_size: 64MB
-//   - max_count: 10000
-//   - idle_duration_nanos: 60秒（60000000000纳秒）
+//   - flush_size: 64MB
+//   - flush_count: 50000
+//   - flush_idle_nanos: 60秒（60000000000纳秒）
 message MemTableConfig {
-  // 最大内存大小（字节），默认 64MB
-  int64 max_size = 1;
+  // 触发刷盘的内存大小阈值（字节），默认 64MB
+  int64 flush_size = 1;
 
-  // 最大条目数，默认 10000
-  int32 max_count = 2;
+  // 触发刷盘的条目数阈值，默认 50000
+  int32 flush_count = 2;
 
-  // 空闲时间阈值（纳秒），默认 60秒
-  int64 idle_duration_nanos = 3;
+  // 触发刷盘的空闲时间阈值（纳秒），默认 60秒
+  int64 flush_idle_nanos = 3;
 }
 
 // Compaction 配置

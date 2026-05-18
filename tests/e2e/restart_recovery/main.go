@@ -47,9 +47,9 @@ func main() {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          pointsPerCycle, // 边界：等于写入数量，每次都会触发刷盘
-			IdleDurationNanos: int64(5 * time.Second),
+			FlushSize:           64 * 1024 * 1024,
+			FlushCount:          pointsPerCycle, // 边界：等于写入数量，每次都会触发刷盘
+			FlushIdleNanos: int64(5 * time.Second),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,

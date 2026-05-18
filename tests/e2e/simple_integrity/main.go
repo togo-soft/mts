@@ -13,7 +13,7 @@ import (
 
 func main() {
 	fmt.Println("[DEBUG] 1. Creating harness...")
-	h, err := framework.NewTestHarness("simple_test", framework.WithIdleDuration(5*time.Second))
+	h, err := framework.NewTestHarness("simple_test", framework.WithFlushIdle(5*time.Second))
 	if err != nil {
 		fmt.Printf("Setup failed: %v\n", err)
 		return

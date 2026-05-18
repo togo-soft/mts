@@ -20,9 +20,9 @@ type Config struct {
 	DBName                  string
 	MeasurementName         string
 	ShardDuration           time.Duration
-	MaxSize                 int64
-	MaxCount                int32
-	IdleDurationNanos       int64
+	FlushSize                 int64
+	FlushCount                int32
+	FlushIdleNanos       int64
 	RetentionPeriod         time.Duration
 	RetentionCheckInterval  time.Duration
 	CompactionMaxParts      int // 0 使用默认值 4
@@ -36,9 +36,9 @@ func DefaultConfig(name string) *Config {
 		DBName:                  "db1",
 		MeasurementName:         "cpu",
 		ShardDuration:           time.Hour,
-		MaxSize:                 64 * 1024 * 1024,
-		MaxCount:                50000,
-		IdleDurationNanos:       int64(10 * time.Second),
+		FlushSize:                 64 * 1024 * 1024,
+		FlushCount:                50000,
+		FlushIdleNanos:       int64(10 * time.Second),
 		RetentionPeriod:         0,
 		RetentionCheckInterval:  time.Hour,
 		CompactionMaxParts:      4,
@@ -99,9 +99,9 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 		DataDir:       tmpDir,
 		ShardDuration: cfg.ShardDuration,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           cfg.MaxSize,
-			MaxCount:          cfg.MaxCount,
-			IdleDurationNanos: cfg.IdleDurationNanos,
+			FlushSize:           cfg.FlushSize,
+			FlushCount:          cfg.FlushCount,
+			FlushIdleNanos: cfg.FlushIdleNanos,
 		},
 		CompactionCfg:          compCfg,
 		CompressionAlgorithm:   compressionAlgo,
@@ -289,24 +289,24 @@ func WithConfig(cfg *Config) func(*Config) {
 	}
 }
 
-// WithIdleDuration 设置空闲刷盘时间
-func WithIdleDuration(d time.Duration) func(*Config) {
+// WithFlushIdle 设置空闲刷盘时间
+func WithFlushIdle(d time.Duration) func(*Config) {
 	return func(c *Config) {
-		c.IdleDurationNanos = int64(d)
+		c.FlushIdleNanos = int64(d)
 	}
 }
 
-// WithMaxSize 设置最大内存大小
-func WithMaxSize(size int64) func(*Config) {
+// WithFlushSize 设置内存刷盘阈值
+func WithFlushSize(size int64) func(*Config) {
 	return func(c *Config) {
-		c.MaxSize = size
+		c.FlushSize = size
 	}
 }
 
-// WithMaxCount 设置最大条目数
-func WithMaxCount(count int32) func(*Config) {
+// WithFlushCount 设置条目刷盘阈值
+func WithFlushCount(count int32) func(*Config) {
 	return func(c *Config) {
-		c.MaxCount = count
+		c.FlushCount = count
 	}
 }
 

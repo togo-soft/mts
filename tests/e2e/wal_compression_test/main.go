@@ -122,9 +122,9 @@ func Test1_WALCompressionVerify() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          100000,
-			IdleDurationNanos: int64(time.Hour),
+			FlushSize:           64 * 1024 * 1024,
+			FlushCount:          100000,
+			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -197,9 +197,9 @@ func Test2_WALCompressionReplay() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          100000,
-			IdleDurationNanos: int64(time.Hour),
+			FlushSize:           64 * 1024 * 1024,
+			FlushCount:          100000,
+			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -301,9 +301,9 @@ func Test3_WALCompressionRate() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           256 * 1024 * 1024,
-			MaxCount:          1000000,
-			IdleDurationNanos: int64(time.Hour),
+			FlushSize:           256 * 1024 * 1024,
+			FlushCount:          1000000,
+			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -371,9 +371,9 @@ func Test4_WALCompressionSmallData() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          1000,
-			IdleDurationNanos: int64(time.Hour),
+			FlushSize:           64 * 1024 * 1024,
+			FlushCount:          1000,
+			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,

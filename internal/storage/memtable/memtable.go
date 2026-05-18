@@ -16,9 +16,9 @@ type MemTableConfig = types.MemTableConfig
 // DefaultMemTableConfig 返回默认配置
 func DefaultMemTableConfig() *MemTableConfig {
 	return &MemTableConfig{
-		MaxSize:           64 * 1024 * 1024, // 64MB
-		MaxCount:          50000,
-		IdleDurationNanos: int64(time.Minute),
+		FlushSize:      64 * 1024 * 1024, // 64MB
+		FlushCount:     50000,
+		FlushIdleNanos: int64(time.Minute),
 	}
 }
 
@@ -43,9 +43,9 @@ type MemTable struct {
 func NewMemTable(cfg *MemTableConfig) *MemTable {
 	return &MemTable{
 		active:      make([]types.MemPoint, 0, 1024),
-		maxSize:     cfg.MaxSize,
-		maxCount:    int(cfg.MaxCount),
-		idleTimeout: time.Duration(cfg.IdleDurationNanos),
+		maxSize:     cfg.FlushSize,
+		maxCount:    int(cfg.FlushCount),
+		idleTimeout: time.Duration(cfg.FlushIdleNanos),
 		lastWrite:   time.Now(),
 	}
 }

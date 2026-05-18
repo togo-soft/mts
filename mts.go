@@ -102,9 +102,9 @@ type (
 	// 使用示例：
 	//
 	//	cfg := microts.MemTableConfig{
-	//	    MaxSize:      64 * 1024 * 1024, // 64MB
-	//	    MaxCount:     10000,
-	//	    IdleDuration: 5 * time.Minute,
+	//	    FlushSize:  64 * 1024 * 1024, // 64MB
+	//	    FlushCount: 10000,
+	//	    FlushIdle:  5 * time.Minute,
 	//	}
 	MemTableConfig = types.MemTableConfig
 
@@ -142,9 +142,9 @@ type Config struct {
 // DefaultMemTableConfig 返回默认的 MemTable 配置。
 //
 // 默认配置：
-//   - MaxSize: 64MB，内存表最大内存占用
-//   - MaxCount: 10000，最大条目数
-//   - IdleDuration: 1分钟，空闲时间阈值
+//   - FlushSize: 64MB，内存表最大内存占用
+//   - FlushCount: 10000，最大条目数
+//   - FlushIdle: 1分钟，空闲时间阈值
 //
 // 返回：
 //
@@ -158,9 +158,9 @@ type Config struct {
 //	}
 func DefaultMemTableConfig() *types.MemTableConfig {
 	return &types.MemTableConfig{
-		MaxSize:           64 * 1024 * 1024,
-		MaxCount:          10000,
-		IdleDurationNanos: int64(time.Minute),
+		FlushSize:      64 * 1024 * 1024,
+		FlushCount:     10000,
+		FlushIdleNanos: int64(time.Minute),
 	}
 }
 
@@ -220,7 +220,7 @@ func Open(cfg Config) (*DB, error) {
 
 	// 默认 MemTable 配置
 	memTableCfg := cfg.MemTableCfg
-	if memTableCfg == nil || memTableCfg.MaxSize == 0 {
+	if memTableCfg == nil || memTableCfg.FlushSize == 0 {
 		memTableCfg = DefaultMemTableConfig()
 	}
 

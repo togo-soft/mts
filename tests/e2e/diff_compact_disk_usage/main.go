@@ -37,9 +37,9 @@ func runTest(dataDir string, compression sstable.CompressionAlgorithm, label str
 		DataDir:       dataDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          50000,
-			IdleDurationNanos: int64(30 * time.Second),
+			FlushSize:       64 * 1024 * 1024,
+			FlushCount:    50000,
+			FlushIdleNanos: int64(30 * time.Second),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,

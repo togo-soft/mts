@@ -18,8 +18,8 @@ func main() {
 	maxCount := int32(count / 6)                        // 确保 6+ 次刷盘
 
 	h, err := framework.NewTestHarness("query_1k",
-		framework.WithMaxCount(maxCount),
-		framework.WithIdleDuration(1*time.Minute),
+		framework.WithFlushCount(maxCount),
+		framework.WithFlushIdle(1*time.Minute),
 		framework.WithCompaction(3, 3*time.Second), // MaxParts=3 更容易触发
 	)
 	if err != nil {

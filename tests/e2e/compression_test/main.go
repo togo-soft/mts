@@ -51,7 +51,7 @@ func main() {
 
 func testWriteQueryIntegrity(name string, opt func(*framework.Config)) bool {
 	var opts []func(*framework.Config)
-	opts = append(opts, framework.WithIdleDuration(5*time.Second))
+	opts = append(opts, framework.WithFlushIdle(5*time.Second))
 	if opt != nil {
 		opts = append(opts, opt)
 	}
@@ -86,7 +86,7 @@ func testWriteQueryIntegrity(name string, opt func(*framework.Config)) bool {
 
 func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 	var opts []func(*framework.Config)
-	opts = append(opts, framework.WithIdleDuration(time.Second))
+	opts = append(opts, framework.WithFlushIdle(time.Second))
 	if opt != nil {
 		opts = append(opts, opt)
 	}
@@ -131,9 +131,9 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			MaxSize:           64 * 1024 * 1024,
-			MaxCount:          3000,
-			IdleDurationNanos: int64(time.Second),
+			FlushSize:           64 * 1024 * 1024,
+			FlushCount:          3000,
+			FlushIdleNanos: int64(time.Second),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,
@@ -191,7 +191,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 
 func testMultipleFieldTypes(name string, opt func(*framework.Config)) bool {
 	var opts []func(*framework.Config)
-	opts = append(opts, framework.WithIdleDuration(5*time.Second))
+	opts = append(opts, framework.WithFlushIdle(5*time.Second))
 	if opt != nil {
 		opts = append(opts, opt)
 	}

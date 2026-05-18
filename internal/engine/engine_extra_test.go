@@ -557,9 +557,9 @@ func TestEngine_MemTableConfigCustom(t *testing.T) {
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
 		MemTableCfg: &types.MemTableConfig{
-			MaxSize:           1024 * 1024,
-			MaxCount:          1000,
-			IdleDurationNanos: int64(time.Minute),
+			FlushSize:      1024 * 1024,
+			FlushCount:     1000,
+			FlushIdleNanos: int64(time.Minute),
 		},
 	}
 	engine, err := New(cfg)
@@ -568,8 +568,8 @@ func TestEngine_MemTableConfigCustom(t *testing.T) {
 	}
 	defer func() { _ = engine.Close() }()
 
-	if engine.memTableCfg.MaxCount != 1000 {
-		t.Errorf("expected MaxCount=1000, got %d", engine.memTableCfg.MaxCount)
+	if engine.memTableCfg.FlushCount != 1000 {
+		t.Errorf("expected MaxCount=1000, got %d", engine.memTableCfg.FlushCount)
 	}
 }
 
@@ -855,8 +855,8 @@ func TestEngine_Write_BackpressureError(t *testing.T) {
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
 		MemTableCfg: &types.MemTableConfig{
-			MaxSize:  1,
-			MaxCount: 1,
+			FlushSize:  1,
+			FlushCount: 1,
 		},
 	}
 	engine, err := New(cfg)
@@ -909,8 +909,8 @@ func TestEngine_Write_WALError(t *testing.T) {
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
 		MemTableCfg: &types.MemTableConfig{
-			MaxSize:  1,
-			MaxCount: 1,
+			FlushSize:  1,
+			FlushCount: 1,
 		},
 	}
 	engine, err := New(cfg)
@@ -965,8 +965,8 @@ func TestEngine_WriteBatch_WriteError(t *testing.T) {
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
 		MemTableCfg: &types.MemTableConfig{
-			MaxSize:  1,
-			MaxCount: 1,
+			FlushSize:  1,
+			FlushCount: 1,
 		},
 	}
 	engine, err := New(cfg)
