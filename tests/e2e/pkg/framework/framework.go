@@ -20,9 +20,9 @@ type Config struct {
 	DBName                  string
 	MeasurementName         string
 	ShardDuration           time.Duration
-	FlushSize                 int64
-	FlushCount                int32
-	FlushIdleNanos       int64
+	FlushMemorySize         int64
+	FlushPointCount         int32
+	FlushIdleNanos          int64
 	RetentionPeriod         time.Duration
 	RetentionCheckInterval  time.Duration
 	CompactionMaxParts      int // 0 使用默认值 4
@@ -36,9 +36,9 @@ func DefaultConfig(name string) *Config {
 		DBName:                  "db1",
 		MeasurementName:         "cpu",
 		ShardDuration:           time.Hour,
-		FlushSize:                 64 * 1024 * 1024,
-		FlushCount:                50000,
-		FlushIdleNanos:       int64(10 * time.Second),
+		FlushMemorySize:         64 * 1024 * 1024,
+		FlushPointCount:         50000,
+		FlushIdleNanos:          int64(10 * time.Second),
 		RetentionPeriod:         0,
 		RetentionCheckInterval:  time.Hour,
 		CompactionMaxParts:      4,
@@ -99,9 +99,9 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 		DataDir:       tmpDir,
 		ShardDuration: cfg.ShardDuration,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           cfg.FlushSize,
-			FlushCount:          cfg.FlushCount,
-			FlushIdleNanos: cfg.FlushIdleNanos,
+			FlushMemorySize: cfg.FlushMemorySize,
+			FlushPointCount: cfg.FlushPointCount,
+			FlushIdleNanos:  cfg.FlushIdleNanos,
 		},
 		CompactionCfg:          compCfg,
 		CompressionAlgorithm:   compressionAlgo,
@@ -299,14 +299,14 @@ func WithFlushIdle(d time.Duration) func(*Config) {
 // WithFlushSize 设置内存刷盘阈值
 func WithFlushSize(size int64) func(*Config) {
 	return func(c *Config) {
-		c.FlushSize = size
+		c.FlushMemorySize = size
 	}
 }
 
 // WithFlushCount 设置条目刷盘阈值
 func WithFlushCount(count int32) func(*Config) {
 	return func(c *Config) {
-		c.FlushCount = count
+		c.FlushPointCount = count
 	}
 }
 

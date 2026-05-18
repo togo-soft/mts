@@ -122,8 +122,8 @@ func Test1_WALCompressionVerify() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           64 * 1024 * 1024,
-			FlushCount:          100000,
+			FlushMemorySize:           64 * 1024 * 1024,
+			FlushPointCount:          100000,
 			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
@@ -197,8 +197,8 @@ func Test2_WALCompressionReplay() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           64 * 1024 * 1024,
-			FlushCount:          100000,
+			FlushMemorySize:           64 * 1024 * 1024,
+			FlushPointCount:          100000,
 			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
@@ -301,8 +301,8 @@ func Test3_WALCompressionRate() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           256 * 1024 * 1024,
-			FlushCount:          1000000,
+			FlushMemorySize:           256 * 1024 * 1024,
+			FlushPointCount:          1000000,
 			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{
@@ -371,8 +371,8 @@ func Test4_WALCompressionSmallData() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           64 * 1024 * 1024,
-			FlushCount:          1000,
+			FlushMemorySize:           64 * 1024 * 1024,
+			FlushPointCount:          1000,
 			FlushIdleNanos: int64(time.Hour),
 		},
 		CompactionCfg: &microts.CompactionConfig{

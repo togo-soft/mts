@@ -68,7 +68,7 @@ func TestMemTable_SortKey(t *testing.T) {
 }
 
 func TestMemTable_ShouldFlush(t *testing.T) {
-	cfg := &MemTableConfig{FlushSize: 100, FlushCount: 0, FlushIdleNanos: 0}
+	cfg := &MemTableConfig{FlushMemorySize: 100, FlushPointCount: 0, FlushIdleNanos: 0}
 	m := NewMemTable(cfg)
 
 	p := &types.Point{
@@ -91,9 +91,9 @@ func TestMemTable_ShouldFlush(t *testing.T) {
 
 func TestMemTable_WriteOutOfOrder(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     1000,
-		FlushIdleNanos: int64(time.Minute),
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 1000,
+		FlushIdleNanos:  int64(time.Minute),
 	}
 
 	m := NewMemTable(cfg)
@@ -131,9 +131,9 @@ func TestMemTable_WriteOutOfOrder(t *testing.T) {
 
 func TestMemTable_ShouldFlush_IdleTimeout(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     1000,
-		FlushIdleNanos: int64(100 * time.Millisecond),
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 1000,
+		FlushIdleNanos:  int64(100 * time.Millisecond),
 	}
 
 	m := NewMemTable(cfg)
@@ -154,9 +154,9 @@ func TestMemTable_ShouldFlush_IdleTimeout(t *testing.T) {
 
 func TestMemTable_FlushMultipleTimes(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     1000,
-		FlushIdleNanos: int64(time.Minute),
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 1000,
+		FlushIdleNanos:  int64(time.Minute),
 	}
 
 	m := NewMemTable(cfg)
@@ -415,9 +415,9 @@ func TestMemTable_TrySetFlushing(t *testing.T) {
 
 func TestMemTable_ActiveFull(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     10,
-		FlushIdleNanos: 0,
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 10,
+		FlushIdleNanos:  0,
 	}
 	m := NewMemTable(cfg)
 
@@ -542,9 +542,9 @@ func TestMemTable_SwapDoubleSwapDataSafety(t *testing.T) {
 
 func TestMemTable_ShouldSwap_WhenFlushing(t *testing.T) {
 	m := NewMemTable(&MemTableConfig{
-		FlushSize:      100,
-		FlushCount:     5,
-		FlushIdleNanos: 0,
+		FlushMemorySize: 100,
+		FlushPointCount: 5,
+		FlushIdleNanos:  0,
 	})
 
 	// 写入超过阈值的数据
@@ -797,9 +797,9 @@ func TestMemTable_WriteUnsortedActive(t *testing.T) {
 
 func TestMemTable_NearFull(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     10,
-		FlushIdleNanos: 0,
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 10,
+		FlushIdleNanos:  0,
 	}
 	m := NewMemTable(cfg)
 
@@ -833,9 +833,9 @@ func TestMemTable_NearFull(t *testing.T) {
 
 func TestMemTable_NearFull_WhenFlushing(t *testing.T) {
 	m := NewMemTable(&MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     5,
-		FlushIdleNanos: 0,
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 5,
+		FlushIdleNanos:  0,
 	})
 
 	now := time.Now().UnixNano()
@@ -859,9 +859,9 @@ func TestMemTable_NearFull_WhenFlushing(t *testing.T) {
 
 func TestMemTable_IdleExceeded(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     1000,
-		FlushIdleNanos: int64(50 * time.Millisecond),
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 1000,
+		FlushIdleNanos:  int64(50 * time.Millisecond),
 	}
 	m := NewMemTable(cfg)
 
@@ -888,9 +888,9 @@ func TestMemTable_IdleExceeded(t *testing.T) {
 
 func TestMemTable_IdleExceeded_ZeroTimeout(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     1000,
-		FlushIdleNanos: 0,
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 1000,
+		FlushIdleNanos:  0,
 	}
 	m := NewMemTable(cfg)
 
@@ -908,9 +908,9 @@ func TestMemTable_IdleExceeded_ZeroTimeout(t *testing.T) {
 
 func TestMemTable_ShouldSwap_IdleTimeout_ZeroMaxCount(t *testing.T) {
 	cfg := &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     0, // disable count check
-		FlushIdleNanos: int64(50 * time.Millisecond),
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 0, // disable count check
+		FlushIdleNanos:  int64(50 * time.Millisecond),
 	}
 	m := NewMemTable(cfg)
 

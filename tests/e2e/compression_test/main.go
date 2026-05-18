@@ -131,8 +131,8 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           64 * 1024 * 1024,
-			FlushCount:          3000,
+			FlushMemorySize:           64 * 1024 * 1024,
+			FlushPointCount:          3000,
 			FlushIdleNanos: int64(time.Second),
 		},
 		CompactionCfg: &microts.CompactionConfig{

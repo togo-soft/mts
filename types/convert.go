@@ -37,14 +37,14 @@ func (c *MemTableConfig) SetFlushIdle(d time.Duration) {
 //
 // 默认配置：
 //
-//   - FlushSize: 64MB
-//   - FlushCount: 50000
+//   - FlushMemorySize: 64MB
+//   - FlushPointCount: 50000
 //   - FlushIdle: 1分钟
 func DefaultMemTableConfig() *MemTableConfig {
 	return &MemTableConfig{
-		FlushSize:      64 * 1024 * 1024,
-		FlushCount:     50000,
-		FlushIdleNanos: int64(time.Minute),
+		FlushMemorySize: 64 * 1024 * 1024,
+		FlushPointCount: 50000,
+		FlushIdleNanos:  int64(time.Minute),
 	}
 }
 

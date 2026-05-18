@@ -3,7 +3,7 @@
 // 本示例展示 microts 完整数据流：写入 → MemTable → flush → unordered → compaction → ordered SSTable。
 //
 // 配置:
-//   - FlushCount=25, FlushIdle=10s: 控制刷盘阈值
+//   - FlushPointCount=25, FlushIdle=10s: 控制刷盘阈值
 //   - 写入 70 条数据 (< ActiveFull=125)，手动触发刷盘
 //   - 刷盘后数据进入 unordered/（未排序 SSTable）
 //   - UnorderedCompactor 每 500ms 分拣排序到 stable Shard 的 L0 目录
@@ -38,8 +38,8 @@ func main() {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           64 * 1024 * 1024,
-			FlushCount:          maxCount,
+			FlushMemorySize:           64 * 1024 * 1024,
+			FlushPointCount:          maxCount,
 			FlushIdleNanos: int64(10 * time.Second),
 		},
 	}
@@ -54,7 +54,7 @@ func main() {
 	fmt.Println("║   MicroTS 完整数据流 Demo                     ║")
 	fmt.Println("╚══════════════════════════════════════════════╝")
 	fmt.Printf("\n数据目录: %s\n", tmpDir)
-	fmt.Printf("MemTable: FlushCount=%d, NearFull=%d, ActiveFull=%d\n",
+	fmt.Printf("MemTable: FlushPointCount=%d, NearFull=%d, ActiveFull=%d\n",
 		maxCount, 2*maxCount, 5*maxCount)
 
 	// ── Step 1: 写入数据 ──

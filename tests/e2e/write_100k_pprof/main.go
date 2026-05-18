@@ -46,8 +46,8 @@ func main() {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:           64 * 1024 * 1024,
-			FlushCount:          50000,
+			FlushMemorySize:           64 * 1024 * 1024,
+			FlushPointCount:          50000,
 			FlushIdleNanos: int64(10 * time.Second),
 		},
 	}

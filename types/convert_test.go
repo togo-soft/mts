@@ -87,11 +87,11 @@ func TestDefaultMemTableConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
 	}
-	if cfg.FlushSize != 64*1024*1024 {
-		t.Errorf("expected FlushSize 64MB, got %d", cfg.FlushSize)
+	if cfg.FlushMemorySize != 64*1024*1024 {
+		t.Errorf("expected FlushMemorySize 64MB, got %d", cfg.FlushMemorySize)
 	}
-	if cfg.FlushCount != 50000 {
-		t.Errorf("expected FlushCount 50000, got %d", cfg.FlushCount)
+	if cfg.FlushPointCount != 50000 {
+		t.Errorf("expected FlushPointCount 50000, got %d", cfg.FlushPointCount)
 	}
 	if cfg.FlushIdleNanos != int64(time.Minute) {
 		t.Errorf("expected FlushIdle 1min, got %d ns", cfg.FlushIdleNanos)

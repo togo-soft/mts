@@ -136,8 +136,8 @@ func Test1_WALCreation() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:       64 * 1024 * 1024,
-			FlushCount:    3000,
+			FlushMemorySize:       64 * 1024 * 1024,
+			FlushPointCount:    3000,
 			FlushIdleNanos: int64(time.Hour),
 		},
 	}
@@ -197,8 +197,8 @@ func Test2_WALPersistence() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:       64 * 1024 * 1024,
-			FlushCount:    3000,
+			FlushMemorySize:       64 * 1024 * 1024,
+			FlushPointCount:    3000,
 			FlushIdleNanos: int64(time.Hour),
 		},
 	}
@@ -277,8 +277,8 @@ func Test3_WALReplay() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:       1024 * 1024 * 1024, // 1GB，不会自动刷盘
-			FlushCount:    10000000,
+			FlushMemorySize:       1024 * 1024 * 1024, // 1GB，不会自动刷盘
+			FlushPointCount:    10000000,
 			FlushIdleNanos: int64(24 * time.Hour),
 		},
 	}
@@ -377,8 +377,8 @@ func Test4_WALCleanup() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:       10 * 1024, // 10KB，频繁触发刷盘
-			FlushCount:    10,
+			FlushMemorySize:       10 * 1024, // 10KB，频繁触发刷盘
+			FlushPointCount:    10,
 			FlushIdleNanos: int64(time.Second),
 		},
 	}
@@ -443,8 +443,8 @@ func Test5_WALMultipleShards() error {
 		DataDir:       tmpDir,
 		ShardDuration: 200 * time.Millisecond,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:       64 * 1024 * 1024,
-			FlushCount:    3000,
+			FlushMemorySize:       64 * 1024 * 1024,
+			FlushPointCount:    3000,
 			FlushIdleNanos: int64(time.Hour),
 		},
 	}
@@ -522,8 +522,8 @@ func Test6_WALRestartRecovery() error {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:       64 * 1024 * 1024,
-			FlushCount:    100,                    // 边界：刚好等于写入数量，触发刷盘
+			FlushMemorySize:       64 * 1024 * 1024,
+			FlushPointCount:    100,                    // 边界：刚好等于写入数量，触发刷盘
 			FlushIdleNanos: int64(5 * time.Second), // 5 秒空闲触发刷盘
 		},
 	}

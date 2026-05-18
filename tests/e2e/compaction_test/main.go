@@ -131,8 +131,8 @@ func defaultDBConfig(tmpDir string) microts.Config {
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushSize:       64 * 1024,
-			FlushCount:    2000,
+			FlushMemorySize:       64 * 1024,
+			FlushPointCount:    2000,
 			FlushIdleNanos: int64(200 * time.Millisecond),
 		},
 		CompactionCfg: &microts.CompactionConfig{
@@ -359,8 +359,8 @@ func Test4_ConcurrentWriteCompaction() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.MemTableCfg.FlushCount = 10000 // 更频繁 flush
-	cfg.MemTableCfg.FlushSize = 32 * 1024
+	cfg.MemTableCfg.FlushPointCount = 10000 // 更频繁 flush
+	cfg.MemTableCfg.FlushMemorySize = 32 * 1024
 	cfg.CompactionCfg.MaxSstableCount = 4
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 
@@ -509,7 +509,7 @@ func Test6_CrossShardCompaction() error {
 
 	cfg := defaultDBConfig(tmpDir)
 	cfg.ShardDuration = 10 * time.Minute
-	cfg.MemTableCfg.FlushCount = 1000
+	cfg.MemTableCfg.FlushPointCount = 1000
 
 	db, err := microts.Open(cfg)
 	if err != nil {
@@ -566,7 +566,7 @@ func Test7_PeriodicCompactionTrigger() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.MemTableCfg.FlushCount = 1000
+	cfg.MemTableCfg.FlushPointCount = 1000
 	cfg.CompactionCfg.CheckIntervalNanos = int64(2 * time.Second)
 
 	db, err := microts.Open(cfg)
@@ -633,8 +633,8 @@ func Test8_SSTableReductionEfficiency() error {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	cfg := defaultDBConfig(tmpDir)
-	cfg.MemTableCfg.FlushCount = 1200
-	cfg.MemTableCfg.FlushSize = 16 * 1024
+	cfg.MemTableCfg.FlushPointCount = 1200
+	cfg.MemTableCfg.FlushMemorySize = 16 * 1024
 	cfg.CompactionCfg.MaxSstableCount = 4
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 
