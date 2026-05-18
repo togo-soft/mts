@@ -9,7 +9,7 @@ import (
 )
 
 func TestDB_Open(t *testing.T) {
-	cfg := Config{
+	cfg := &Config{
 		DataDir: t.TempDir(),
 	}
 
@@ -27,7 +27,7 @@ func TestDB_Open(t *testing.T) {
 }
 
 func TestDB_Close(t *testing.T) {
-	cfg := Config{
+	cfg := &Config{
 		DataDir: t.TempDir(),
 	}
 
@@ -39,7 +39,7 @@ func TestDB_Close(t *testing.T) {
 }
 
 func TestDB_Write(t *testing.T) {
-	cfg := Config{
+	cfg := &Config{
 		DataDir: t.TempDir(),
 	}
 
@@ -66,7 +66,7 @@ func TestDB_Write(t *testing.T) {
 }
 
 func TestDB_WriteBatch(t *testing.T) {
-	cfg := Config{
+	cfg := &Config{
 		DataDir: t.TempDir(),
 	}
 
@@ -102,7 +102,7 @@ func TestDB_WriteBatch(t *testing.T) {
 }
 
 func TestDB_QueryRange(t *testing.T) {
-	cfg := Config{
+	cfg := &Config{
 		DataDir: t.TempDir(),
 	}
 
@@ -134,7 +134,7 @@ func TestDB_QueryRange(t *testing.T) {
 }
 
 func TestDB_ListMeasurements(t *testing.T) {
-	cfg := Config{
+	cfg := &Config{
 		DataDir: t.TempDir(),
 	}
 
