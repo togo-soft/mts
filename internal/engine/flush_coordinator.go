@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/unordered"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 const (
@@ -26,7 +26,7 @@ type FlushCoordinator struct {
 	flusher     Flusher
 	compactor   Compactor
 	dataDir     string
-	compression sstable.CompressionAlgorithm
+	compression types.CompressionAlgorithm
 	lastFlush   time.Time
 	mu          sync.Mutex
 	closed      bool
@@ -35,7 +35,7 @@ type FlushCoordinator struct {
 }
 
 // NewFlushCoordinator 创建新的 FlushCoordinator。
-func NewFlushCoordinator(mt *memtable.MemTable, w *wal.WAL, flusher Flusher, compactor Compactor, dataDir string, compression sstable.CompressionAlgorithm) *FlushCoordinator {
+func NewFlushCoordinator(mt *memtable.MemTable, w *wal.WAL, flusher Flusher, compactor Compactor, dataDir string, compression types.CompressionAlgorithm) *FlushCoordinator {
 	return &FlushCoordinator{
 		memTable:    mt,
 		wal:         w,

@@ -63,6 +63,16 @@ func (c *Config) SetShardDuration(d time.Duration) {
 }
 
 // ===================================
+// CompressionAlgorithm 便捷别名
+// ===================================
+
+const (
+	CompressionNone   = CompressionAlgorithm_NONE
+	CompressionSnappy = CompressionAlgorithm_SNAPPY
+	CompressionLZ4    = CompressionAlgorithm_LZ4
+)
+
+// ===================================
 // FieldValue 辅助函数
 // ===================================
 

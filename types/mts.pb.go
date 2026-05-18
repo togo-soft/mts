@@ -21,6 +21,68 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// 块压缩算法
+//
+// SSTable 块压缩算法，对编码后的数据块应用压缩以减少磁盘占用。
+//
+// 算法说明：
+//   - NONE:  无压缩，CRC32C 校验和直接追加
+//   - SNAPPY: Google Snappy 压缩，速度快、压缩比适中
+//   - LZ4:    LZ4 压缩，速度极快、压缩比略低于 Snappy
+//
+// 默认使用 NONE（无压缩）。压缩开启后每块独立压缩，查询时按需解压。
+type CompressionAlgorithm int32
+
+const (
+	// 无压缩（默认）
+	CompressionAlgorithm_NONE CompressionAlgorithm = 0
+	// Snappy 压缩
+	CompressionAlgorithm_SNAPPY CompressionAlgorithm = 1
+	// LZ4 压缩
+	CompressionAlgorithm_LZ4 CompressionAlgorithm = 2
+)
+
+// Enum value maps for CompressionAlgorithm.
+var (
+	CompressionAlgorithm_name = map[int32]string{
+		0: "NONE",
+		1: "SNAPPY",
+		2: "LZ4",
+	}
+	CompressionAlgorithm_value = map[string]int32{
+		"NONE":   0,
+		"SNAPPY": 1,
+		"LZ4":    2,
+	}
+)
+
+func (x CompressionAlgorithm) Enum() *CompressionAlgorithm {
+	p := new(CompressionAlgorithm)
+	*p = x
+	return p
+}
+
+func (x CompressionAlgorithm) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CompressionAlgorithm) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_mts_proto_enumTypes[0].Descriptor()
+}
+
+func (CompressionAlgorithm) Type() protoreflect.EnumType {
+	return &file_proto_mts_proto_enumTypes[0]
+}
+
+func (x CompressionAlgorithm) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CompressionAlgorithm.Descriptor instead.
+func (CompressionAlgorithm) EnumDescriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{0}
+}
+
 // 字段值
 //
 // Point 的字段值使用 oneof 支持多种数据类型。
@@ -1918,7 +1980,12 @@ const file_proto_mts_proto_rawDesc = "" +
 	"\x06Config\x12\x19\n" +
 	"\bdata_dir\x18\x01 \x01(\tR\adataDir\x120\n" +
 	"\x14shard_duration_nanos\x18\x02 \x01(\x03R\x12shardDurationNanos\x12>\n" +
-	"\rmem_table_cfg\x18\x03 \x01(\v2\x1a.microts.v1.MemTableConfigR\vmemTableCfg2\xb4\x06\n" +
+	"\rmem_table_cfg\x18\x03 \x01(\v2\x1a.microts.v1.MemTableConfigR\vmemTableCfg*5\n" +
+	"\x14CompressionAlgorithm\x12\b\n" +
+	"\x04NONE\x10\x00\x12\n" +
+	"\n" +
+	"\x06SNAPPY\x10\x01\x12\a\n" +
+	"\x03LZ4\x10\x022\xb4\x06\n" +
 	"\aMicroTS\x12<\n" +
 	"\x05Write\x12\x18.microts.v1.WriteRequest\x1a\x19.microts.v1.WriteResponse\x12K\n" +
 	"\n" +
@@ -1945,80 +2012,82 @@ func file_proto_mts_proto_rawDescGZIP() []byte {
 	return file_proto_mts_proto_rawDescData
 }
 
+var file_proto_mts_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_proto_mts_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_proto_mts_proto_goTypes = []any{
-	(*FieldValue)(nil),                // 0: microts.v1.FieldValue
-	(*FieldEntry)(nil),                // 1: microts.v1.FieldEntry
-	(*Point)(nil),                     // 2: microts.v1.Point
-	(*PointRow)(nil),                  // 3: microts.v1.PointRow
-	(*WriteRequest)(nil),              // 4: microts.v1.WriteRequest
-	(*WriteBatchRequest)(nil),         // 5: microts.v1.WriteBatchRequest
-	(*WriteResponse)(nil),             // 6: microts.v1.WriteResponse
-	(*WriteBatchResponse)(nil),        // 7: microts.v1.WriteBatchResponse
-	(*QueryRangeRequest)(nil),         // 8: microts.v1.QueryRangeRequest
-	(*QueryRangeResponse)(nil),        // 9: microts.v1.QueryRangeResponse
-	(*Row)(nil),                       // 10: microts.v1.Row
-	(*ListMeasurementsRequest)(nil),   // 11: microts.v1.ListMeasurementsRequest
-	(*ListMeasurementsResponse)(nil),  // 12: microts.v1.ListMeasurementsResponse
-	(*CreateMeasurementRequest)(nil),  // 13: microts.v1.CreateMeasurementRequest
-	(*CreateMeasurementResponse)(nil), // 14: microts.v1.CreateMeasurementResponse
-	(*DropMeasurementRequest)(nil),    // 15: microts.v1.DropMeasurementRequest
-	(*DropMeasurementResponse)(nil),   // 16: microts.v1.DropMeasurementResponse
-	(*ListDatabasesRequest)(nil),      // 17: microts.v1.ListDatabasesRequest
-	(*ListDatabasesResponse)(nil),     // 18: microts.v1.ListDatabasesResponse
-	(*CreateDatabaseRequest)(nil),     // 19: microts.v1.CreateDatabaseRequest
-	(*CreateDatabaseResponse)(nil),    // 20: microts.v1.CreateDatabaseResponse
-	(*DropDatabaseRequest)(nil),       // 21: microts.v1.DropDatabaseRequest
-	(*DropDatabaseResponse)(nil),      // 22: microts.v1.DropDatabaseResponse
-	(*HealthRequest)(nil),             // 23: microts.v1.HealthRequest
-	(*HealthResponse)(nil),            // 24: microts.v1.HealthResponse
-	(*MemTableConfig)(nil),            // 25: microts.v1.MemTableConfig
-	(*CompactionConfig)(nil),          // 26: microts.v1.CompactionConfig
-	(*Config)(nil),                    // 27: microts.v1.Config
-	nil,                               // 28: microts.v1.Point.TagsEntry
-	nil,                               // 29: microts.v1.Point.FieldsEntry
-	nil,                               // 30: microts.v1.PointRow.TagsEntry
-	nil,                               // 31: microts.v1.WriteRequest.TagsEntry
-	nil,                               // 32: microts.v1.WriteRequest.FieldsEntry
-	nil,                               // 33: microts.v1.QueryRangeRequest.TagsEntry
-	nil,                               // 34: microts.v1.Row.TagsEntry
+	(CompressionAlgorithm)(0),         // 0: microts.v1.CompressionAlgorithm
+	(*FieldValue)(nil),                // 1: microts.v1.FieldValue
+	(*FieldEntry)(nil),                // 2: microts.v1.FieldEntry
+	(*Point)(nil),                     // 3: microts.v1.Point
+	(*PointRow)(nil),                  // 4: microts.v1.PointRow
+	(*WriteRequest)(nil),              // 5: microts.v1.WriteRequest
+	(*WriteBatchRequest)(nil),         // 6: microts.v1.WriteBatchRequest
+	(*WriteResponse)(nil),             // 7: microts.v1.WriteResponse
+	(*WriteBatchResponse)(nil),        // 8: microts.v1.WriteBatchResponse
+	(*QueryRangeRequest)(nil),         // 9: microts.v1.QueryRangeRequest
+	(*QueryRangeResponse)(nil),        // 10: microts.v1.QueryRangeResponse
+	(*Row)(nil),                       // 11: microts.v1.Row
+	(*ListMeasurementsRequest)(nil),   // 12: microts.v1.ListMeasurementsRequest
+	(*ListMeasurementsResponse)(nil),  // 13: microts.v1.ListMeasurementsResponse
+	(*CreateMeasurementRequest)(nil),  // 14: microts.v1.CreateMeasurementRequest
+	(*CreateMeasurementResponse)(nil), // 15: microts.v1.CreateMeasurementResponse
+	(*DropMeasurementRequest)(nil),    // 16: microts.v1.DropMeasurementRequest
+	(*DropMeasurementResponse)(nil),   // 17: microts.v1.DropMeasurementResponse
+	(*ListDatabasesRequest)(nil),      // 18: microts.v1.ListDatabasesRequest
+	(*ListDatabasesResponse)(nil),     // 19: microts.v1.ListDatabasesResponse
+	(*CreateDatabaseRequest)(nil),     // 20: microts.v1.CreateDatabaseRequest
+	(*CreateDatabaseResponse)(nil),    // 21: microts.v1.CreateDatabaseResponse
+	(*DropDatabaseRequest)(nil),       // 22: microts.v1.DropDatabaseRequest
+	(*DropDatabaseResponse)(nil),      // 23: microts.v1.DropDatabaseResponse
+	(*HealthRequest)(nil),             // 24: microts.v1.HealthRequest
+	(*HealthResponse)(nil),            // 25: microts.v1.HealthResponse
+	(*MemTableConfig)(nil),            // 26: microts.v1.MemTableConfig
+	(*CompactionConfig)(nil),          // 27: microts.v1.CompactionConfig
+	(*Config)(nil),                    // 28: microts.v1.Config
+	nil,                               // 29: microts.v1.Point.TagsEntry
+	nil,                               // 30: microts.v1.Point.FieldsEntry
+	nil,                               // 31: microts.v1.PointRow.TagsEntry
+	nil,                               // 32: microts.v1.WriteRequest.TagsEntry
+	nil,                               // 33: microts.v1.WriteRequest.FieldsEntry
+	nil,                               // 34: microts.v1.QueryRangeRequest.TagsEntry
+	nil,                               // 35: microts.v1.Row.TagsEntry
 }
 var file_proto_mts_proto_depIdxs = []int32{
-	0,  // 0: microts.v1.FieldEntry.value:type_name -> microts.v1.FieldValue
-	28, // 1: microts.v1.Point.tags:type_name -> microts.v1.Point.TagsEntry
-	29, // 2: microts.v1.Point.fields:type_name -> microts.v1.Point.FieldsEntry
-	30, // 3: microts.v1.PointRow.tags:type_name -> microts.v1.PointRow.TagsEntry
-	1,  // 4: microts.v1.PointRow.fields:type_name -> microts.v1.FieldEntry
-	31, // 5: microts.v1.WriteRequest.tags:type_name -> microts.v1.WriteRequest.TagsEntry
-	32, // 6: microts.v1.WriteRequest.fields:type_name -> microts.v1.WriteRequest.FieldsEntry
-	4,  // 7: microts.v1.WriteBatchRequest.points:type_name -> microts.v1.WriteRequest
-	33, // 8: microts.v1.QueryRangeRequest.tags:type_name -> microts.v1.QueryRangeRequest.TagsEntry
-	10, // 9: microts.v1.QueryRangeResponse.rows:type_name -> microts.v1.Row
-	34, // 10: microts.v1.Row.tags:type_name -> microts.v1.Row.TagsEntry
-	1,  // 11: microts.v1.Row.fields:type_name -> microts.v1.FieldEntry
-	25, // 12: microts.v1.Config.mem_table_cfg:type_name -> microts.v1.MemTableConfig
-	0,  // 13: microts.v1.Point.FieldsEntry.value:type_name -> microts.v1.FieldValue
-	0,  // 14: microts.v1.WriteRequest.FieldsEntry.value:type_name -> microts.v1.FieldValue
-	4,  // 15: microts.v1.MicroTS.Write:input_type -> microts.v1.WriteRequest
-	5,  // 16: microts.v1.MicroTS.WriteBatch:input_type -> microts.v1.WriteBatchRequest
-	8,  // 17: microts.v1.MicroTS.QueryRange:input_type -> microts.v1.QueryRangeRequest
-	11, // 18: microts.v1.MicroTS.ListMeasurements:input_type -> microts.v1.ListMeasurementsRequest
-	13, // 19: microts.v1.MicroTS.CreateMeasurement:input_type -> microts.v1.CreateMeasurementRequest
-	15, // 20: microts.v1.MicroTS.DropMeasurement:input_type -> microts.v1.DropMeasurementRequest
-	17, // 21: microts.v1.MicroTS.ListDatabases:input_type -> microts.v1.ListDatabasesRequest
-	19, // 22: microts.v1.MicroTS.CreateDatabase:input_type -> microts.v1.CreateDatabaseRequest
-	21, // 23: microts.v1.MicroTS.DropDatabase:input_type -> microts.v1.DropDatabaseRequest
-	23, // 24: microts.v1.MicroTS.Health:input_type -> microts.v1.HealthRequest
-	6,  // 25: microts.v1.MicroTS.Write:output_type -> microts.v1.WriteResponse
-	7,  // 26: microts.v1.MicroTS.WriteBatch:output_type -> microts.v1.WriteBatchResponse
-	10, // 27: microts.v1.MicroTS.QueryRange:output_type -> microts.v1.Row
-	12, // 28: microts.v1.MicroTS.ListMeasurements:output_type -> microts.v1.ListMeasurementsResponse
-	14, // 29: microts.v1.MicroTS.CreateMeasurement:output_type -> microts.v1.CreateMeasurementResponse
-	16, // 30: microts.v1.MicroTS.DropMeasurement:output_type -> microts.v1.DropMeasurementResponse
-	18, // 31: microts.v1.MicroTS.ListDatabases:output_type -> microts.v1.ListDatabasesResponse
-	20, // 32: microts.v1.MicroTS.CreateDatabase:output_type -> microts.v1.CreateDatabaseResponse
-	22, // 33: microts.v1.MicroTS.DropDatabase:output_type -> microts.v1.DropDatabaseResponse
-	24, // 34: microts.v1.MicroTS.Health:output_type -> microts.v1.HealthResponse
+	1,  // 0: microts.v1.FieldEntry.value:type_name -> microts.v1.FieldValue
+	29, // 1: microts.v1.Point.tags:type_name -> microts.v1.Point.TagsEntry
+	30, // 2: microts.v1.Point.fields:type_name -> microts.v1.Point.FieldsEntry
+	31, // 3: microts.v1.PointRow.tags:type_name -> microts.v1.PointRow.TagsEntry
+	2,  // 4: microts.v1.PointRow.fields:type_name -> microts.v1.FieldEntry
+	32, // 5: microts.v1.WriteRequest.tags:type_name -> microts.v1.WriteRequest.TagsEntry
+	33, // 6: microts.v1.WriteRequest.fields:type_name -> microts.v1.WriteRequest.FieldsEntry
+	5,  // 7: microts.v1.WriteBatchRequest.points:type_name -> microts.v1.WriteRequest
+	34, // 8: microts.v1.QueryRangeRequest.tags:type_name -> microts.v1.QueryRangeRequest.TagsEntry
+	11, // 9: microts.v1.QueryRangeResponse.rows:type_name -> microts.v1.Row
+	35, // 10: microts.v1.Row.tags:type_name -> microts.v1.Row.TagsEntry
+	2,  // 11: microts.v1.Row.fields:type_name -> microts.v1.FieldEntry
+	26, // 12: microts.v1.Config.mem_table_cfg:type_name -> microts.v1.MemTableConfig
+	1,  // 13: microts.v1.Point.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	1,  // 14: microts.v1.WriteRequest.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	5,  // 15: microts.v1.MicroTS.Write:input_type -> microts.v1.WriteRequest
+	6,  // 16: microts.v1.MicroTS.WriteBatch:input_type -> microts.v1.WriteBatchRequest
+	9,  // 17: microts.v1.MicroTS.QueryRange:input_type -> microts.v1.QueryRangeRequest
+	12, // 18: microts.v1.MicroTS.ListMeasurements:input_type -> microts.v1.ListMeasurementsRequest
+	14, // 19: microts.v1.MicroTS.CreateMeasurement:input_type -> microts.v1.CreateMeasurementRequest
+	16, // 20: microts.v1.MicroTS.DropMeasurement:input_type -> microts.v1.DropMeasurementRequest
+	18, // 21: microts.v1.MicroTS.ListDatabases:input_type -> microts.v1.ListDatabasesRequest
+	20, // 22: microts.v1.MicroTS.CreateDatabase:input_type -> microts.v1.CreateDatabaseRequest
+	22, // 23: microts.v1.MicroTS.DropDatabase:input_type -> microts.v1.DropDatabaseRequest
+	24, // 24: microts.v1.MicroTS.Health:input_type -> microts.v1.HealthRequest
+	7,  // 25: microts.v1.MicroTS.Write:output_type -> microts.v1.WriteResponse
+	8,  // 26: microts.v1.MicroTS.WriteBatch:output_type -> microts.v1.WriteBatchResponse
+	11, // 27: microts.v1.MicroTS.QueryRange:output_type -> microts.v1.Row
+	13, // 28: microts.v1.MicroTS.ListMeasurements:output_type -> microts.v1.ListMeasurementsResponse
+	15, // 29: microts.v1.MicroTS.CreateMeasurement:output_type -> microts.v1.CreateMeasurementResponse
+	17, // 30: microts.v1.MicroTS.DropMeasurement:output_type -> microts.v1.DropMeasurementResponse
+	19, // 31: microts.v1.MicroTS.ListDatabases:output_type -> microts.v1.ListDatabasesResponse
+	21, // 32: microts.v1.MicroTS.CreateDatabase:output_type -> microts.v1.CreateDatabaseResponse
+	23, // 33: microts.v1.MicroTS.DropDatabase:output_type -> microts.v1.DropDatabaseResponse
+	25, // 34: microts.v1.MicroTS.Health:output_type -> microts.v1.HealthResponse
 	25, // [25:35] is the sub-list for method output_type
 	15, // [15:25] is the sub-list for method input_type
 	15, // [15:15] is the sub-list for extension type_name
@@ -2042,13 +2111,14 @@ func file_proto_mts_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_mts_proto_rawDesc), len(file_proto_mts_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_proto_mts_proto_goTypes,
 		DependencyIndexes: file_proto_mts_proto_depIdxs,
+		EnumInfos:         file_proto_mts_proto_enumTypes,
 		MessageInfos:      file_proto_mts_proto_msgTypes,
 	}.Build()
 	File_proto_mts_proto = out.File

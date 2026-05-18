@@ -38,7 +38,6 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/internal/query"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -121,6 +120,13 @@ type (
 	CompactionConfig = types.CompactionConfig
 )
 
+// 压缩算法常量
+const (
+	CompressionNone   = types.CompressionNone
+	CompressionSnappy = types.CompressionSnappy
+	CompressionLZ4    = types.CompressionLZ4
+)
+
 // Config 是数据库的配置选项。
 //
 // DataDir 指定数据存储目录，必须可写。
@@ -134,7 +140,7 @@ type Config struct {
 	ShardDuration          time.Duration
 	MemTableCfg            *types.MemTableConfig
 	CompactionCfg          *types.CompactionConfig
-	CompressionAlgorithm   sstable.CompressionAlgorithm
+	CompressionAlgorithm   types.CompressionAlgorithm
 	RetentionPeriod        time.Duration
 	RetentionCheckInterval time.Duration
 }

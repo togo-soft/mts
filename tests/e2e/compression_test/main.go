@@ -9,8 +9,8 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/framework"
+	"codeberg.org/micro-ts/mts/types"
 )
 
 const writeCount = 500
@@ -119,21 +119,21 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 	}
 
 	// 使用原始 API 重新打开（不经过 NewTestHarness 的 os.RemoveAll）
-	compressionAlgo := sstable.CompressionNone
+	compressionAlgo := types.CompressionNone
 	switch name {
 	case "snappy":
-		compressionAlgo = sstable.CompressionSnappy
+		compressionAlgo = types.CompressionSnappy
 	case "lz4":
-		compressionAlgo = sstable.CompressionLZ4
+		compressionAlgo = types.CompressionLZ4
 	}
 
 	dbCfg := microts.Config{
 		DataDir:       tmpDir,
 		ShardDuration: time.Hour,
 		MemTableCfg: &microts.MemTableConfig{
-			FlushMemorySize:           64 * 1024 * 1024,
-			FlushPointCount:          3000,
-			FlushIdleNanos: int64(time.Second),
+			FlushMemorySize: 64 * 1024 * 1024,
+			FlushPointCount: 3000,
+			FlushIdleNanos:  int64(time.Second),
 		},
 		CompactionCfg: &microts.CompactionConfig{
 			MaxSstableCount:    4,

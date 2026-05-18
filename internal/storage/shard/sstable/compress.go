@@ -7,33 +7,22 @@ import (
 
 	"github.com/golang/snappy"
 	lz4 "github.com/pierrec/lz4/v4"
+
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // crcTable 是 CRC32C (Castagnoli) 查找表，硬件加速友好。
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
-// CompressionAlgorithm 通用块压缩算法。
-type CompressionAlgorithm uint8
+// CompressionAlgorithm 通用块压缩算法（类型别名，定义在 proto 中）。
+type CompressionAlgorithm = types.CompressionAlgorithm
 
+// 便捷常量别名
 const (
-	CompressionNone   CompressionAlgorithm = 0 // 无压缩（默认）
-	CompressionSnappy CompressionAlgorithm = 1 // Snappy 压缩
-	CompressionLZ4    CompressionAlgorithm = 2 // LZ4 压缩
+	CompressionNone   = types.CompressionNone
+	CompressionSnappy = types.CompressionSnappy
+	CompressionLZ4    = types.CompressionLZ4
 )
-
-// String 返回算法名称。
-func (c CompressionAlgorithm) String() string {
-	switch c {
-	case CompressionNone:
-		return "none"
-	case CompressionSnappy:
-		return "snappy"
-	case CompressionLZ4:
-		return "lz4"
-	default:
-		return fmt.Sprintf("unknown(%d)", c)
-	}
-}
 
 // CompressBlock 压缩已编码的 block 数据并追加 CRC32C 校验和。
 //

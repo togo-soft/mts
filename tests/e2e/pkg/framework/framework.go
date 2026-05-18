@@ -10,7 +10,6 @@ import (
 	"time"
 
 	microts "codeberg.org/micro-ts/mts"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -83,14 +82,14 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 		}
 	}
 
-	var compressionAlgo sstable.CompressionAlgorithm
+	var compressionAlgo types.CompressionAlgorithm
 	switch cfg.CompressionAlgo {
 	case "snappy":
-		compressionAlgo = sstable.CompressionSnappy
+		compressionAlgo = types.CompressionSnappy
 	case "lz4":
-		compressionAlgo = sstable.CompressionLZ4
+		compressionAlgo = types.CompressionLZ4
 	case "", "none":
-		compressionAlgo = sstable.CompressionNone
+		compressionAlgo = types.CompressionNone
 	default:
 		return nil, fmt.Errorf("unknown compression algorithm: %s", cfg.CompressionAlgo)
 	}

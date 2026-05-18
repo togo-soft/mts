@@ -93,7 +93,7 @@ Point ──▶ engine.Write()
 ### 刷盘流程 (FlushCoordinator, 每 1s 检查)
 
 ```
-触发条件: MaxSize/MaxCount 达到 2x / IdleDuration 超时
+触发条件: FlushMemorySize/FlushPointCount 达到 2x / FlushIdle 超时
 
 active MemTable ──Swap──▶ passive ──▶ unordered.Write()
                                          │
@@ -258,9 +258,9 @@ config := microts.Config{
     ShardDuration: 24 * time.Hour,       // Shard 时间窗口 (默认 7d)
 
     MemTableCfg: &microts.MemTableConfig{
-        MaxSize:      64 * 1024 * 1024,   // 最大内存 (默认 64MB)
-        MaxCount:     50000,              // 最大条目数 (默认 10000)
-        IdleDuration: time.Minute,        // 空闲刷盘时间 (默认 1min)
+        FlushMemorySize: 64 * 1024 * 1024,   // 内存阈值 (默认 64MB)
+        FlushPointCount: 50000,              // 条目阈值 (默认 10000)
+        FlushIdleNanos: int64(time.Minute),  // 空闲刷盘时间 (默认 1min)
     },
 
     CompactionCfg: &microts.CompactionConfig{
@@ -275,7 +275,7 @@ config := microts.Config{
 
 ### 配置建议
 
-| 场景 | MaxSize | MaxCount | IdleDuration | ShardDuration |
+| 场景 | FlushMemorySize | FlushPointCount | FlushIdle | ShardDuration |
 |------|---------|----------|-------------|---------------|
 | 高频写入 (IoT) | 128MB | 100000 | 30s | 1h |
 | 中频写入 (监控) | 64MB | 50000 | 1min | 24h |

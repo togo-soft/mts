@@ -8,6 +8,25 @@ option go_package = "codeberg.org/micro-ts/mts/types;types";
 // 基础类型定义
 // ===================================
 
+// 块压缩算法
+//
+// SSTable 块压缩算法，对编码后的数据块应用压缩以减少磁盘占用。
+//
+// 算法说明：
+//   - NONE:  无压缩，CRC32C 校验和直接追加
+//   - SNAPPY: Google Snappy 压缩，速度快、压缩比适中
+//   - LZ4:    LZ4 压缩，速度极快、压缩比略低于 Snappy
+//
+// 默认使用 NONE（无压缩）。压缩开启后每块独立压缩，查询时按需解压。
+enum CompressionAlgorithm {
+  // 无压缩（默认）
+  NONE = 0;
+  // Snappy 压缩
+  SNAPPY = 1;
+  // LZ4 压缩
+  LZ4 = 2;
+}
+
 // 字段值
 //
 // Point 的字段值使用 oneof 支持多种数据类型。

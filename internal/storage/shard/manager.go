@@ -15,7 +15,6 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -24,7 +23,7 @@ type ShardManager struct {
 	dir             string
 	shardDuration   time.Duration
 	compactionCfg   *compaction.Config
-	compressionAlgo sstable.CompressionAlgorithm
+	compressionAlgo types.CompressionAlgorithm
 	catalog         metadata.Catalog
 	seriesStore     metadata.SeriesStore
 	shardIndex      metadata.ShardIndex
@@ -37,7 +36,7 @@ func NewShardManager(
 	dir string,
 	shardDuration time.Duration,
 	compactionCfg *compaction.Config,
-	compressionAlgo sstable.CompressionAlgorithm,
+	compressionAlgo types.CompressionAlgorithm,
 	catalog metadata.Catalog,
 	seriesStore metadata.SeriesStore,
 	shardIndex metadata.ShardIndex,

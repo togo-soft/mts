@@ -72,7 +72,7 @@ func TestWriteAndList(t *testing.T) {
 		Fields:      map[string]*types.FieldValue{"v": types.NewFieldValue(float64(1.0))},
 	}, 1)
 
-	paths, err := Write(dir, []types.MemPoint{mp}, sstable.CompressionNone)
+	paths, err := Write(dir, []types.MemPoint{mp}, types.CompressionNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestWrite_MultipleDB(t *testing.T) {
 		Fields:      map[string]*types.FieldValue{"x": types.NewFieldValue(int64(42))},
 	}, 2)
 
-	paths, err := Write(dir, []types.MemPoint{mp1, mp2}, sstable.CompressionNone)
+	paths, err := Write(dir, []types.MemPoint{mp1, mp2}, types.CompressionNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestRemove(t *testing.T) {
 		Fields:      map[string]*types.FieldValue{},
 	}, 1)
 
-	paths, err := Write(dir, []types.MemPoint{mp}, sstable.CompressionNone)
+	paths, err := Write(dir, []types.MemPoint{mp}, types.CompressionNone)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,8 +202,8 @@ func TestRecoverSeq(t *testing.T) {
 		Fields:      map[string]*types.FieldValue{},
 	}, 1)
 
-	_, _ = Write(dir, []types.MemPoint{mp}, sstable.CompressionNone)
-	_, _ = Write(dir, []types.MemPoint{mp}, sstable.CompressionNone)
+	_, _ = Write(dir, []types.MemPoint{mp}, types.CompressionNone)
+	_, _ = Write(dir, []types.MemPoint{mp}, types.CompressionNone)
 
 	globalSeq.Store(0)
 	if err := RecoverSeq(dir); err != nil {
@@ -221,11 +221,11 @@ func TestWrite_EmptyPoints(t *testing.T) {
 	}
 	globalSeq.Store(0)
 
-	_, err := Write(dir, nil, sstable.CompressionNone)
+	_, err := Write(dir, nil, types.CompressionNone)
 	if err == nil {
 		t.Error("expected error for nil points")
 	}
-	_, err = Write(dir, []types.MemPoint{}, sstable.CompressionNone)
+	_, err = Write(dir, []types.MemPoint{}, types.CompressionNone)
 	if err == nil {
 		t.Error("expected error for empty points")
 	}

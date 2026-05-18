@@ -10,7 +10,6 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -776,7 +775,7 @@ func TestEngine_FlushCoordinator_FlushAll_NoWriters(t *testing.T) {
 	t.Parallel()
 	// Test that FlushAll on empty MemTable returns nil
 	mt := memtable.NewMemTable(memtable.DefaultMemTableConfig())
-	fc := NewFlushCoordinator(mt, nil, nil, nil, t.TempDir(), sstable.CompressionNone)
+	fc := NewFlushCoordinator(mt, nil, nil, nil, t.TempDir(), types.CompressionNone)
 	if err := fc.FlushAll(); err != nil {
 		t.Errorf("FlushAll on empty MemTable should succeed: %v", err)
 	}

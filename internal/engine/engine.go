@@ -23,7 +23,6 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/internal/storage/unordered"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
@@ -45,7 +44,7 @@ type Config struct {
 	ShardDuration          time.Duration
 	MemTableCfg            *types.MemTableConfig
 	CompactionCfg          *compaction.Config
-	CompressionAlgorithm   sstable.CompressionAlgorithm
+	CompressionAlgorithm   types.CompressionAlgorithm
 	RetentionPeriod        time.Duration
 	RetentionCheckInterval time.Duration
 }

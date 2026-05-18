@@ -57,7 +57,7 @@ type ShardConfig struct {
 	SchemaStore          SchemaStore
 	CompactionCfg        *compaction.Config
 	LevelCompactionCfg   *compaction.LevelConfig
-	CompressionAlgorithm sstable.CompressionAlgorithm
+	CompressionAlgorithm types.CompressionAlgorithm
 	Logger               *slog.Logger
 }
 
@@ -96,7 +96,7 @@ type Shard struct {
 	sstRefs         *sstRefs
 	compaction      *compaction.Manager
 	levelCompaction *compaction.LevelManager
-	compressionAlgo sstable.CompressionAlgorithm
+	compressionAlgo types.CompressionAlgorithm
 }
 
 // NewShard 创建新的 Shard 实例。
@@ -396,7 +396,7 @@ func (s *Shard) Dir() string {
 }
 
 // CompressionAlgorithm 返回配置的 SSTable 块压缩算法。
-func (s *Shard) CompressionAlgorithm() sstable.CompressionAlgorithm {
+func (s *Shard) CompressionAlgorithm() types.CompressionAlgorithm {
 	return s.compressionAlgo
 }
 

@@ -10,10 +10,10 @@ func TestCompressionAlgorithm_String(t *testing.T) {
 		algo CompressionAlgorithm
 		want string
 	}{
-		{CompressionNone, "none"},
-		{CompressionSnappy, "snappy"},
-		{CompressionLZ4, "lz4"},
-		{CompressionAlgorithm(99), "unknown(99)"},
+		{CompressionNone, "NONE"},
+		{CompressionSnappy, "SNAPPY"},
+		{CompressionLZ4, "LZ4"},
+		{CompressionAlgorithm(99), "99"},
 	}
 
 	for _, tt := range tests {

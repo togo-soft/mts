@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
-	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -473,7 +472,7 @@ func newTestShardManager(t *testing.T, dir string, shardDur time.Duration) *Shar
 		dir,
 		shardDur,
 		nil, // compactionCfg
-		sstable.CompressionNone,
+		types.CompressionNone,
 		mgr.Catalog(),
 		mgr.Series(),
 		mgr.Shards(),

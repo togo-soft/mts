@@ -52,7 +52,7 @@ func FilePath(dataDir, db, meas string, seq uint64) string {
 // WriteAndPath 将 MemPoint 切片按 (db, measurement) 分组写入对应的
 // {dataDir}/unordered/{db}/{meas}/sst_{seq}.bin 文件。
 // 返回每个已写入文件的路径列表。
-func Write(dataDir string, points []types.MemPoint, compressionAlgo sstable.CompressionAlgorithm) ([]string, error) {
+func Write(dataDir string, points []types.MemPoint, compressionAlgo types.CompressionAlgorithm) ([]string, error) {
 	if len(points) == 0 {
 		return nil, fmt.Errorf("unordered write: empty points")
 	}
@@ -129,7 +129,6 @@ func Write(dataDir string, points []types.MemPoint, compressionAlgo sstable.Comp
 		}
 		// 清理空的 data 目录
 		_ = os.Remove(filepath.Join(parentDir, "data"))
-
 
 		// SSTable 写入成功，释放 FieldData 回池
 		for _, mp := range g.points {

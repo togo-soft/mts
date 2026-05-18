@@ -27,12 +27,12 @@ type UnorderedShardManager interface {
 type UnorderedCompactor struct {
 	dataDir     string
 	shardMgr    UnorderedShardManager
-	compression sstable.CompressionAlgorithm
+	compression types.CompressionAlgorithm
 	mu          sync.Mutex
 }
 
 // NewUnorderedCompactor 创建新的 UnorderedCompactor。
-func NewUnorderedCompactor(dataDir string, shardMgr UnorderedShardManager, compression sstable.CompressionAlgorithm) *UnorderedCompactor {
+func NewUnorderedCompactor(dataDir string, shardMgr UnorderedShardManager, compression types.CompressionAlgorithm) *UnorderedCompactor {
 	return &UnorderedCompactor{
 		dataDir:     dataDir,
 		shardMgr:    shardMgr,
