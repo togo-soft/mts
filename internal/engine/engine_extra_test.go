@@ -372,7 +372,7 @@ func TestScopedSeriesStore_AllocateSID(t *testing.T) {
 	}
 
 	// SeriesStore requires db/meas to exist first
-	if !engine.CreateDatabase("db1") {
+	if !engine.CreateDatabase("db1", 0) {
 		t.Fatal("CreateDatabase failed")
 	}
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
@@ -450,11 +450,11 @@ func TestEngine_CreateDatabase_AlreadyExists(t *testing.T) {
 	}
 	defer func() { _ = engine.Close() }()
 
-	first := engine.CreateDatabase("db1")
+	first := engine.CreateDatabase("db1", 0)
 	if !first {
 		t.Error("CreateDatabase should return true for first creation")
 	}
-	if engine.CreateDatabase("db1") {
+	if engine.CreateDatabase("db1", 0) {
 		t.Error("CreateDatabase should return false for existing database")
 	}
 }
@@ -471,7 +471,7 @@ func TestEngine_DropMeasurement_NotExist(t *testing.T) {
 	}
 	defer func() { _ = engine.Close() }()
 
-	engine.CreateDatabase("db1")
+	engine.CreateDatabase("db1", 0)
 
 	// DropMeasurement for non-existent measurement
 	found, err := engine.DropMeasurement("db1", "nonexistent")

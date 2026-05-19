@@ -566,11 +566,9 @@ func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
 //	if err := db.CreateDatabase(ctx, "new_metrics"); err != nil {
 //	    log.Fatal(err)
 //	}
-func (db *DB) CreateDatabase(ctx context.Context, database string) error {
-	_ = ctx // 保留参数以符合接口约定
-	// CreateDatabase 返回 false 表示已存在或底层存储失败，
-	// 因为引擎当前不区分这两种情况，所以统一返回 nil。
-	_ = db.engine.CreateDatabase(database)
+func (db *DB) CreateDatabase(ctx context.Context, database string, retention time.Duration) error {
+	_ = ctx
+	_ = db.engine.CreateDatabase(database, retention)
 	return nil
 }
 

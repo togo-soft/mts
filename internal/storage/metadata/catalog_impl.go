@@ -239,6 +239,32 @@ func (c *catalogStore) SetRetention(database, measurement string, d time.Duratio
 	})
 }
 
+func (c *catalogStore) GetDatabaseRetention(database string) (time.Duration, error) {
+	var d time.Duration
+	err := c.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		raw := dbBucket.Get([]byte("_retention"))
+		if raw != nil {
+			d = time.Duration(decodeUint64(raw))
+		}
+		return nil
+	})
+	return d, err
+}
+
+func (c *catalogStore) SetDatabaseRetention(database string, d time.Duration) error {
+	return c.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		return dbBucket.Put([]byte("_retention"), encodeUint64(uint64(d)))
+	})
+}
+
 func (c *catalogStore) GetSchema(database, measurement string) (*Schema, error) {
 	var s Schema
 	err := c.db.View(func(tx *bolt.Tx) error {

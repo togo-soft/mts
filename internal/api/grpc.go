@@ -36,6 +36,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -282,13 +283,13 @@ func (s *MicroTSService) ListDatabases(ctx context.Context, req *types.ListDatab
 //
 // 参数：
 //   - ctx: gRPC 上下文
-//   - req: 创建请求，包含数据库名称
+//   - req: 创建请求，包含数据库名称和可选的数据保留期
 //
 // 返回：
 //   - *types.CreateDatabaseResponse: 创建结果
 //   - error: 创建失败时返回 gRPC 错误
 func (s *MicroTSService) CreateDatabase(ctx context.Context, req *types.CreateDatabaseRequest) (*types.CreateDatabaseResponse, error) {
-	_ = s.engine.CreateDatabase(req.Database)
+	_ = s.engine.CreateDatabase(req.Database, time.Duration(req.RetentionPeriodNanos))
 	return &types.CreateDatabaseResponse{
 		Success: true,
 	}, nil

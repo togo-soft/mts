@@ -38,4 +38,7 @@ type Catalog interface {
 
 	GetRetention(database, measurement string) (time.Duration, error)
 	SetRetention(database, measurement string, d time.Duration) error
+
+	GetDatabaseRetention(database string) (time.Duration, error)
+	SetDatabaseRetention(database string, d time.Duration) error
 }

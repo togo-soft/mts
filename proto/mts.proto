@@ -237,6 +237,8 @@ message ListDatabasesResponse {
 // 创建数据库请求
 message CreateDatabaseRequest {
   string database = 1;
+  // 数据保留期（纳秒），0 表示不自动删除过期数据
+  int64 retention_period_nanos = 2;
 }
 
 // 创建数据库响应

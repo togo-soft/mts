@@ -744,6 +744,61 @@ func TestCatalogStore_DropMeasurement_CleansCache(t *testing.T) {
 	}
 }
 
+func TestCatalogStore_GetDatabaseRetention_Default(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("metrics")
+
+	d, err := cs.GetDatabaseRetention("metrics")
+	if err != nil {
+		t.Fatal("GetDatabaseRetention failed:", err)
+	}
+	if d != 0 {
+		t.Errorf("expected default 0 retention, got %v", d)
+	}
+}
+
+func TestCatalogStore_SetDatabaseRetention_Success(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_ = cs.CreateDatabase("metrics")
+
+	retention := 30 * 24 * time.Hour
+	if err := cs.SetDatabaseRetention("metrics", retention); err != nil {
+		t.Fatal("SetDatabaseRetention failed:", err)
+	}
+
+	d, err := cs.GetDatabaseRetention("metrics")
+	if err != nil {
+		t.Fatal("GetDatabaseRetention failed:", err)
+	}
+	if d != retention {
+		t.Errorf("expected %v, got %v", retention, d)
+	}
+}
+
+func TestCatalogStore_SetDatabaseRetention_NotFound(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	err := cs.SetDatabaseRetention("nonexistent", time.Hour)
+	if err == nil {
+		t.Error("expected error for nonexistent database")
+	}
+}
+
+func TestCatalogStore_GetDatabaseRetention_NotFound(t *testing.T) {
+	db, _ := openTestDB(t)
+	cs := newCatalogStore(db)
+
+	_, err := cs.GetDatabaseRetention("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent database")
+	}
+}
+
 func TestCatalogStore_CacheRebuild(t *testing.T) {
 	dir := t.TempDir()
 

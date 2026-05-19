@@ -6,12 +6,17 @@ import (
 	"time"
 )
 
+// DatabaseRetentionProvider 提供 database 级别的 retention 查询。
+type DatabaseRetentionProvider interface {
+	GetDatabaseRetention(database string) (time.Duration, error)
+}
+
 // RetentionService 负责定期清理过期的 Shard。
 //
 // 工作原理：
 //
 //	定期检查所有 Shard 的时间范围
-//	如果 Shard 的结束时间早于 (now - retentionPeriod)，则删除该 Shard
+//	如果 Shard 的结束时间早于 (now - database.retention)，则删除该 Shard
 //
 // 删除粒度：
 //
@@ -22,27 +27,30 @@ import (
 //
 //	Start/Stop 可以安全地在多个 goroutine 中调用
 type RetentionService struct {
-	manager       *ShardManager
-	retention     time.Duration
-	checkInterval time.Duration
-	done          chan struct{}
+	manager           *ShardManager
+	defaultRetention  time.Duration
+	checkInterval     time.Duration
+	retentionProvider DatabaseRetentionProvider
+	done              chan struct{}
 }
 
 // NewRetentionService 创建 RetentionService。
 //
 // 参数：
-//   - manager:       ShardManager 实例
-//   - retention:     数据保留期
-//   - checkInterval: 检查间隔
+//   - manager:           ShardManager 实例
+//   - defaultRetention:  默认数据保留期（当 database 未设置时使用）
+//   - checkInterval:     检查间隔
+//   - retentionProvider: database 级别 retention 查询接口
 //
 // 返回：
 //   - *RetentionService: 初始化后的服务
-func NewRetentionService(manager *ShardManager, retention, checkInterval time.Duration) *RetentionService {
+func NewRetentionService(manager *ShardManager, defaultRetention, checkInterval time.Duration, provider DatabaseRetentionProvider) *RetentionService {
 	return &RetentionService{
-		manager:       manager,
-		retention:     retention,
-		checkInterval: checkInterval,
-		done:          make(chan struct{}),
+		manager:           manager,
+		defaultRetention:  defaultRetention,
+		checkInterval:     checkInterval,
+		retentionProvider: provider,
+		done:              make(chan struct{}),
 	}
 }
 
@@ -74,7 +82,7 @@ func (s *RetentionService) run() {
 	defer ticker.Stop()
 
 	slog.Info("retention service started",
-		"retention", s.retention,
+		"defaultRetention", s.defaultRetention,
 		"checkInterval", s.checkInterval)
 
 	for {
@@ -90,16 +98,30 @@ func (s *RetentionService) run() {
 
 // cleanup 执行一次清理操作。
 func (s *RetentionService) cleanup() {
-	cutoff := time.Now().Add(-s.retention).UnixNano()
-
+	now := time.Now()
 	shards := s.manager.GetAllShards()
 
 	for _, shard := range shards {
-		// 如果 Shard 的结束时间早于 cutoff，则删除
+		dbName := shard.DB()
+		retention := s.defaultRetention
+
+		if s.retentionProvider != nil {
+			if dbRet, err := s.retentionProvider.GetDatabaseRetention(dbName); err == nil && dbRet > 0 {
+				retention = dbRet
+			}
+		}
+
+		if retention <= 0 {
+			continue
+		}
+
+		cutoff := now.Add(-retention).UnixNano()
 		if shard.EndTime() < cutoff {
-			key := shard.DB() + "/" + shard.Measurement() + "/" + formatInt64(shard.StartTime())
+			key := dbName + "/" + shard.Measurement() + "/" + formatInt64(shard.StartTime())
 			slog.Info("deleting expired shard",
 				"key", key,
+				"database", dbName,
+				"retention", retention,
 				"endTime", shard.EndTime(),
 				"cutoff", cutoff)
 

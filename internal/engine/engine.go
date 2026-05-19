@@ -154,7 +154,7 @@ func New(cfg *Config) (*Engine, error) {
 		if checkInterval <= 0 {
 			checkInterval = time.Hour
 		}
-		engine.retentionSvc = shard.NewRetentionService(engine.shardMgr, cfg.RetentionPeriod, checkInterval)
+		engine.retentionSvc = shard.NewRetentionService(engine.shardMgr, cfg.RetentionPeriod, checkInterval, engine.catalog)
 		engine.retentionSvc.Start()
 	}
 

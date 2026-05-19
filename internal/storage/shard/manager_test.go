@@ -180,7 +180,7 @@ func TestShardManager_GetAllShards_MultipleShards(t *testing.T) {
 
 func TestRetentionService_NewRetentionService(t *testing.T) {
 	m := newTestShardManager(t, t.TempDir(), time.Hour)
-	retention := NewRetentionService(m, time.Hour, time.Minute)
+	retention := NewRetentionService(m, time.Hour, time.Minute, nil)
 	if retention == nil {
 		t.Error("NewRetentionService should not return nil")
 	}
@@ -188,7 +188,7 @@ func TestRetentionService_NewRetentionService(t *testing.T) {
 
 func TestRetentionService_StartStop(t *testing.T) {
 	m := newTestShardManager(t, t.TempDir(), time.Hour)
-	retention := NewRetentionService(m, time.Hour, time.Minute)
+	retention := NewRetentionService(m, time.Hour, time.Minute, nil)
 
 	// Start
 	retention.Start()
@@ -206,7 +206,7 @@ func TestRetentionService_Cleanup(t *testing.T) {
 	oldTime := time.Now().Add(-2 * time.Second).UnixNano()
 	_, _ = m.GetShard("db1", "cpu", oldTime)
 
-	retention := NewRetentionService(m, time.Second, time.Hour)
+	retention := NewRetentionService(m, time.Second, time.Hour, nil)
 
 	// 执行清理
 	retention.cleanup()
@@ -225,7 +225,7 @@ func TestRetentionService_Cleanup_NoExpiredShards(t *testing.T) {
 	// 创建 shard
 	_, _ = m.GetShard("db1", "cpu", time.Now().UnixNano())
 
-	retention := NewRetentionService(m, time.Hour, time.Hour)
+	retention := NewRetentionService(m, time.Hour, time.Hour, nil)
 
 	// 执行清理 - 不应该有删除
 	retention.cleanup()
