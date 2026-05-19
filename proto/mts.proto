@@ -175,6 +175,8 @@ message QueryRangeRequest {
   map<string, string> tags = 6;
   int64 offset = 7;
   int64 limit = 8;
+  // 降采样查询窗口（纳秒），0 或不设置表示查询原始数据
+  int64 downsample_window_nanos = 9;
 }
 
 // 范围查询响应
@@ -234,11 +236,41 @@ message ListDatabasesResponse {
   repeated string databases = 1;
 }
 
+// 降采样规则
+//
+// 定义单层降采样规则的聚合窗口、函数和数据保留期。
+//
+// 字段说明：
+//   - window_nanos: 聚合窗口大小（纳秒），如 5m = 300_000_000_000
+//   - functions: 聚合函数名列表，支持 avg / max / min / sum / count / first / last
+//   - retention_nanos: 该层级降采样数据保留期（纳秒）
+message DownsampleRule {
+  int64 window_nanos = 1;
+  repeated string functions = 2;
+  int64 retention_nanos = 3;
+}
+
+// 降采样配置
+//
+// 控制数据库是否启用降采样以及降采样规则链。
+//
+// 字段说明：
+//   - enabled: 是否启用降采样
+//   - check_interval_nanos: 降采样服务扫描间隔（纳秒），默认 5 分钟
+//   - rules: 降采样规则链，按窗口从小到大排序
+message DownsampleConfig {
+  bool enabled = 1;
+  int64 check_interval_nanos = 2;
+  repeated DownsampleRule rules = 3;
+}
+
 // 创建数据库请求
 message CreateDatabaseRequest {
   string database = 1;
   // 数据保留期（纳秒），0 表示不自动删除过期数据
   int64 retention_period_nanos = 2;
+  // 降采样配置（可选）
+  DownsampleConfig downsample_config = 3;
 }
 
 // 创建数据库响应

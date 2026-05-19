@@ -513,8 +513,8 @@ func TestEngine_ListDatabases(t *testing.T) {
 	}()
 
 	// 创建 database
-	engine.CreateDatabase("db1", 0)
-	engine.CreateDatabase("db2", 0)
+	engine.CreateDatabase("db1", 0, nil)
+	engine.CreateDatabase("db2", 0, nil)
 
 	databases := engine.ListDatabases()
 	if len(databases) != 2 {
@@ -537,7 +537,7 @@ func TestEngine_ListMeasurements(t *testing.T) {
 	}()
 
 	// 创建 database 和 measurement
-	engine.CreateDatabase("db1", 0)
+	engine.CreateDatabase("db1", 0, nil)
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}
@@ -575,8 +575,8 @@ func TestEngine_CreateDatabase(t *testing.T) {
 	}()
 
 	// 创建已存在的 database
-	engine.CreateDatabase("db1", 0)
-	engine.CreateDatabase("db1", 0) // 再次创建
+	engine.CreateDatabase("db1", 0, nil)
+	engine.CreateDatabase("db1", 0, nil) // 再次创建
 
 	databases := engine.ListDatabases()
 	if len(databases) != 1 {
@@ -599,7 +599,7 @@ func TestEngine_DropDatabase(t *testing.T) {
 	}()
 
 	// 创建 database
-	engine.CreateDatabase("db1", 0)
+	engine.CreateDatabase("db1", 0, nil)
 
 	// 删除不存在的
 	if engine.DropDatabase("nonexistent") {
@@ -632,7 +632,7 @@ func TestEngine_CreateMeasurement(t *testing.T) {
 	}()
 
 	// 创建 measurement
-	engine.CreateDatabase("db1", 0)
+	engine.CreateDatabase("db1", 0, nil)
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}
@@ -661,7 +661,7 @@ func TestEngine_DropMeasurement(t *testing.T) {
 	}()
 
 	// 创建 measurement
-	engine.CreateDatabase("db1", 0)
+	engine.CreateDatabase("db1", 0, nil)
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}

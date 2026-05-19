@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
+	"codeberg.org/micro-ts/mts/internal/storage/downsample"
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/metadata"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
@@ -51,22 +52,23 @@ type Config struct {
 
 // Engine 是微时序数据库的存储引擎。
 type Engine struct {
-	cfg          *Config
-	dataDir      string
-	catalog      Catalog
-	seriesStore  SeriesStore
-	shardIndex   ShardIndex
-	flusher      Flusher
-	coordinator  *FlushCoordinator
-	memTable     *memtable.MemTable // 全局 MemTable
-	wal          *wal.WAL           // 全局 WAL
-	memTableCfg  *types.MemTableConfig
-	metaManager  *metadata.Manager
-	shardMgr     *shard.ShardManager
-	retentionSvc *shard.RetentionService
-	queryWg      sync.WaitGroup
-	closed       bool
-	shutdownMu   sync.Mutex
+	cfg           *Config
+	dataDir       string
+	catalog       Catalog
+	seriesStore   SeriesStore
+	shardIndex    ShardIndex
+	flusher       Flusher
+	coordinator   *FlushCoordinator
+	memTable      *memtable.MemTable // 全局 MemTable
+	wal           *wal.WAL           // 全局 WAL
+	memTableCfg   *types.MemTableConfig
+	metaManager   *metadata.Manager
+	shardMgr      *shard.ShardManager
+	retentionSvc  *shard.RetentionService
+	downsampleSvc *downsample.Service
+	queryWg       sync.WaitGroup
+	closed        bool
+	shutdownMu    sync.Mutex
 
 	// unordered → L0 compaction
 	compactionStopCh chan struct{}
@@ -158,6 +160,11 @@ func New(cfg *Config) (*Engine, error) {
 		engine.retentionSvc.Start()
 	}
 
+	// 启动降采样服务
+	dsAdapter := &downsampleCatalogAdapter{catalog: engine.catalog}
+	engine.downsampleSvc = downsample.NewService(cfg.DataDir, dsAdapter, cfg.CompressionAlgorithm)
+	engine.downsampleSvc.Start()
+
 	// 启动 unordered → stable/L0 compaction 定时任务（每 500ms）
 	engine.compactionStopCh = make(chan struct{})
 	go func() {
@@ -232,6 +239,11 @@ func (e *Engine) Close() error {
 		e.retentionSvc.Stop()
 	}
 
+	// 停止降采样服务
+	if e.downsampleSvc != nil {
+		e.downsampleSvc.Stop()
+	}
+
 	// 停止 unordered compaction
 	if e.compactionStopCh != nil {
 		close(e.compactionStopCh)
@@ -274,6 +286,13 @@ func (e *Engine) Flush() error {
 // DataDir 返回引擎的数据目录。
 func (e *Engine) DataDir() string {
 	return e.cfg.DataDir
+}
+
+// ForceDownsample 手动触发一次降采样处理。
+func (e *Engine) ForceDownsample() {
+	if e.downsampleSvc != nil {
+		e.downsampleSvc.ForceRun()
+	}
 }
 
 // SetConfig 运行时更新所有 Shard 的 Compaction 配置。

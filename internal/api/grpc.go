@@ -289,7 +289,7 @@ func (s *MicroTSService) ListDatabases(ctx context.Context, req *types.ListDatab
 //   - *types.CreateDatabaseResponse: 创建结果
 //   - error: 创建失败时返回 gRPC 错误
 func (s *MicroTSService) CreateDatabase(ctx context.Context, req *types.CreateDatabaseRequest) (*types.CreateDatabaseResponse, error) {
-	_ = s.engine.CreateDatabase(req.Database, time.Duration(req.RetentionPeriodNanos))
+	_ = s.engine.CreateDatabase(req.Database, time.Duration(req.RetentionPeriodNanos), req.DownsampleConfig)
 	return &types.CreateDatabaseResponse{
 		Success: true,
 	}, nil

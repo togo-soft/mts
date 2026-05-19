@@ -10,6 +10,8 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 	berrors "go.etcd.io/bbolt/errors"
+
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // ===================================
@@ -262,6 +264,42 @@ func (c *catalogStore) SetDatabaseRetention(database string, d time.Duration) er
 			return fmt.Errorf("database %q not found", database)
 		}
 		return dbBucket.Put([]byte("_retention"), encodeUint64(uint64(d)))
+	})
+}
+
+func (c *catalogStore) GetDownsampleConfig(database string) (*types.DownsampleConfig, error) {
+	var cfg types.DownsampleConfig
+	err := c.db.View(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		raw := dbBucket.Get([]byte("_downsample"))
+		if raw == nil {
+			return nil
+		}
+		return json.Unmarshal(raw, &cfg)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (c *catalogStore) SetDownsampleConfig(database string, cfg *types.DownsampleConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("downsample config is nil")
+	}
+	return c.db.Update(func(tx *bolt.Tx) error {
+		dbBucket := tx.Bucket([]byte(database))
+		if dbBucket == nil {
+			return fmt.Errorf("database %q not found", database)
+		}
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			return fmt.Errorf("marshal downsample config: %w", err)
+		}
+		return dbBucket.Put([]byte("_downsample"), data)
 	})
 }
 

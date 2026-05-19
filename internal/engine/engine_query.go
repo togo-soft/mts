@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"codeberg.org/micro-ts/mts/internal/query"
@@ -36,9 +37,14 @@ func (s *scopedSeriesStore) GetTags(database, measurement string, sid uint64) (m
 
 // Iterator 返回流式查询迭代器。
 // 合并全局 MemTable（未刷盘数据）、Shard SSTable（已刷盘数据）和 unordered 文件（未 compaction 数据）。
+// 当 req.DownsampleWindowNanos > 0 时，读取降采样数据而非原始数据。
 func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*query.Iterator, error) {
 	if e.isClosed() {
 		return nil, fmt.Errorf("engine is closed")
+	}
+
+	if req.DownsampleWindowNanos > 0 {
+		return e.downsampleIterator(ctx, req)
 	}
 
 	// 全局 MemTable 包含所有未刷盘数据
@@ -109,6 +115,119 @@ func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*q
 	unorderedData := e.collectUnorderedData(req)
 
 	return query.NewIteratorWithMemTable(ctx, shards, writerMT, scoped, req, unorderedData...), nil
+}
+
+// downsampleIterator 创建降采样查询迭代器。
+func (e *Engine) downsampleIterator(ctx context.Context, req *types.QueryRangeRequest) (*query.Iterator, error) {
+	downsampledData := e.collectDownsampledData(req)
+	if len(downsampledData) == 0 {
+		return nil, fmt.Errorf("no downsampled data found for %s/%s window=%d",
+			req.Database, req.Measurement, req.DownsampleWindowNanos)
+	}
+
+	scoped := &scopedSeriesStore{
+		inner: e.seriesStore,
+		db:    req.Database,
+		meas:  req.Measurement,
+	}
+
+	return query.NewIteratorWithMemTable(ctx, nil, nil, scoped, req, downsampledData...), nil
+}
+
+// collectDownsampledData 收集降采样数据。
+func (e *Engine) collectDownsampledData(req *types.QueryRangeRequest) [][]*types.PointRow {
+	windowNanos := req.DownsampleWindowNanos
+	if windowNanos <= 0 {
+		return nil
+	}
+
+	// 使用空 schema；降采样 SSTable 的解码依赖 section table 中的编码类型
+	emptySchema := sstable.Schema{Fields: make(map[string]sstable.FieldType)}
+
+	measDir := filepath.Join(e.dataDir, req.Database, req.Measurement)
+	entries, err := os.ReadDir(measDir)
+	if err != nil {
+		return nil
+	}
+
+	var result [][]*types.PointRow
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// 解析 shard 目录名 {start}_{end}
+		parts := strings.SplitN(entry.Name(), "_", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		shardStart, err1 := strconv.ParseInt(parts[0], 10, 64)
+		shardEnd, err2 := strconv.ParseInt(parts[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+
+		// 检查 shard 是否与查询时间范围重叠
+		if shardEnd <= req.StartTime || (req.EndTime > 0 && shardStart >= req.EndTime) {
+			continue
+		}
+
+		shardDir := filepath.Join(measDir, entry.Name())
+		windowDir := filepath.Join(shardDir, "downsampled", fmt.Sprintf("%d", windowNanos))
+
+		sstFiles, _ := listSSTFilesInDir(windowDir)
+		if len(sstFiles) == 0 {
+			continue
+		}
+
+		for _, f := range sstFiles {
+			reader, rErr := sstable.NewReader(f, emptySchema)
+			if rErr != nil {
+				continue
+			}
+
+			rows, rdErr := reader.ReadAll(nil)
+			_ = reader.Close()
+			if rdErr != nil {
+				continue
+			}
+
+			filtered := make([]*types.PointRow, 0, len(rows))
+			for _, row := range rows {
+				if row.Timestamp >= req.StartTime && (req.EndTime <= 0 || row.Timestamp < req.EndTime) {
+					filtered = append(filtered, row)
+				}
+			}
+
+			if len(filtered) == 0 {
+				continue
+			}
+
+			sort.Slice(filtered, func(i, j int) bool {
+				return filtered[i].Timestamp < filtered[j].Timestamp
+			})
+
+			result = append(result, filtered)
+		}
+	}
+
+	return result
+}
+
+// listSSTFilesInDir 列出目录中的 SSTable 文件。
+func listSSTFilesInDir(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), "sst_") && strings.HasSuffix(e.Name(), ".bin") {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 // IteratorWithMemTable 是包内使用的辅助函数（供测试等场景使用）。

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"codeberg.org/micro-ts/mts/types"
 )
 
 // ListDatabases 列出所有数据库名称。
@@ -23,7 +25,8 @@ func (e *Engine) ListMeasurements(database string) ([]string, bool) {
 // CreateDatabase 创建一个新的数据库。
 //
 // retention 为数据保留时间，为 0 时使用全局默认值或不启用过期清理。
-func (e *Engine) CreateDatabase(database string, retention time.Duration) bool {
+// downsample 为降采样配置，为 nil 时不启用降采样。
+func (e *Engine) CreateDatabase(database string, retention time.Duration, downsample *types.DownsampleConfig) bool {
 	if e.catalog.DatabaseExists(database) {
 		return false
 	}
@@ -34,6 +37,11 @@ func (e *Engine) CreateDatabase(database string, retention time.Duration) bool {
 	if retention > 0 {
 		if err := e.catalog.SetDatabaseRetention(database, retention); err != nil {
 			slog.Warn("failed to set database retention", "database", database, "error", err)
+		}
+	}
+	if downsample != nil && downsample.Enabled {
+		if err := e.catalog.SetDownsampleConfig(database, downsample); err != nil {
+			slog.Warn("failed to set downsample config", "database", database, "error", err)
 		}
 	}
 	return true

@@ -3,7 +3,11 @@
 // Manager 是聚合入口，统一管理 Catalog、SeriesStore 和 ShardIndex 三个子系统。
 package metadata
 
-import "time"
+import (
+	"time"
+
+	"codeberg.org/micro-ts/mts/types"
+)
 
 // Schema 定义 Measurement 的字段和标签结构。
 type Schema struct {
@@ -41,4 +45,7 @@ type Catalog interface {
 
 	GetDatabaseRetention(database string) (time.Duration, error)
 	SetDatabaseRetention(database string, d time.Duration) error
+
+	GetDownsampleConfig(database string) (*types.DownsampleConfig, error)
+	SetDownsampleConfig(database string, cfg *types.DownsampleConfig) error
 }

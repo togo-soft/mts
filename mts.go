@@ -566,9 +566,9 @@ func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
 //	if err := db.CreateDatabase(ctx, "new_metrics"); err != nil {
 //	    log.Fatal(err)
 //	}
-func (db *DB) CreateDatabase(ctx context.Context, database string, retention time.Duration) error {
+func (db *DB) CreateDatabase(ctx context.Context, database string, retention time.Duration, downsample *types.DownsampleConfig) error {
 	_ = ctx
-	_ = db.engine.CreateDatabase(database, retention)
+	_ = db.engine.CreateDatabase(database, retention, downsample)
 	return nil
 }
 
@@ -667,4 +667,9 @@ func (db *DB) CreateEmptyMeasurement(database, measurement string) error {
 //	用于确保所有内存数据持久化，或在关闭前确保数据安全。
 func (db *DB) FlushAll() error {
 	return db.engine.Flush()
+}
+
+// ForceDownsample 手动触发一次降采样处理（用于测试和运维）。
+func (db *DB) ForceDownsample() {
+	db.engine.ForceDownsample()
 }

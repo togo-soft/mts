@@ -46,6 +46,8 @@ type Catalog interface {
 	SetRetention(database, measurement string, d time.Duration) error
 	GetDatabaseRetention(database string) (time.Duration, error)
 	SetDatabaseRetention(database string, d time.Duration) error
+	GetDownsampleConfig(database string) (*types.DownsampleConfig, error)
+	SetDownsampleConfig(database string, cfg *types.DownsampleConfig) error
 }
 
 // SeriesStore 管理 Series ID 分配和标签索引。
