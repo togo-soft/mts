@@ -16,6 +16,7 @@ type Reader struct {
 	sectionTable    SectionTable
 	blockIndex      *BlockIndex
 	blockSectionMap *BlockSectionMap // 每个 section 内各 block 的字节偏移
+	zoneMapIndex    *ZoneMapIndex    // 块级统计，用于谓词下推跳过
 	Flags           uint16           // 文件头标志位 (FlagSorted=0 有序, FlagUnordered=1 无序)
 	schema          Schema
 }
@@ -84,6 +85,16 @@ func NewReader(filePath string, schema Schema) (*Reader, error) {
 		}
 	}
 
+	// 读取 zone map
+	var zoneMapIndex *ZoneMapIndex
+	zmOffset, zmSize := sectionTable.Lookup("_zone_map")
+	if zmSize > 0 {
+		zmData := make([]byte, zmSize)
+		if _, err := f.ReadAt(zmData, int64(zmOffset)); err == nil {
+			zoneMapIndex, _ = UnmarshalZoneMapIndex(zmData)
+		}
+	}
+
 	return &Reader{
 		file:            f,
 		header:          header,
@@ -91,6 +102,7 @@ func NewReader(filePath string, schema Schema) (*Reader, error) {
 		sectionTable:    sectionTable,
 		blockIndex:      blockIndex,
 		blockSectionMap: blockSectionMap,
+		zoneMapIndex:    zoneMapIndex,
 		schema:          schema,
 	}, nil
 }

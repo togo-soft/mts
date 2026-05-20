@@ -46,6 +46,18 @@ func (w *Writer) flushBlock() error {
 		w.fieldBufs[name] = w.fieldBufs[name][:0]
 	}
 
+	// 记录当前 block 的 ZoneMap
+	bzm := BlockZoneMap{FieldZMaps: make([]ZoneMapEntry, 0, len(w.zoneMapCurr))}
+	for name, acc := range w.zoneMapCurr {
+		if acc.initialized {
+			bzm.FieldZMaps = append(bzm.FieldZMaps, ZoneMapEntry{
+				FieldName: name, Min: acc.min, Max: acc.max,
+			})
+		}
+	}
+	w.zoneMapIndex.Blocks = append(w.zoneMapIndex.Blocks, bzm)
+	w.zoneMapCurr = make(map[string]*zoneAccumulator)
+
 	lastTs := int64(binary.BigEndian.Uint64(w.buf[w.bufPos-8:]))
 	w.blockIndex.Add(w.firstTs, lastTs, uint32(w.totalRows), uint32(w.rowCount))
 	w.totalRows += uint32(w.rowCount)
@@ -182,6 +194,14 @@ func (w *Writer) Close() error {
 	}
 	currentOffset += uint64(len(blockMapData))
 
+	// 5.5 写入 _zone_map section
+	zoneMapOffset := currentOffset
+	zoneMapData := w.zoneMapIndex.Marshal()
+	if _, err := outFile.Write(zoneMapData); err != nil {
+		return cleanupErr(err)
+	}
+	currentOffset += uint64(len(zoneMapData))
+
 	// 6. 构建 Section Table
 	sectionTable := SectionTable{
 		Entries: []SectionEntry{
@@ -189,6 +209,7 @@ func (w *Writer) Close() error {
 			{Type: SectionSids, Name: "_sids", Offset: sidsOffset, Size: sidsSize, Encoding: EncodingVarint, Compression: w.compressAlgo},
 			{Type: SectionIndex, Name: "_index", Offset: blockIndexOffset, Size: uint64(len(indexData)), Encoding: EncodingRaw, Compression: CompressionNone},
 			{Type: SectionIndex, Name: "_block_map", Offset: blockMapOffset, Size: uint64(len(blockMapData)), Encoding: EncodingRaw, Compression: CompressionNone},
+			{Type: SectionIndex, Name: "_zone_map", Offset: zoneMapOffset, Size: uint64(len(zoneMapData)), Encoding: EncodingRaw, Compression: CompressionNone},
 		},
 	}
 	for _, name := range fieldNames {
@@ -213,7 +234,7 @@ func (w *Writer) Close() error {
 		FieldCount:         uint16(len(fieldNames)),
 		BlockCount:         uint16(w.blockIndex.Len()),
 		BlockSize:          uint16(w.blockSize),
-		Flags:              w.flags,
+		Flags:              w.flags | FlagHasZoneMap,
 		TimestampsOffset:   timestampsOffset,
 		SidsOffset:         sidsOffset,
 		BlockIndexOffset:   blockIndexOffset,

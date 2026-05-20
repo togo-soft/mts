@@ -75,7 +75,7 @@ type MergeIterator struct {
 //   - schema:    解码所需的 Schema
 //   - refMgr:    引用计数管理器（Shard 实现），可为 nil
 //   - fields:    需要投影的字段（nil=全部字段）
-func NewMergeIterator(filePaths []string, startTime, endTime int64, schema Schema, refMgr SSTableRefManager, fields []string) (*MergeIterator, error) {
+func NewMergeIterator(filePaths []string, startTime, endTime int64, schema Schema, refMgr SSTableRefManager, fields []string, filterConds []FilterCondition) (*MergeIterator, error) {
 	mi := &MergeIterator{
 		heap:      make(mergeHeap, 0, len(filePaths)),
 		endTime:   endTime,
@@ -100,7 +100,7 @@ func NewMergeIterator(filePaths []string, startTime, endTime int64, schema Schem
 		mi.readers = append(mi.readers, r)
 		mi.openFiles = append(mi.openFiles, fp)
 
-		iter, err := r.NewIterator(fields)
+		iter, err := r.NewIterator(fields, filterConds)
 		if err != nil {
 			if refMgr != nil {
 				refMgr.ReleaseSSTRef(fp)

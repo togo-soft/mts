@@ -878,7 +878,7 @@ func TestShardIterator_ExtSeriesStore(t *testing.T) {
 	}
 
 	// Create iterator with nil shard and extSeriesStore
-	iter := NewShardIteratorWithMemTable(nil, mt, sst, 0, 10000000000, 0, nil)
+	iter := NewShardIteratorWithMemTable(nil, mt, sst, 0, 10000000000, 0, nil, nil)
 	defer iter.Close()
 
 	// Should iterate one row using extSeriesStore for tag resolution

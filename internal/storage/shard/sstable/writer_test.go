@@ -177,7 +177,7 @@ func TestWriter_DictEncodingRoundTrip(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestWriter_DictEncodingLargeDataset(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestWriter_DictEncodingFallback(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator: %v", err)
 	}

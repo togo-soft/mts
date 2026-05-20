@@ -43,7 +43,7 @@ func TestMergeIterator_SingleFile(t *testing.T) {
 	}
 	fp, schema := writeTestSSTable(t, dir, 0, points)
 
-	mi, err := NewMergeIterator([]string{fp}, 0, 0, schema, &nilRefManager{}, nil)
+	mi, err := NewMergeIterator([]string{fp}, 0, 0, schema, &nilRefManager{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewMergeIterator: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestMergeIterator_MultiFile(t *testing.T) {
 	fp1, schema1 := writeTestSSTable(t, dir, 0, points1)
 	fp2, _ := writeTestSSTable(t, dir, 1, points2)
 
-	mi, err := NewMergeIterator([]string{fp1, fp2}, 0, 0, schema1, &nilRefManager{}, nil)
+	mi, err := NewMergeIterator([]string{fp1, fp2}, 0, 0, schema1, &nilRefManager{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewMergeIterator: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestMergeIterator_EndTimeFilter(t *testing.T) {
 	fp, schema := writeTestSSTable(t, dir, 0, points)
 
 	// endTime=300 过滤：只返回 <300 的行
-	mi, err := NewMergeIterator([]string{fp}, 0, 300, schema, &nilRefManager{}, nil)
+	mi, err := NewMergeIterator([]string{fp}, 0, 300, schema, &nilRefManager{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewMergeIterator: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestMergeIterator_EndTimeFilter(t *testing.T) {
 }
 
 func TestMergeIterator_EmptyFiles(t *testing.T) {
-	mi, err := NewMergeIterator(nil, 0, 0, Schema{}, nil, nil)
+	mi, err := NewMergeIterator(nil, 0, 0, Schema{}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewMergeIterator: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestMergeIterator_EmptyFiles(t *testing.T) {
 }
 
 func TestMergeIterator_NonexistentFile(t *testing.T) {
-	mi, err := NewMergeIterator([]string{"/nonexistent/sst_0.bin"}, 0, 0, Schema{}, &nilRefManager{}, nil)
+	mi, err := NewMergeIterator([]string{"/nonexistent/sst_0.bin"}, 0, 0, Schema{}, &nilRefManager{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewMergeIterator should not error on missing file: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestMergeIterator_CloseReleasesResources(t *testing.T) {
 	}
 	fp, schema := writeTestSSTable(t, dir, 0, points)
 
-	mi, err := NewMergeIterator([]string{fp}, 0, 0, schema, &nilRefManager{}, nil)
+	mi, err := NewMergeIterator([]string{fp}, 0, 0, schema, &nilRefManager{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewMergeIterator: %v", err)
 	}

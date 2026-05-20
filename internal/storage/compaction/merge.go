@@ -98,7 +98,7 @@ func (cm *Manager) Merge(ctx context.Context, task *Task) error {
 
 	iterators := make([]*sstable.Iterator, 0, len(readers))
 	for _, r := range readers {
-		it, err := r.NewIterator(nil)
+		it, err := r.NewIterator(nil, nil)
 		if err != nil {
 			return err
 		}

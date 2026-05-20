@@ -114,7 +114,7 @@ func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*q
 	// 收集 unordered 目录下匹配 db/measurement 的文件数据
 	unorderedData := e.collectUnorderedData(req)
 
-	return query.NewIteratorWithMemTable(ctx, shards, writerMT, scoped, req, req.Fields, unorderedData...), nil
+	return query.NewIteratorWithMemTable(ctx, shards, writerMT, scoped, req, req.Fields, nil, unorderedData...), nil
 }
 
 // downsampleIterator 创建降采样查询迭代器。
@@ -131,7 +131,7 @@ func (e *Engine) downsampleIterator(ctx context.Context, req *types.QueryRangeRe
 		meas:  req.Measurement,
 	}
 
-	return query.NewIteratorWithMemTable(ctx, nil, nil, scoped, req, nil, downsampledData...), nil
+	return query.NewIteratorWithMemTable(ctx, nil, nil, scoped, req, nil, nil, downsampledData...), nil
 }
 
 // collectDownsampledData 收集降采样数据。
@@ -244,7 +244,29 @@ func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.Row
 		}
 	}
 
-	dataIter, err := e.createDataIterator(plan.Database, plan.Measurement, plan.StartTime, plan.EndTime, projFields)
+	// 从 FilterSpec 提取条件用于 ZoneMap 谓词下推
+	var filterConds []sstable.FilterCondition
+	for _, op := range plan.Ops {
+		if f := op.GetFilter(); f != nil {
+			for _, c := range f.Conditions {
+				if c.Tag != "" {
+					continue
+				}
+				var val float64
+				if c.Value != nil {
+					val = c.Value.GetFloatValue()
+				}
+				filterConds = append(filterConds, sstable.FilterCondition{
+					Field: c.Field,
+					Op:    int32(c.Op),
+					Value: val,
+				})
+			}
+			break
+		}
+	}
+
+	dataIter, err := e.createDataIterator(plan.Database, plan.Measurement, plan.StartTime, plan.EndTime, projFields, filterConds)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +287,7 @@ func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.Row
 }
 
 // createDataIterator 创建数据源 Iterator（共享逻辑，供 Iterator 和 Execute 使用）。
-func (e *Engine) createDataIterator(database, measurement string, startTime, endTime int64, fields []string) (*query.Iterator, error) {
+func (e *Engine) createDataIterator(database, measurement string, startTime, endTime int64, fields []string, filterConds []sstable.FilterCondition) (*query.Iterator, error) {
 	writerMT := e.memTable
 
 	req := &types.QueryRangeRequest{
@@ -330,12 +352,12 @@ func (e *Engine) createDataIterator(database, measurement string, startTime, end
 
 	unorderedData := e.collectUnorderedData(req)
 
-	return query.NewIteratorWithMemTable(context.Background(), shards, writerMT, scoped, req, fields, unorderedData...), nil
+	return query.NewIteratorWithMemTable(context.Background(), shards, writerMT, scoped, req, fields, filterConds, unorderedData...), nil
 }
 
 // IteratorWithMemTable 是包内使用的辅助函数（供测试等场景使用）。
 func IteratorWithMemTable(ctx context.Context, shards []*shard.Shard, wmt *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest) *query.Iterator {
-	return query.NewIteratorWithMemTable(ctx, shards, wmt, extSeriesStore, req, req.Fields)
+	return query.NewIteratorWithMemTable(ctx, shards, wmt, extSeriesStore, req, req.Fields, nil)
 }
 
 // collectUnorderedData 收集 unordered 目录下匹配 db/measurement 的数据，

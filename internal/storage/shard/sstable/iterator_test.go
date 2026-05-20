@@ -31,7 +31,7 @@ func TestIterator_Empty(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestIterator_SingleRecord(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestIterator_MultipleRecords(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestIterator_NextBeyondRange(t *testing.T) {
 		}
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestIterator_ProjectedFields(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator([]string{"cpu"})
+	it, err := r.NewIterator([]string{"cpu"}, nil)
 	if err != nil {
 		t.Fatalf("NewIterator with fields failed: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestIterator_AllFieldsNil(t *testing.T) {
 	}
 	defer func() { _ = r.Close() }()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator(nil) failed: %v", err)
 	}

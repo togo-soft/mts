@@ -6,6 +6,14 @@ func (it *Iterator) loadBlock(blockIdx int) error {
 		return nil
 	}
 
+	// ZoneMap 跳过检查：过滤条件明确此块不可能包含匹配数据时跳过
+	if it.zoneMapIndex != nil && len(it.filterConds) > 0 {
+		if it.shouldSkipBlock(blockIdx) {
+			it.blockRowCount = 0
+			return nil
+		}
+	}
+
 	entry := it.blockIndex[blockIdx]
 	it.currentBlock = blockIdx
 	it.blockRowCount = int(entry.RowCount)

@@ -59,6 +59,9 @@ type Writer struct {
 	compressAlgo CompressionAlgorithm
 	flags        uint16
 	syncOnClose  bool // Close 时是否 fsync，默认 true
+
+	zoneMapCurr  map[string]*zoneAccumulator // 当前 block 各字段的 min/max 累积
+	zoneMapIndex *ZoneMapIndex               // 已完成 block 的 zone map
 }
 
 // NewWriter 创建 SSTable Writer。
@@ -116,6 +119,8 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 		compressAlgo:     compressAlgo,
 		flags:            flags,
 		syncOnClose:      true,
+		zoneMapCurr:      make(map[string]*zoneAccumulator),
+		zoneMapIndex:     &ZoneMapIndex{Blocks: make([]BlockZoneMap, 0)},
 	}
 
 	return w, nil

@@ -27,9 +27,11 @@ const (
 
 // FlagSorted 表示 SSTable 是有序的（默认值，与旧格式兼容）。
 // FlagUnordered 表示 SSTable 是无序的，需要排序后才能 compact。
+// FlagHasZoneMap 表示 SSTable 包含 Zone Map section，支持谓词下推块跳过。
 const (
-	FlagSorted    uint16 = 0x0000
-	FlagUnordered uint16 = 0x0001
+	FlagSorted     uint16 = 0x0000
+	FlagUnordered  uint16 = 0x0001
+	FlagHasZoneMap uint16 = 0x0002
 )
 
 // FileHeader 是单文件 SSTable 的文件头 (64 字节)。

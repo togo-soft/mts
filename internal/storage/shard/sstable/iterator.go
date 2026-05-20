@@ -21,15 +21,19 @@ type Iterator struct {
 	pos              int
 
 	projectedFields []string // nil=全部字段
+	zoneMapIndex    *ZoneMapIndex
+	filterConds     []FilterCondition
 }
 
-// NewIterator 创建新的流式迭代器，fields 指定需要投影的字段（nil=全部字段）。
-func (r *Reader) NewIterator(fields []string) (*Iterator, error) {
+// NewIterator 创建新的流式迭代器。fields 指定投影字段（nil=全部），filterConds 用于 ZoneMap 块跳过。
+func (r *Reader) NewIterator(fields []string, filterConds []FilterCondition) (*Iterator, error) {
 	it := &Iterator{
 		reader:          r,
 		currentBlock:    -1,
 		pos:             -1,
 		projectedFields: fields,
+		zoneMapIndex:    r.zoneMapIndex,
+		filterConds:     filterConds,
 	}
 
 	if r.blockIndex != nil {
@@ -60,4 +64,37 @@ func (it *Iterator) SeekToTime(target int64) error {
 
 	it.currentBlock = blockIdx
 	return it.loadBlock(blockIdx)
+}
+
+// shouldSkipBlock 检查 zone map 是否表明整个 block 可被跳过。
+func (it *Iterator) shouldSkipBlock(blockIdx int) bool {
+	for _, cond := range it.filterConds {
+		entry, ok := it.zoneMapIndex.Lookup(blockIdx, cond.Field)
+		if !ok {
+			continue
+		}
+		switch cond.Op {
+		case 1: // GT
+			if entry.Max <= cond.Value {
+				return true
+			}
+		case 2: // GTE
+			if entry.Max < cond.Value {
+				return true
+			}
+		case 3: // LT
+			if entry.Min >= cond.Value {
+				return true
+			}
+		case 4: // LTE
+			if entry.Min > cond.Value {
+				return true
+			}
+		case 5: // EQ
+			if entry.Min > cond.Value || entry.Max < cond.Value {
+				return true
+			}
+		}
+	}
+	return false
 }

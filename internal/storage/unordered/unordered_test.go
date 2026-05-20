@@ -98,8 +98,8 @@ func TestWriteAndList(t *testing.T) {
 	}
 	defer func() { _ = reader.Close() }()
 
-	if reader.Flags != sstable.FlagUnordered {
-		t.Errorf("expected FlagUnordered, got 0x%04x", reader.Flags)
+	if reader.Flags != (sstable.FlagUnordered | sstable.FlagHasZoneMap) {
+		t.Errorf("expected FlagUnordered|FlagHasZoneMap, got 0x%04x", reader.Flags)
 	}
 
 	rows, err := reader.ReadAll(nil)

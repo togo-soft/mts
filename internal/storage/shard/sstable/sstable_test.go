@@ -37,8 +37,8 @@ func TestFileHeader_FlagsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = r.Close() }()
-	if r.Flags != FlagUnordered {
-		t.Errorf("expected FlagUnordered (0x%04x), got 0x%04x", FlagUnordered, r.Flags)
+	if r.Flags != (FlagUnordered | FlagHasZoneMap) {
+		t.Errorf("expected FlagUnordered|FlagHasZoneMap (0x%04x), got 0x%04x", FlagUnordered|FlagHasZoneMap, r.Flags)
 	}
 }
 
@@ -74,7 +74,7 @@ func TestIterator_SeekToTime(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestIterator_SeekToTime_BeforeFirst(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestIterator_CurrentBlockTimestamps(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestIterator_Done(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -635,7 +635,7 @@ func TestIterator_MultipleBlocks(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -1083,7 +1083,7 @@ func TestIterator_DecodeFixedValue_Int64Bool(t *testing.T) {
 		_ = r.Close()
 	}()
 
-	it, err := r.NewIterator(nil)
+	it, err := r.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}

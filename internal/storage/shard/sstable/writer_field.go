@@ -218,10 +218,12 @@ func (w *Writer) writeMemPoint(mp types.MemPoint) error {
 			switch typ {
 			case 0: // float64
 				val := math.Float64frombits(binary.BigEndian.Uint64(data[pos : pos+8]))
+				w.accumulateZoneMap(name, val)
 				w.appendFieldValueIdx(idx, name, val)
 				pos += 8
 			case 1: // int64
 				val := int64(binary.BigEndian.Uint64(data[pos : pos+8]))
+				w.accumulateZoneMap(name, val)
 				w.appendFieldValueIdx(idx, name, val)
 				pos += 8
 			case 2: // string
@@ -464,6 +466,7 @@ func (w *Writer) writePointRow(row *types.PointRow) error {
 
 	for name := range w.fields {
 		val := row.GetFieldValue(name)
+		w.accumulateZoneMap(name, val)
 		w.appendFieldValue(name, val)
 	}
 
@@ -495,6 +498,7 @@ func (w *Writer) writeInternalPoint(ip types.InternalPoint) error {
 		if !ok {
 			val = w.zeroValue(w.schema.Fields[name])
 		}
+		w.accumulateZoneMap(name, val)
 		w.appendFieldValue(name, val)
 	}
 
@@ -527,6 +531,45 @@ func (w *Writer) zeroValue(t FieldType) *types.FieldValue {
 		return types.NewFieldValue("")
 	default:
 		return types.NewFieldValue(float64(0))
+	}
+}
+
+// accumulateZoneMap 为 ZoneMap 累积数值字段的 min/max。
+func (w *Writer) accumulateZoneMap(name string, val any) {
+	switch v := val.(type) {
+	case float64:
+		za, ok := w.zoneMapCurr[name]
+		if !ok {
+			za = &zoneAccumulator{}
+			w.zoneMapCurr[name] = za
+		}
+		za.update(v)
+	case int64:
+		za, ok := w.zoneMapCurr[name]
+		if !ok {
+			za = &zoneAccumulator{}
+			w.zoneMapCurr[name] = za
+		}
+		za.update(float64(v))
+	case *types.FieldValue:
+		if v != nil && v.Value != nil {
+			switch fv := v.Value.(type) {
+			case *types.FieldValue_FloatValue:
+				za, ok := w.zoneMapCurr[name]
+				if !ok {
+					za = &zoneAccumulator{}
+					w.zoneMapCurr[name] = za
+				}
+				za.update(fv.FloatValue)
+			case *types.FieldValue_IntValue:
+				za, ok := w.zoneMapCurr[name]
+				if !ok {
+					za = &zoneAccumulator{}
+					w.zoneMapCurr[name] = za
+				}
+				za.update(float64(fv.IntValue))
+			}
+		}
 	}
 }
 

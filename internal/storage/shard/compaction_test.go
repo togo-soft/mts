@@ -1175,7 +1175,7 @@ func TestMergeIterator_Next_Point(t *testing.T) {
 	}
 	defer func() { _ = reader.Close() }()
 
-	iter, err := reader.NewIterator(nil)
+	iter, err := reader.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator failed: %v", err)
 	}
@@ -1244,7 +1244,7 @@ func TestMergeIterator_AfterEmpty(t *testing.T) {
 
 	schema, _ := shard.GetSchema()
 	reader, _ := sstable.NewReader(sstPath, schema)
-	iter, _ := reader.NewIterator(nil)
+	iter, _ := reader.NewIterator(nil, nil)
 	mergeIter := compaction.NewMergeIterator([]*sstable.Iterator{iter})
 
 	// Exhaust the iterator
@@ -1453,12 +1453,12 @@ func TestCompactionManager_Merge_Deduplication(t *testing.T) {
 	}
 	defer func() { _ = reader2.Close() }()
 
-	iter1, err := reader1.NewIterator(nil)
+	iter1, err := reader1.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator 1 failed: %v", err)
 	}
 
-	iter2, err := reader2.NewIterator(nil)
+	iter2, err := reader2.NewIterator(nil, nil)
 	if err != nil {
 		t.Fatalf("NewIterator 2 failed: %v", err)
 	}

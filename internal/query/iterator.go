@@ -14,6 +14,7 @@ import (
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
+	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -47,6 +48,33 @@ func (s *sliceIterator) Next() *types.PointRow {
 }
 
 func (s *sliceIterator) Close() {}
+
+// channelIterator 将 channel 适配为 heapItem 接口，支持并行 Shard 扫描。
+type channelIterator struct {
+	ch   <-chan *types.PointRow
+	cur  *types.PointRow
+	done bool
+}
+
+func (c *channelIterator) Current() *types.PointRow { return c.cur }
+
+func (c *channelIterator) Next() *types.PointRow {
+	if c.done {
+		return nil
+	}
+	row, ok := <-c.ch
+	if !ok {
+		c.done = true
+		return nil
+	}
+	c.cur = row
+	return row
+}
+
+func (c *channelIterator) Close() {
+	for range c.ch {
+	}
+}
 
 // Iterator 是流式查询迭代器，支持多数据源归并排序和过滤。
 //
@@ -90,6 +118,7 @@ type Iterator struct {
 	consumed   int64 // 已返回的行数
 	skipped    int64 // 已跳过的行数（用于 offset）
 	closed     bool  // 是否已关闭
+	cancel     context.CancelFunc
 }
 
 // mergeHeap 实现 container/heap.Interface，用于多数据源按时间戳升序归并。
@@ -147,7 +176,7 @@ func (h *mergeHeap) Pop() any {
 // 说明：
 // NewIterator 委托 NewIteratorWithMemTable 实现，传入 req.Fields 用于字段投影。
 func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRangeRequest) *Iterator {
-	return NewIteratorWithMemTable(ctx, shards, nil, nil, req, req.Fields)
+	return NewIteratorWithMemTable(ctx, shards, nil, nil, req, req.Fields, nil)
 }
 
 // NewIteratorWithMemTable 创建流式查询迭代器，合并 Writer MemTable 和 Shard SSTable。
@@ -155,7 +184,8 @@ func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRan
 // extSeriesStore 用于 nil shard 场景下 SID→Tags 解析（可为 nil）。
 // unorderedData 为 unordered 目录中已排序的 PointRow 切片列表，每个切片对应一个 unordered 文件。
 // fields 为需要投影的字段列表，为空时返回所有字段。
-func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerMT *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest, fields []string, unorderedData ...[]*types.PointRow) *Iterator {
+// filterConds 用于 ZoneMap 谓词下推块跳过（nil=不过滤）。
+func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerMT *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest, fields []string, filterConds []sstable.FilterCondition, unorderedData ...[]*types.PointRow) *Iterator {
 	q := &Iterator{
 		req: req,
 	}
@@ -167,33 +197,124 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 	if req.Limit > 0 {
 		maxRows = int(req.Limit + req.Offset)
 	}
-	q.heap = make(mergeHeap, 0, len(shards)+1+len(unorderedData))
+
+	shardCount := len(shards)
+	if len(shards) == 0 && writerMT != nil {
+		shardCount = 1
+	}
+
+	// 并行度控制：Shard 数 ≤ 2 时直接串行（goroutine 开销 > 收益）
+	if shardCount <= 2 {
+		q.heap = make(mergeHeap, 0, shardCount+len(unorderedData))
+
+		for i, s := range shards {
+			var si *shard.ShardIterator
+			if i == 0 && writerMT != nil {
+				si = shard.NewShardIteratorWithMemTable(s, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields, filterConds)
+			} else {
+				si = shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
+			}
+			if si.Current() != nil {
+				q.heap = append(q.heap, si)
+			} else {
+				si.Close()
+			}
+		}
+
+		if len(shards) == 0 && writerMT != nil {
+			si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields, filterConds)
+			if si.Current() != nil {
+				q.heap = append(q.heap, si)
+			} else {
+				si.Close()
+			}
+		}
+
+		for _, rows := range unorderedData {
+			if len(rows) == 0 {
+				continue
+			}
+			q.heap = append(q.heap, &sliceIterator{rows: rows})
+		}
+
+		heap.Init(&q.heap)
+		q.fetchNextValid()
+		return q
+	}
+
+	// 多 Shard 并行扫描路径
+	scanCtx, cancel := context.WithCancel(ctx)
+	q.cancel = cancel
+
+	chans := make([]chan *types.PointRow, 0, shardCount)
 
 	for i, s := range shards {
-		var si *shard.ShardIterator
-		if i == 0 && writerMT != nil {
-			si = shard.NewShardIteratorWithMemTable(s, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields)
-		} else {
-			si = shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
-		}
-		if si.Current() != nil {
-			q.heap = append(q.heap, si)
-		} else {
-			si.Close()
-		}
+		ch := make(chan *types.PointRow, 256)
+		chans = append(chans, ch)
+		go func(idx int, sh *shard.Shard) {
+			defer close(ch)
+			var si *shard.ShardIterator
+			if idx == 0 && writerMT != nil {
+				si = shard.NewShardIteratorWithMemTable(sh, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields, filterConds)
+			} else {
+				si = shard.NewShardIteratorWithMemTable(sh, nil, nil, startTimeNs, endTimeNs, maxRows, fields, filterConds)
+			}
+			defer si.Close()
+			for {
+				select {
+				case <-scanCtx.Done():
+					return
+				default:
+				}
+				row := si.Current()
+				if row == nil {
+					return
+				}
+				select {
+				case ch <- row:
+				case <-scanCtx.Done():
+					return
+				}
+				si.Next()
+			}
+		}(i, s)
 	}
 
-	// 如果没有 shard 但有 writer MemTable，创建独立数据源
 	if len(shards) == 0 && writerMT != nil {
-		si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields)
-		if si.Current() != nil {
-			q.heap = append(q.heap, si)
-		} else {
-			si.Close()
+		ch := make(chan *types.PointRow, 256)
+		chans = append(chans, ch)
+		go func() {
+			defer close(ch)
+			si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields, filterConds)
+			defer si.Close()
+			for {
+				select {
+				case <-scanCtx.Done():
+					return
+				default:
+				}
+				row := si.Current()
+				if row == nil {
+					return
+				}
+				select {
+				case ch <- row:
+				case <-scanCtx.Done():
+					return
+				}
+				si.Next()
+			}
+		}()
+	}
+
+	q.heap = make(mergeHeap, 0, len(chans)+len(unorderedData))
+	for _, ch := range chans {
+		ci := &channelIterator{ch: ch}
+		if ci.Next() != nil {
+			q.heap = append(q.heap, ci)
 		}
 	}
 
-	// 添加 unordered 数据源
 	for _, rows := range unorderedData {
 		if len(rows) == 0 {
 			continue
@@ -202,7 +323,6 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 	}
 
 	heap.Init(&q.heap)
-
 	q.fetchNextValid()
 
 	return q
@@ -355,6 +475,9 @@ func (q *Iterator) Points() *types.PointRow {
 //	建议配合 defer 使用以确保资源释放。
 func (q *Iterator) Close() error {
 	q.closed = true
+	if q.cancel != nil {
+		q.cancel()
+	}
 	for _, si := range q.heap {
 		si.Close()
 	}
