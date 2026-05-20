@@ -328,6 +328,50 @@ cd tests/e2e/{test_dir} && go run main.go  # 单个 E2E 测试
 - 禁止在 `for` 循环中使用 `defer`
 - 目录权限 `0700`，文件权限 `0600`
 
+### Git GPG 签名免交互配置
+
+使用 GPG 签名提交时，默认会触发交互式密码输入。以下配置可实现自动化：
+
+**1. 配置 gpg-agent 使用 loopback 模式**
+
+```bash
+echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+```
+
+**2. 重启 gpg-agent**
+
+```bash
+killall gpg-agent 2>/dev/null || true
+gpg-agent --homedir ~/.gnupg --daemon
+```
+
+**3. 配置 Git 使用 GPG 签名**
+
+```bash
+git config --global gpg.program gpg
+git config --global commit.gpgsign true
+git config --global user.signingkey <YOUR_GPG_KEY_ID>
+```
+
+**4. 设置环境变量自动提供密码**
+
+```bash
+export GPG_TTY=$(tty)
+export PINENTRY_USER_DATA="<YOUR_PASSPHRASE>"
+```
+
+或直接在命令行中指定：
+
+```bash
+git commit -s -S -m "提交信息"
+```
+
+**5. 验证配置**
+
+```bash
+git log --show-signature -1
+```
+
 ## License
 
 [Apache 2.0](LICENSE) © 2026 micro-ts Authors
