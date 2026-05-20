@@ -17,6 +17,7 @@ type Iterator struct {
 	blockSids        []uint64
 	blockFieldData   map[string][]byte              // 解压后原始字节（惰性解码源）
 	blockFieldValues map[string][]*types.FieldValue // 解码后缓存
+	blockFieldOrder  []string                       // 字段顺序（与 blockFieldData 键一致，保证确定性迭代）
 	blockRowCount    int
 	pos              int
 

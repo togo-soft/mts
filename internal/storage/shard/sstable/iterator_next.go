@@ -50,8 +50,9 @@ func (it *Iterator) Point() *types.PointRow {
 	if it.blockFieldValues == nil {
 		it.blockFieldValues = make(map[string][]*types.FieldValue)
 	}
-	row.Fields = make([]*types.FieldEntry, 0, len(it.blockFieldData))
-	for name, rawData := range it.blockFieldData {
+	row.Fields = make([]*types.FieldEntry, 0, len(it.blockFieldOrder))
+	for _, name := range it.blockFieldOrder {
+		rawData := it.blockFieldData[name]
 		if _, ok := it.blockFieldValues[name]; !ok {
 			vals, err := it.reader.decodeFieldSectionBlockFromData(name, rawData, it.blockRowCount)
 			if err != nil {

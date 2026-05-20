@@ -42,6 +42,7 @@ func (it *Iterator) loadBlock(blockIdx int) error {
 
 	// 仅解压原始字节，不解码
 	it.blockFieldData = make(map[string][]byte, len(fieldNames))
+	it.blockFieldOrder = fieldNames
 	for _, name := range fieldNames {
 		data, err := it.reader.readFieldBlockRaw(name, blockIdx)
 		if err != nil {
