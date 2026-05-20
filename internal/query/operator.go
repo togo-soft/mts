@@ -13,6 +13,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -308,16 +309,27 @@ func (g *GroupAggregateOperator) loadAndAggregate() error {
 	return nil
 }
 
+// groupKeyCache 缓存 groupKey 计算结果，消除每行字符串分配。
+var groupKeyCache sync.Map
+
 // groupKey 计算分组的 key。
 func (g *GroupAggregateOperator) groupKey(row *types.PointRow) string {
 	if len(g.groupByTags) == 0 {
 		return "global"
 	}
-	var parts []string
-	for _, tag := range g.groupByTags {
-		parts = append(parts, row.Tags[tag])
+	var buf strings.Builder
+	for i, tag := range g.groupByTags {
+		if i > 0 {
+			buf.WriteByte(0)
+		}
+		buf.WriteString(row.Tags[tag])
 	}
-	return strings.Join(parts, "\x00")
+	raw := buf.String()
+	if cached, ok := groupKeyCache.Load(raw); ok {
+		return cached.(string)
+	}
+	groupKeyCache.Store(raw, raw)
+	return raw
 }
 
 // aggregateGroup 对分组执行聚合计算。
