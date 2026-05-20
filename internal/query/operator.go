@@ -17,6 +17,10 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+// bgCtx 是 package 级 context.Background() 单例，用于算子内部调用 Iterator.Next()，
+// 避免每行分配新的 context.valueCtx。
+var bgCtx = context.Background()
+
 // Operator 是查询执行计划中的单个算子。
 //
 // 算子链按顺序连接：上游算子的输出作为下游算子的输入。
@@ -50,7 +54,7 @@ func (s *ScanOperator) Open(_ context.Context) error {
 
 // Next 从 Iterator 获取下一行。
 func (s *ScanOperator) Next() (*types.PointRow, error) {
-	if s.iter.Next(context.Background()) {
+	if s.iter.Next(bgCtx) {
 		s.currentRow = s.iter.Points()
 		return s.currentRow, nil
 	}
@@ -137,7 +141,7 @@ func (f *FilteredScanOperator) Open(_ context.Context) error {
 
 // Next 直接返回通过所有过滤条件的下一行。
 func (f *FilteredScanOperator) Next() (*types.PointRow, error) {
-	for f.iter.Next(context.Background()) {
+	for f.iter.Next(bgCtx) {
 		row := f.iter.Points()
 		if f.fieldIndex == nil {
 			f.fieldIndex = buildFieldIndex(row.Fields)
@@ -723,6 +727,10 @@ func (g *GroupAggregateOperator) groupKey(row *types.PointRow) string {
 	if len(g.groupByTags) == 0 {
 		return "global"
 	}
+	// 单 tag 快速路径：直接返回 tag 值，无需 Builder 或 sync.Map 查找
+	if len(g.groupByTags) == 1 {
+		return row.Tags[g.groupByTags[0]]
+	}
 	var buf strings.Builder
 	for i, tag := range g.groupByTags {
 		if i > 0 {
@@ -954,7 +962,8 @@ func (p *ProjectOperator) Next() (*types.PointRow, error) {
 	if row == nil {
 		return nil, nil
 	}
-	if len(p.fields) == 0 {
+	if len(p.fields) == 0 || len(row.Fields) == len(p.fields) {
+		// 快速路径：无投影需求，或 Iterator 已按 fields 做了 SSTable 列裁剪
 		return row, nil
 	}
 
