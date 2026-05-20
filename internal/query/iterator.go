@@ -193,7 +193,7 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 	for i, s := range shards {
 		var si *shard.ShardIterator
 		if i == 0 && writerMT != nil {
-			si = shard.NewShardIteratorWithMemTable(s, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows)
+			si = shard.NewShardIteratorWithMemTable(s, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, nil)
 		} else {
 			si = shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
 		}
@@ -206,7 +206,7 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 
 	// 如果没有 shard 但有 writer MemTable，创建独立数据源
 	if len(shards) == 0 && writerMT != nil {
-		si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows)
+		si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, nil)
 		if si.Current() != nil {
 			q.heap = append(q.heap, si)
 		} else {

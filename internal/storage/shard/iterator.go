@@ -63,13 +63,13 @@ type ShardIterator struct {
 //  2. 创建 SSTable MergeIterator 流式归并（块级按需读取）
 //  3. 记录当前位置用于归并排序
 func NewShardIterator(shard *Shard, startTime, endTime int64, maxRows int) *ShardIterator {
-	return NewShardIteratorWithMemTable(shard, nil, nil, startTime, endTime, maxRows)
+	return NewShardIteratorWithMemTable(shard, nil, nil, startTime, endTime, maxRows, nil)
 }
 
 // NewShardIteratorWithMemTable 创建 Shard 迭代器，可指定外部 MemTable 和 SeriesStore。
 // externalMT 为 nil 时使用 shard 自带的 MemTable（已废弃，不再提供）。
 // extSeriesStore 用于 nil shard 场景下 SID→Tags 解析。
-func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, extSeriesStore SeriesStore, startTime, endTime int64, maxRows int) *ShardIterator {
+func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, extSeriesStore SeriesStore, startTime, endTime int64, maxRows int, fields []string) *ShardIterator {
 	db := ""
 	measurement := ""
 	if shard != nil {
@@ -110,7 +110,7 @@ func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, e
 				si.err = fmt.Errorf("get schema: %w", err)
 				return si
 			}
-			sstIter, err := sstable.NewMergeIterator(sstFiles, startTime, endTime, schema, si.shard, nil)
+			sstIter, err := sstable.NewMergeIterator(sstFiles, startTime, endTime, schema, si.shard, fields)
 			if err != nil {
 				si.err = fmt.Errorf("create SSTable merge iterator: %w", err)
 				return si
