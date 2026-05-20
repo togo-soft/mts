@@ -143,40 +143,19 @@ func (h *mergeHeap) Pop() any {
 //  1. 为每个 Shard 创建 ShardIterator
 //  2. 如果 Iterator 有当前数据，加入堆
 //  3. 获取第一个有效行
+//
+// 说明：
+// NewIterator 委托 NewIteratorWithMemTable 实现，传入 req.Fields 用于字段投影。
 func NewIterator(ctx context.Context, shards []*shard.Shard, req *types.QueryRangeRequest) *Iterator {
-	q := &Iterator{
-		req: req,
-	}
-
-	startTimeNs := req.StartTime
-	endTimeNs := req.EndTime
-
-	var maxRows int
-	if req.Limit > 0 {
-		maxRows = int(req.Limit + req.Offset)
-	}
-	q.heap = make(mergeHeap, 0, len(shards))
-	for _, s := range shards {
-		si := shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
-		if si.Current() != nil {
-			q.heap = append(q.heap, si)
-		} else {
-			// 该 Shard 无匹配数据，释放其持有的 SSTable 引用
-			si.Close()
-		}
-	}
-	heap.Init(&q.heap)
-
-	q.fetchNextValid()
-
-	return q
+	return NewIteratorWithMemTable(ctx, shards, nil, nil, req, req.Fields)
 }
 
 // NewIteratorWithMemTable 创建流式查询迭代器，合并 Writer MemTable 和 Shard SSTable。
 // writerMT 为 MeasurementWriter 的 MemTable（未刷盘数据），可为 nil。
 // extSeriesStore 用于 nil shard 场景下 SID→Tags 解析（可为 nil）。
 // unorderedData 为 unordered 目录中已排序的 PointRow 切片列表，每个切片对应一个 unordered 文件。
-func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerMT *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest, unorderedData ...[]*types.PointRow) *Iterator {
+// fields 为需要投影的字段列表，为空时返回所有字段。
+func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerMT *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest, fields []string, unorderedData ...[]*types.PointRow) *Iterator {
 	q := &Iterator{
 		req: req,
 	}
@@ -193,7 +172,7 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 	for i, s := range shards {
 		var si *shard.ShardIterator
 		if i == 0 && writerMT != nil {
-			si = shard.NewShardIteratorWithMemTable(s, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, nil)
+			si = shard.NewShardIteratorWithMemTable(s, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields)
 		} else {
 			si = shard.NewShardIterator(s, startTimeNs, endTimeNs, maxRows)
 		}
@@ -206,7 +185,7 @@ func NewIteratorWithMemTable(ctx context.Context, shards []*shard.Shard, writerM
 
 	// 如果没有 shard 但有 writer MemTable，创建独立数据源
 	if len(shards) == 0 && writerMT != nil {
-		si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, nil)
+		si := shard.NewShardIteratorWithMemTable(nil, writerMT, extSeriesStore, startTimeNs, endTimeNs, maxRows, fields)
 		if si.Current() != nil {
 			q.heap = append(q.heap, si)
 		} else {

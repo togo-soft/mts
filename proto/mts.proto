@@ -416,6 +416,105 @@ message Config {
 }
 
 // ===================================
+// 查询 Builder 算子 Pipeline 类型
+// ===================================
+
+// 过滤操作符
+enum FilterOp {
+  EQ = 0;
+  NE = 1;
+  GT = 2;
+  GTE = 3;
+  LT = 4;
+  LTE = 5;
+}
+
+// 排序方向
+enum SortDirection {
+  ASC = 0;
+  DESC = 1;
+}
+
+// 过滤条件
+message FilterCondition {
+  string tag = 1;
+  string field = 2;
+  FilterOp op = 3;
+  FieldValue value = 4;
+}
+
+// 排序字段
+message SortField {
+  string field = 1;
+  SortDirection direction = 2;
+}
+
+// 聚合函数定义
+message AggFunction {
+  string function = 1;
+  string field = 2;
+  int64 window_nanos = 3;
+}
+
+// Scan 算子
+message ScanSpec {
+  int64 downsample_window_nanos = 1;
+}
+
+// Filter 算子
+message FilterSpec {
+  repeated FilterCondition conditions = 1;
+}
+
+// GroupBy 算子
+message GroupBySpec {
+  repeated string tags = 1;
+}
+
+// Aggregate 算子
+message AggregateSpec {
+  repeated AggFunction functions = 1;
+}
+
+// Sort 算子
+message SortSpec {
+  repeated SortField fields = 1;
+}
+
+// Project 算子
+message ProjectSpec {
+  repeated string fields = 1;
+}
+
+// Limit 算子
+message LimitSpec {
+  int64 offset = 1;
+  int64 limit = 2;
+}
+
+// 算子规格（oneof 实现多选一）
+message OperatorSpec {
+  oneof op {
+    ScanSpec scan = 1;
+    FilterSpec filter = 2;
+    GroupBySpec group_by = 3;
+    AggregateSpec aggregate = 4;
+    SortSpec sort = 5;
+    ProjectSpec project = 6;
+    LimitSpec limit = 7;
+  }
+}
+
+// 查询计划
+message QueryPlan {
+  string database = 1;
+  string measurement = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  repeated OperatorSpec ops = 5;
+}
+
+// ===================================
 // gRPC 服务定义
 // ===================================
 

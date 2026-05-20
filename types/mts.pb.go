@@ -83,6 +83,112 @@ func (CompressionAlgorithm) EnumDescriptor() ([]byte, []int) {
 	return file_proto_mts_proto_rawDescGZIP(), []int{0}
 }
 
+// 过滤操作符
+type FilterOp int32
+
+const (
+	FilterOp_EQ  FilterOp = 0
+	FilterOp_NE  FilterOp = 1
+	FilterOp_GT  FilterOp = 2
+	FilterOp_GTE FilterOp = 3
+	FilterOp_LT  FilterOp = 4
+	FilterOp_LTE FilterOp = 5
+)
+
+// Enum value maps for FilterOp.
+var (
+	FilterOp_name = map[int32]string{
+		0: "EQ",
+		1: "NE",
+		2: "GT",
+		3: "GTE",
+		4: "LT",
+		5: "LTE",
+	}
+	FilterOp_value = map[string]int32{
+		"EQ":  0,
+		"NE":  1,
+		"GT":  2,
+		"GTE": 3,
+		"LT":  4,
+		"LTE": 5,
+	}
+)
+
+func (x FilterOp) Enum() *FilterOp {
+	p := new(FilterOp)
+	*p = x
+	return p
+}
+
+func (x FilterOp) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FilterOp) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_mts_proto_enumTypes[1].Descriptor()
+}
+
+func (FilterOp) Type() protoreflect.EnumType {
+	return &file_proto_mts_proto_enumTypes[1]
+}
+
+func (x FilterOp) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FilterOp.Descriptor instead.
+func (FilterOp) EnumDescriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{1}
+}
+
+// 排序方向
+type SortDirection int32
+
+const (
+	SortDirection_ASC  SortDirection = 0
+	SortDirection_DESC SortDirection = 1
+)
+
+// Enum value maps for SortDirection.
+var (
+	SortDirection_name = map[int32]string{
+		0: "ASC",
+		1: "DESC",
+	}
+	SortDirection_value = map[string]int32{
+		"ASC":  0,
+		"DESC": 1,
+	}
+)
+
+func (x SortDirection) Enum() *SortDirection {
+	p := new(SortDirection)
+	*p = x
+	return p
+}
+
+func (x SortDirection) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SortDirection) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_mts_proto_enumTypes[2].Descriptor()
+}
+
+func (SortDirection) Type() protoreflect.EnumType {
+	return &file_proto_mts_proto_enumTypes[2]
+}
+
+func (x SortDirection) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SortDirection.Descriptor instead.
+func (SortDirection) EnumDescriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{2}
+}
+
 // 字段值
 //
 // Point 的字段值使用 oneof 支持多种数据类型。
@@ -2054,6 +2160,752 @@ func (x *Config) GetRetentionCheckIntervalNanos() int64 {
 	return 0
 }
 
+// 过滤条件
+type FilterCondition struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tag           string                 `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	Field         string                 `protobuf:"bytes,2,opt,name=field,proto3" json:"field,omitempty"`
+	Op            FilterOp               `protobuf:"varint,3,opt,name=op,proto3,enum=microts.v1.FilterOp" json:"op,omitempty"`
+	Value         *FieldValue            `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FilterCondition) Reset() {
+	*x = FilterCondition{}
+	mi := &file_proto_mts_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilterCondition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilterCondition) ProtoMessage() {}
+
+func (x *FilterCondition) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FilterCondition.ProtoReflect.Descriptor instead.
+func (*FilterCondition) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *FilterCondition) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+func (x *FilterCondition) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *FilterCondition) GetOp() FilterOp {
+	if x != nil {
+		return x.Op
+	}
+	return FilterOp_EQ
+}
+
+func (x *FilterCondition) GetValue() *FieldValue {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+// 排序字段
+type SortField struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Field         string                 `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
+	Direction     SortDirection          `protobuf:"varint,2,opt,name=direction,proto3,enum=microts.v1.SortDirection" json:"direction,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SortField) Reset() {
+	*x = SortField{}
+	mi := &file_proto_mts_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SortField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SortField) ProtoMessage() {}
+
+func (x *SortField) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SortField.ProtoReflect.Descriptor instead.
+func (*SortField) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *SortField) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *SortField) GetDirection() SortDirection {
+	if x != nil {
+		return x.Direction
+	}
+	return SortDirection_ASC
+}
+
+// 聚合函数定义
+type AggFunction struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Function      string                 `protobuf:"bytes,1,opt,name=function,proto3" json:"function,omitempty"`
+	Field         string                 `protobuf:"bytes,2,opt,name=field,proto3" json:"field,omitempty"`
+	WindowNanos   int64                  `protobuf:"varint,3,opt,name=window_nanos,json=windowNanos,proto3" json:"window_nanos,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AggFunction) Reset() {
+	*x = AggFunction{}
+	mi := &file_proto_mts_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AggFunction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AggFunction) ProtoMessage() {}
+
+func (x *AggFunction) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AggFunction.ProtoReflect.Descriptor instead.
+func (*AggFunction) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *AggFunction) GetFunction() string {
+	if x != nil {
+		return x.Function
+	}
+	return ""
+}
+
+func (x *AggFunction) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *AggFunction) GetWindowNanos() int64 {
+	if x != nil {
+		return x.WindowNanos
+	}
+	return 0
+}
+
+// Scan 算子
+type ScanSpec struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	DownsampleWindowNanos int64                  `protobuf:"varint,1,opt,name=downsample_window_nanos,json=downsampleWindowNanos,proto3" json:"downsample_window_nanos,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *ScanSpec) Reset() {
+	*x = ScanSpec{}
+	mi := &file_proto_mts_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScanSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScanSpec) ProtoMessage() {}
+
+func (x *ScanSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScanSpec.ProtoReflect.Descriptor instead.
+func (*ScanSpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ScanSpec) GetDownsampleWindowNanos() int64 {
+	if x != nil {
+		return x.DownsampleWindowNanos
+	}
+	return 0
+}
+
+// Filter 算子
+type FilterSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Conditions    []*FilterCondition     `protobuf:"bytes,1,rep,name=conditions,proto3" json:"conditions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FilterSpec) Reset() {
+	*x = FilterSpec{}
+	mi := &file_proto_mts_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilterSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilterSpec) ProtoMessage() {}
+
+func (x *FilterSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FilterSpec.ProtoReflect.Descriptor instead.
+func (*FilterSpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *FilterSpec) GetConditions() []*FilterCondition {
+	if x != nil {
+		return x.Conditions
+	}
+	return nil
+}
+
+// GroupBy 算子
+type GroupBySpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tags          []string               `protobuf:"bytes,1,rep,name=tags,proto3" json:"tags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GroupBySpec) Reset() {
+	*x = GroupBySpec{}
+	mi := &file_proto_mts_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupBySpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupBySpec) ProtoMessage() {}
+
+func (x *GroupBySpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupBySpec.ProtoReflect.Descriptor instead.
+func (*GroupBySpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *GroupBySpec) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+// Aggregate 算子
+type AggregateSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Functions     []*AggFunction         `protobuf:"bytes,1,rep,name=functions,proto3" json:"functions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AggregateSpec) Reset() {
+	*x = AggregateSpec{}
+	mi := &file_proto_mts_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AggregateSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AggregateSpec) ProtoMessage() {}
+
+func (x *AggregateSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AggregateSpec.ProtoReflect.Descriptor instead.
+func (*AggregateSpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *AggregateSpec) GetFunctions() []*AggFunction {
+	if x != nil {
+		return x.Functions
+	}
+	return nil
+}
+
+// Sort 算子
+type SortSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fields        []*SortField           `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SortSpec) Reset() {
+	*x = SortSpec{}
+	mi := &file_proto_mts_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SortSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SortSpec) ProtoMessage() {}
+
+func (x *SortSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SortSpec.ProtoReflect.Descriptor instead.
+func (*SortSpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *SortSpec) GetFields() []*SortField {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+// Project 算子
+type ProjectSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fields        []string               `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectSpec) Reset() {
+	*x = ProjectSpec{}
+	mi := &file_proto_mts_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectSpec) ProtoMessage() {}
+
+func (x *ProjectSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectSpec.ProtoReflect.Descriptor instead.
+func (*ProjectSpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *ProjectSpec) GetFields() []string {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+// Limit 算子
+type LimitSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Offset        int64                  `protobuf:"varint,1,opt,name=offset,proto3" json:"offset,omitempty"`
+	Limit         int64                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LimitSpec) Reset() {
+	*x = LimitSpec{}
+	mi := &file_proto_mts_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LimitSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LimitSpec) ProtoMessage() {}
+
+func (x *LimitSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LimitSpec.ProtoReflect.Descriptor instead.
+func (*LimitSpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *LimitSpec) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *LimitSpec) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+// 算子规格（oneof 实现多选一）
+type OperatorSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Op:
+	//
+	//	*OperatorSpec_Scan
+	//	*OperatorSpec_Filter
+	//	*OperatorSpec_GroupBy
+	//	*OperatorSpec_Aggregate
+	//	*OperatorSpec_Sort
+	//	*OperatorSpec_Project
+	//	*OperatorSpec_Limit
+	Op            isOperatorSpec_Op `protobuf_oneof:"op"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OperatorSpec) Reset() {
+	*x = OperatorSpec{}
+	mi := &file_proto_mts_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OperatorSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OperatorSpec) ProtoMessage() {}
+
+func (x *OperatorSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OperatorSpec.ProtoReflect.Descriptor instead.
+func (*OperatorSpec) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *OperatorSpec) GetOp() isOperatorSpec_Op {
+	if x != nil {
+		return x.Op
+	}
+	return nil
+}
+
+func (x *OperatorSpec) GetScan() *ScanSpec {
+	if x != nil {
+		if x, ok := x.Op.(*OperatorSpec_Scan); ok {
+			return x.Scan
+		}
+	}
+	return nil
+}
+
+func (x *OperatorSpec) GetFilter() *FilterSpec {
+	if x != nil {
+		if x, ok := x.Op.(*OperatorSpec_Filter); ok {
+			return x.Filter
+		}
+	}
+	return nil
+}
+
+func (x *OperatorSpec) GetGroupBy() *GroupBySpec {
+	if x != nil {
+		if x, ok := x.Op.(*OperatorSpec_GroupBy); ok {
+			return x.GroupBy
+		}
+	}
+	return nil
+}
+
+func (x *OperatorSpec) GetAggregate() *AggregateSpec {
+	if x != nil {
+		if x, ok := x.Op.(*OperatorSpec_Aggregate); ok {
+			return x.Aggregate
+		}
+	}
+	return nil
+}
+
+func (x *OperatorSpec) GetSort() *SortSpec {
+	if x != nil {
+		if x, ok := x.Op.(*OperatorSpec_Sort); ok {
+			return x.Sort
+		}
+	}
+	return nil
+}
+
+func (x *OperatorSpec) GetProject() *ProjectSpec {
+	if x != nil {
+		if x, ok := x.Op.(*OperatorSpec_Project); ok {
+			return x.Project
+		}
+	}
+	return nil
+}
+
+func (x *OperatorSpec) GetLimit() *LimitSpec {
+	if x != nil {
+		if x, ok := x.Op.(*OperatorSpec_Limit); ok {
+			return x.Limit
+		}
+	}
+	return nil
+}
+
+type isOperatorSpec_Op interface {
+	isOperatorSpec_Op()
+}
+
+type OperatorSpec_Scan struct {
+	Scan *ScanSpec `protobuf:"bytes,1,opt,name=scan,proto3,oneof"`
+}
+
+type OperatorSpec_Filter struct {
+	Filter *FilterSpec `protobuf:"bytes,2,opt,name=filter,proto3,oneof"`
+}
+
+type OperatorSpec_GroupBy struct {
+	GroupBy *GroupBySpec `protobuf:"bytes,3,opt,name=group_by,json=groupBy,proto3,oneof"`
+}
+
+type OperatorSpec_Aggregate struct {
+	Aggregate *AggregateSpec `protobuf:"bytes,4,opt,name=aggregate,proto3,oneof"`
+}
+
+type OperatorSpec_Sort struct {
+	Sort *SortSpec `protobuf:"bytes,5,opt,name=sort,proto3,oneof"`
+}
+
+type OperatorSpec_Project struct {
+	Project *ProjectSpec `protobuf:"bytes,6,opt,name=project,proto3,oneof"`
+}
+
+type OperatorSpec_Limit struct {
+	Limit *LimitSpec `protobuf:"bytes,7,opt,name=limit,proto3,oneof"`
+}
+
+func (*OperatorSpec_Scan) isOperatorSpec_Op() {}
+
+func (*OperatorSpec_Filter) isOperatorSpec_Op() {}
+
+func (*OperatorSpec_GroupBy) isOperatorSpec_Op() {}
+
+func (*OperatorSpec_Aggregate) isOperatorSpec_Op() {}
+
+func (*OperatorSpec_Sort) isOperatorSpec_Op() {}
+
+func (*OperatorSpec_Project) isOperatorSpec_Op() {}
+
+func (*OperatorSpec_Limit) isOperatorSpec_Op() {}
+
+// 查询计划
+type QueryPlan struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Database      string                 `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	Measurement   string                 `protobuf:"bytes,2,opt,name=measurement,proto3" json:"measurement,omitempty"`
+	StartTime     int64                  `protobuf:"varint,3,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	EndTime       int64                  `protobuf:"varint,4,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
+	Ops           []*OperatorSpec        `protobuf:"bytes,5,rep,name=ops,proto3" json:"ops,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryPlan) Reset() {
+	*x = QueryPlan{}
+	mi := &file_proto_mts_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryPlan) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryPlan) ProtoMessage() {}
+
+func (x *QueryPlan) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mts_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryPlan.ProtoReflect.Descriptor instead.
+func (*QueryPlan) Descriptor() ([]byte, []int) {
+	return file_proto_mts_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *QueryPlan) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *QueryPlan) GetMeasurement() string {
+	if x != nil {
+		return x.Measurement
+	}
+	return ""
+}
+
+func (x *QueryPlan) GetStartTime() int64 {
+	if x != nil {
+		return x.StartTime
+	}
+	return 0
+}
+
+func (x *QueryPlan) GetEndTime() int64 {
+	if x != nil {
+		return x.EndTime
+	}
+	return 0
+}
+
+func (x *QueryPlan) GetOps() []*OperatorSpec {
+	if x != nil {
+		return x.Ops
+	}
+	return nil
+}
+
 var File_proto_mts_proto protoreflect.FileDescriptor
 
 const file_proto_mts_proto_rawDesc = "" +
@@ -2198,12 +3050,68 @@ const file_proto_mts_proto_rawDesc = "" +
 	"\x0ecompaction_cfg\x18\x04 \x01(\v2\x1c.microts.v1.CompactionConfigR\rcompactionCfg\x12U\n" +
 	"\x15compression_algorithm\x18\x05 \x01(\x0e2 .microts.v1.CompressionAlgorithmR\x14compressionAlgorithm\x124\n" +
 	"\x16retention_period_nanos\x18\x06 \x01(\x03R\x14retentionPeriodNanos\x12C\n" +
-	"\x1eretention_check_interval_nanos\x18\a \x01(\x03R\x1bretentionCheckIntervalNanos*5\n" +
+	"\x1eretention_check_interval_nanos\x18\a \x01(\x03R\x1bretentionCheckIntervalNanos\"\x8d\x01\n" +
+	"\x0fFilterCondition\x12\x10\n" +
+	"\x03tag\x18\x01 \x01(\tR\x03tag\x12\x14\n" +
+	"\x05field\x18\x02 \x01(\tR\x05field\x12$\n" +
+	"\x02op\x18\x03 \x01(\x0e2\x14.microts.v1.FilterOpR\x02op\x12,\n" +
+	"\x05value\x18\x04 \x01(\v2\x16.microts.v1.FieldValueR\x05value\"Z\n" +
+	"\tSortField\x12\x14\n" +
+	"\x05field\x18\x01 \x01(\tR\x05field\x127\n" +
+	"\tdirection\x18\x02 \x01(\x0e2\x19.microts.v1.SortDirectionR\tdirection\"b\n" +
+	"\vAggFunction\x12\x1a\n" +
+	"\bfunction\x18\x01 \x01(\tR\bfunction\x12\x14\n" +
+	"\x05field\x18\x02 \x01(\tR\x05field\x12!\n" +
+	"\fwindow_nanos\x18\x03 \x01(\x03R\vwindowNanos\"B\n" +
+	"\bScanSpec\x126\n" +
+	"\x17downsample_window_nanos\x18\x01 \x01(\x03R\x15downsampleWindowNanos\"I\n" +
+	"\n" +
+	"FilterSpec\x12;\n" +
+	"\n" +
+	"conditions\x18\x01 \x03(\v2\x1b.microts.v1.FilterConditionR\n" +
+	"conditions\"!\n" +
+	"\vGroupBySpec\x12\x12\n" +
+	"\x04tags\x18\x01 \x03(\tR\x04tags\"F\n" +
+	"\rAggregateSpec\x125\n" +
+	"\tfunctions\x18\x01 \x03(\v2\x17.microts.v1.AggFunctionR\tfunctions\"9\n" +
+	"\bSortSpec\x12-\n" +
+	"\x06fields\x18\x01 \x03(\v2\x15.microts.v1.SortFieldR\x06fields\"%\n" +
+	"\vProjectSpec\x12\x16\n" +
+	"\x06fields\x18\x01 \x03(\tR\x06fields\"9\n" +
+	"\tLimitSpec\x12\x16\n" +
+	"\x06offset\x18\x01 \x01(\x03R\x06offset\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x03R\x05limit\"\xf3\x02\n" +
+	"\fOperatorSpec\x12*\n" +
+	"\x04scan\x18\x01 \x01(\v2\x14.microts.v1.ScanSpecH\x00R\x04scan\x120\n" +
+	"\x06filter\x18\x02 \x01(\v2\x16.microts.v1.FilterSpecH\x00R\x06filter\x124\n" +
+	"\bgroup_by\x18\x03 \x01(\v2\x17.microts.v1.GroupBySpecH\x00R\agroupBy\x129\n" +
+	"\taggregate\x18\x04 \x01(\v2\x19.microts.v1.AggregateSpecH\x00R\taggregate\x12*\n" +
+	"\x04sort\x18\x05 \x01(\v2\x14.microts.v1.SortSpecH\x00R\x04sort\x123\n" +
+	"\aproject\x18\x06 \x01(\v2\x17.microts.v1.ProjectSpecH\x00R\aproject\x12-\n" +
+	"\x05limit\x18\a \x01(\v2\x15.microts.v1.LimitSpecH\x00R\x05limitB\x04\n" +
+	"\x02op\"\xaf\x01\n" +
+	"\tQueryPlan\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12 \n" +
+	"\vmeasurement\x18\x02 \x01(\tR\vmeasurement\x12\x1d\n" +
+	"\n" +
+	"start_time\x18\x03 \x01(\x03R\tstartTime\x12\x19\n" +
+	"\bend_time\x18\x04 \x01(\x03R\aendTime\x12*\n" +
+	"\x03ops\x18\x05 \x03(\v2\x18.microts.v1.OperatorSpecR\x03ops*5\n" +
 	"\x14CompressionAlgorithm\x12\b\n" +
 	"\x04NONE\x10\x00\x12\n" +
 	"\n" +
 	"\x06SNAPPY\x10\x01\x12\a\n" +
-	"\x03LZ4\x10\x022\xb4\x06\n" +
+	"\x03LZ4\x10\x02*<\n" +
+	"\bFilterOp\x12\x06\n" +
+	"\x02EQ\x10\x00\x12\x06\n" +
+	"\x02NE\x10\x01\x12\x06\n" +
+	"\x02GT\x10\x02\x12\a\n" +
+	"\x03GTE\x10\x03\x12\x06\n" +
+	"\x02LT\x10\x04\x12\a\n" +
+	"\x03LTE\x10\x05*\"\n" +
+	"\rSortDirection\x12\a\n" +
+	"\x03ASC\x10\x00\x12\b\n" +
+	"\x04DESC\x10\x012\xb4\x06\n" +
 	"\aMicroTS\x12<\n" +
 	"\x05Write\x12\x18.microts.v1.WriteRequest\x1a\x19.microts.v1.WriteResponse\x12K\n" +
 	"\n" +
@@ -2230,93 +3138,121 @@ func file_proto_mts_proto_rawDescGZIP() []byte {
 	return file_proto_mts_proto_rawDescData
 }
 
-var file_proto_mts_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_mts_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_proto_mts_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_proto_mts_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_proto_mts_proto_goTypes = []any{
 	(CompressionAlgorithm)(0),         // 0: microts.v1.CompressionAlgorithm
-	(*FieldValue)(nil),                // 1: microts.v1.FieldValue
-	(*FieldEntry)(nil),                // 2: microts.v1.FieldEntry
-	(*Point)(nil),                     // 3: microts.v1.Point
-	(*PointRow)(nil),                  // 4: microts.v1.PointRow
-	(*WriteRequest)(nil),              // 5: microts.v1.WriteRequest
-	(*WriteBatchRequest)(nil),         // 6: microts.v1.WriteBatchRequest
-	(*WriteResponse)(nil),             // 7: microts.v1.WriteResponse
-	(*WriteBatchResponse)(nil),        // 8: microts.v1.WriteBatchResponse
-	(*QueryRangeRequest)(nil),         // 9: microts.v1.QueryRangeRequest
-	(*QueryRangeResponse)(nil),        // 10: microts.v1.QueryRangeResponse
-	(*Row)(nil),                       // 11: microts.v1.Row
-	(*ListMeasurementsRequest)(nil),   // 12: microts.v1.ListMeasurementsRequest
-	(*ListMeasurementsResponse)(nil),  // 13: microts.v1.ListMeasurementsResponse
-	(*CreateMeasurementRequest)(nil),  // 14: microts.v1.CreateMeasurementRequest
-	(*CreateMeasurementResponse)(nil), // 15: microts.v1.CreateMeasurementResponse
-	(*DropMeasurementRequest)(nil),    // 16: microts.v1.DropMeasurementRequest
-	(*DropMeasurementResponse)(nil),   // 17: microts.v1.DropMeasurementResponse
-	(*ListDatabasesRequest)(nil),      // 18: microts.v1.ListDatabasesRequest
-	(*ListDatabasesResponse)(nil),     // 19: microts.v1.ListDatabasesResponse
-	(*DownsampleRule)(nil),            // 20: microts.v1.DownsampleRule
-	(*DownsampleConfig)(nil),          // 21: microts.v1.DownsampleConfig
-	(*CreateDatabaseRequest)(nil),     // 22: microts.v1.CreateDatabaseRequest
-	(*CreateDatabaseResponse)(nil),    // 23: microts.v1.CreateDatabaseResponse
-	(*DropDatabaseRequest)(nil),       // 24: microts.v1.DropDatabaseRequest
-	(*DropDatabaseResponse)(nil),      // 25: microts.v1.DropDatabaseResponse
-	(*HealthRequest)(nil),             // 26: microts.v1.HealthRequest
-	(*HealthResponse)(nil),            // 27: microts.v1.HealthResponse
-	(*MemTableConfig)(nil),            // 28: microts.v1.MemTableConfig
-	(*CompactionConfig)(nil),          // 29: microts.v1.CompactionConfig
-	(*Config)(nil),                    // 30: microts.v1.Config
-	nil,                               // 31: microts.v1.Point.TagsEntry
-	nil,                               // 32: microts.v1.Point.FieldsEntry
-	nil,                               // 33: microts.v1.PointRow.TagsEntry
-	nil,                               // 34: microts.v1.WriteRequest.TagsEntry
-	nil,                               // 35: microts.v1.WriteRequest.FieldsEntry
-	nil,                               // 36: microts.v1.QueryRangeRequest.TagsEntry
-	nil,                               // 37: microts.v1.Row.TagsEntry
+	(FilterOp)(0),                     // 1: microts.v1.FilterOp
+	(SortDirection)(0),                // 2: microts.v1.SortDirection
+	(*FieldValue)(nil),                // 3: microts.v1.FieldValue
+	(*FieldEntry)(nil),                // 4: microts.v1.FieldEntry
+	(*Point)(nil),                     // 5: microts.v1.Point
+	(*PointRow)(nil),                  // 6: microts.v1.PointRow
+	(*WriteRequest)(nil),              // 7: microts.v1.WriteRequest
+	(*WriteBatchRequest)(nil),         // 8: microts.v1.WriteBatchRequest
+	(*WriteResponse)(nil),             // 9: microts.v1.WriteResponse
+	(*WriteBatchResponse)(nil),        // 10: microts.v1.WriteBatchResponse
+	(*QueryRangeRequest)(nil),         // 11: microts.v1.QueryRangeRequest
+	(*QueryRangeResponse)(nil),        // 12: microts.v1.QueryRangeResponse
+	(*Row)(nil),                       // 13: microts.v1.Row
+	(*ListMeasurementsRequest)(nil),   // 14: microts.v1.ListMeasurementsRequest
+	(*ListMeasurementsResponse)(nil),  // 15: microts.v1.ListMeasurementsResponse
+	(*CreateMeasurementRequest)(nil),  // 16: microts.v1.CreateMeasurementRequest
+	(*CreateMeasurementResponse)(nil), // 17: microts.v1.CreateMeasurementResponse
+	(*DropMeasurementRequest)(nil),    // 18: microts.v1.DropMeasurementRequest
+	(*DropMeasurementResponse)(nil),   // 19: microts.v1.DropMeasurementResponse
+	(*ListDatabasesRequest)(nil),      // 20: microts.v1.ListDatabasesRequest
+	(*ListDatabasesResponse)(nil),     // 21: microts.v1.ListDatabasesResponse
+	(*DownsampleRule)(nil),            // 22: microts.v1.DownsampleRule
+	(*DownsampleConfig)(nil),          // 23: microts.v1.DownsampleConfig
+	(*CreateDatabaseRequest)(nil),     // 24: microts.v1.CreateDatabaseRequest
+	(*CreateDatabaseResponse)(nil),    // 25: microts.v1.CreateDatabaseResponse
+	(*DropDatabaseRequest)(nil),       // 26: microts.v1.DropDatabaseRequest
+	(*DropDatabaseResponse)(nil),      // 27: microts.v1.DropDatabaseResponse
+	(*HealthRequest)(nil),             // 28: microts.v1.HealthRequest
+	(*HealthResponse)(nil),            // 29: microts.v1.HealthResponse
+	(*MemTableConfig)(nil),            // 30: microts.v1.MemTableConfig
+	(*CompactionConfig)(nil),          // 31: microts.v1.CompactionConfig
+	(*Config)(nil),                    // 32: microts.v1.Config
+	(*FilterCondition)(nil),           // 33: microts.v1.FilterCondition
+	(*SortField)(nil),                 // 34: microts.v1.SortField
+	(*AggFunction)(nil),               // 35: microts.v1.AggFunction
+	(*ScanSpec)(nil),                  // 36: microts.v1.ScanSpec
+	(*FilterSpec)(nil),                // 37: microts.v1.FilterSpec
+	(*GroupBySpec)(nil),               // 38: microts.v1.GroupBySpec
+	(*AggregateSpec)(nil),             // 39: microts.v1.AggregateSpec
+	(*SortSpec)(nil),                  // 40: microts.v1.SortSpec
+	(*ProjectSpec)(nil),               // 41: microts.v1.ProjectSpec
+	(*LimitSpec)(nil),                 // 42: microts.v1.LimitSpec
+	(*OperatorSpec)(nil),              // 43: microts.v1.OperatorSpec
+	(*QueryPlan)(nil),                 // 44: microts.v1.QueryPlan
+	nil,                               // 45: microts.v1.Point.TagsEntry
+	nil,                               // 46: microts.v1.Point.FieldsEntry
+	nil,                               // 47: microts.v1.PointRow.TagsEntry
+	nil,                               // 48: microts.v1.WriteRequest.TagsEntry
+	nil,                               // 49: microts.v1.WriteRequest.FieldsEntry
+	nil,                               // 50: microts.v1.QueryRangeRequest.TagsEntry
+	nil,                               // 51: microts.v1.Row.TagsEntry
 }
 var file_proto_mts_proto_depIdxs = []int32{
-	1,  // 0: microts.v1.FieldEntry.value:type_name -> microts.v1.FieldValue
-	31, // 1: microts.v1.Point.tags:type_name -> microts.v1.Point.TagsEntry
-	32, // 2: microts.v1.Point.fields:type_name -> microts.v1.Point.FieldsEntry
-	33, // 3: microts.v1.PointRow.tags:type_name -> microts.v1.PointRow.TagsEntry
-	2,  // 4: microts.v1.PointRow.fields:type_name -> microts.v1.FieldEntry
-	34, // 5: microts.v1.WriteRequest.tags:type_name -> microts.v1.WriteRequest.TagsEntry
-	35, // 6: microts.v1.WriteRequest.fields:type_name -> microts.v1.WriteRequest.FieldsEntry
-	5,  // 7: microts.v1.WriteBatchRequest.points:type_name -> microts.v1.WriteRequest
-	36, // 8: microts.v1.QueryRangeRequest.tags:type_name -> microts.v1.QueryRangeRequest.TagsEntry
-	11, // 9: microts.v1.QueryRangeResponse.rows:type_name -> microts.v1.Row
-	37, // 10: microts.v1.Row.tags:type_name -> microts.v1.Row.TagsEntry
-	2,  // 11: microts.v1.Row.fields:type_name -> microts.v1.FieldEntry
-	20, // 12: microts.v1.DownsampleConfig.rules:type_name -> microts.v1.DownsampleRule
-	21, // 13: microts.v1.CreateDatabaseRequest.downsample_config:type_name -> microts.v1.DownsampleConfig
-	28, // 14: microts.v1.Config.mem_table_cfg:type_name -> microts.v1.MemTableConfig
-	29, // 15: microts.v1.Config.compaction_cfg:type_name -> microts.v1.CompactionConfig
+	3,  // 0: microts.v1.FieldEntry.value:type_name -> microts.v1.FieldValue
+	45, // 1: microts.v1.Point.tags:type_name -> microts.v1.Point.TagsEntry
+	46, // 2: microts.v1.Point.fields:type_name -> microts.v1.Point.FieldsEntry
+	47, // 3: microts.v1.PointRow.tags:type_name -> microts.v1.PointRow.TagsEntry
+	4,  // 4: microts.v1.PointRow.fields:type_name -> microts.v1.FieldEntry
+	48, // 5: microts.v1.WriteRequest.tags:type_name -> microts.v1.WriteRequest.TagsEntry
+	49, // 6: microts.v1.WriteRequest.fields:type_name -> microts.v1.WriteRequest.FieldsEntry
+	7,  // 7: microts.v1.WriteBatchRequest.points:type_name -> microts.v1.WriteRequest
+	50, // 8: microts.v1.QueryRangeRequest.tags:type_name -> microts.v1.QueryRangeRequest.TagsEntry
+	13, // 9: microts.v1.QueryRangeResponse.rows:type_name -> microts.v1.Row
+	51, // 10: microts.v1.Row.tags:type_name -> microts.v1.Row.TagsEntry
+	4,  // 11: microts.v1.Row.fields:type_name -> microts.v1.FieldEntry
+	22, // 12: microts.v1.DownsampleConfig.rules:type_name -> microts.v1.DownsampleRule
+	23, // 13: microts.v1.CreateDatabaseRequest.downsample_config:type_name -> microts.v1.DownsampleConfig
+	30, // 14: microts.v1.Config.mem_table_cfg:type_name -> microts.v1.MemTableConfig
+	31, // 15: microts.v1.Config.compaction_cfg:type_name -> microts.v1.CompactionConfig
 	0,  // 16: microts.v1.Config.compression_algorithm:type_name -> microts.v1.CompressionAlgorithm
-	1,  // 17: microts.v1.Point.FieldsEntry.value:type_name -> microts.v1.FieldValue
-	1,  // 18: microts.v1.WriteRequest.FieldsEntry.value:type_name -> microts.v1.FieldValue
-	5,  // 19: microts.v1.MicroTS.Write:input_type -> microts.v1.WriteRequest
-	6,  // 20: microts.v1.MicroTS.WriteBatch:input_type -> microts.v1.WriteBatchRequest
-	9,  // 21: microts.v1.MicroTS.QueryRange:input_type -> microts.v1.QueryRangeRequest
-	12, // 22: microts.v1.MicroTS.ListMeasurements:input_type -> microts.v1.ListMeasurementsRequest
-	14, // 23: microts.v1.MicroTS.CreateMeasurement:input_type -> microts.v1.CreateMeasurementRequest
-	16, // 24: microts.v1.MicroTS.DropMeasurement:input_type -> microts.v1.DropMeasurementRequest
-	18, // 25: microts.v1.MicroTS.ListDatabases:input_type -> microts.v1.ListDatabasesRequest
-	22, // 26: microts.v1.MicroTS.CreateDatabase:input_type -> microts.v1.CreateDatabaseRequest
-	24, // 27: microts.v1.MicroTS.DropDatabase:input_type -> microts.v1.DropDatabaseRequest
-	26, // 28: microts.v1.MicroTS.Health:input_type -> microts.v1.HealthRequest
-	7,  // 29: microts.v1.MicroTS.Write:output_type -> microts.v1.WriteResponse
-	8,  // 30: microts.v1.MicroTS.WriteBatch:output_type -> microts.v1.WriteBatchResponse
-	11, // 31: microts.v1.MicroTS.QueryRange:output_type -> microts.v1.Row
-	13, // 32: microts.v1.MicroTS.ListMeasurements:output_type -> microts.v1.ListMeasurementsResponse
-	15, // 33: microts.v1.MicroTS.CreateMeasurement:output_type -> microts.v1.CreateMeasurementResponse
-	17, // 34: microts.v1.MicroTS.DropMeasurement:output_type -> microts.v1.DropMeasurementResponse
-	19, // 35: microts.v1.MicroTS.ListDatabases:output_type -> microts.v1.ListDatabasesResponse
-	23, // 36: microts.v1.MicroTS.CreateDatabase:output_type -> microts.v1.CreateDatabaseResponse
-	25, // 37: microts.v1.MicroTS.DropDatabase:output_type -> microts.v1.DropDatabaseResponse
-	27, // 38: microts.v1.MicroTS.Health:output_type -> microts.v1.HealthResponse
-	29, // [29:39] is the sub-list for method output_type
-	19, // [19:29] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	1,  // 17: microts.v1.FilterCondition.op:type_name -> microts.v1.FilterOp
+	3,  // 18: microts.v1.FilterCondition.value:type_name -> microts.v1.FieldValue
+	2,  // 19: microts.v1.SortField.direction:type_name -> microts.v1.SortDirection
+	33, // 20: microts.v1.FilterSpec.conditions:type_name -> microts.v1.FilterCondition
+	35, // 21: microts.v1.AggregateSpec.functions:type_name -> microts.v1.AggFunction
+	34, // 22: microts.v1.SortSpec.fields:type_name -> microts.v1.SortField
+	36, // 23: microts.v1.OperatorSpec.scan:type_name -> microts.v1.ScanSpec
+	37, // 24: microts.v1.OperatorSpec.filter:type_name -> microts.v1.FilterSpec
+	38, // 25: microts.v1.OperatorSpec.group_by:type_name -> microts.v1.GroupBySpec
+	39, // 26: microts.v1.OperatorSpec.aggregate:type_name -> microts.v1.AggregateSpec
+	40, // 27: microts.v1.OperatorSpec.sort:type_name -> microts.v1.SortSpec
+	41, // 28: microts.v1.OperatorSpec.project:type_name -> microts.v1.ProjectSpec
+	42, // 29: microts.v1.OperatorSpec.limit:type_name -> microts.v1.LimitSpec
+	43, // 30: microts.v1.QueryPlan.ops:type_name -> microts.v1.OperatorSpec
+	3,  // 31: microts.v1.Point.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	3,  // 32: microts.v1.WriteRequest.FieldsEntry.value:type_name -> microts.v1.FieldValue
+	7,  // 33: microts.v1.MicroTS.Write:input_type -> microts.v1.WriteRequest
+	8,  // 34: microts.v1.MicroTS.WriteBatch:input_type -> microts.v1.WriteBatchRequest
+	11, // 35: microts.v1.MicroTS.QueryRange:input_type -> microts.v1.QueryRangeRequest
+	14, // 36: microts.v1.MicroTS.ListMeasurements:input_type -> microts.v1.ListMeasurementsRequest
+	16, // 37: microts.v1.MicroTS.CreateMeasurement:input_type -> microts.v1.CreateMeasurementRequest
+	18, // 38: microts.v1.MicroTS.DropMeasurement:input_type -> microts.v1.DropMeasurementRequest
+	20, // 39: microts.v1.MicroTS.ListDatabases:input_type -> microts.v1.ListDatabasesRequest
+	24, // 40: microts.v1.MicroTS.CreateDatabase:input_type -> microts.v1.CreateDatabaseRequest
+	26, // 41: microts.v1.MicroTS.DropDatabase:input_type -> microts.v1.DropDatabaseRequest
+	28, // 42: microts.v1.MicroTS.Health:input_type -> microts.v1.HealthRequest
+	9,  // 43: microts.v1.MicroTS.Write:output_type -> microts.v1.WriteResponse
+	10, // 44: microts.v1.MicroTS.WriteBatch:output_type -> microts.v1.WriteBatchResponse
+	13, // 45: microts.v1.MicroTS.QueryRange:output_type -> microts.v1.Row
+	15, // 46: microts.v1.MicroTS.ListMeasurements:output_type -> microts.v1.ListMeasurementsResponse
+	17, // 47: microts.v1.MicroTS.CreateMeasurement:output_type -> microts.v1.CreateMeasurementResponse
+	19, // 48: microts.v1.MicroTS.DropMeasurement:output_type -> microts.v1.DropMeasurementResponse
+	21, // 49: microts.v1.MicroTS.ListDatabases:output_type -> microts.v1.ListDatabasesResponse
+	25, // 50: microts.v1.MicroTS.CreateDatabase:output_type -> microts.v1.CreateDatabaseResponse
+	27, // 51: microts.v1.MicroTS.DropDatabase:output_type -> microts.v1.DropDatabaseResponse
+	29, // 52: microts.v1.MicroTS.Health:output_type -> microts.v1.HealthResponse
+	43, // [43:53] is the sub-list for method output_type
+	33, // [33:43] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_proto_mts_proto_init() }
@@ -2330,13 +3266,22 @@ func file_proto_mts_proto_init() {
 		(*FieldValue_StringValue)(nil),
 		(*FieldValue_BoolValue)(nil),
 	}
+	file_proto_mts_proto_msgTypes[40].OneofWrappers = []any{
+		(*OperatorSpec_Scan)(nil),
+		(*OperatorSpec_Filter)(nil),
+		(*OperatorSpec_GroupBy)(nil),
+		(*OperatorSpec_Aggregate)(nil),
+		(*OperatorSpec_Sort)(nil),
+		(*OperatorSpec_Project)(nil),
+		(*OperatorSpec_Limit)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_mts_proto_rawDesc), len(file_proto_mts_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   37,
+			NumEnums:      3,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

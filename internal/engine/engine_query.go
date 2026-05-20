@@ -114,7 +114,7 @@ func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*q
 	// 收集 unordered 目录下匹配 db/measurement 的文件数据
 	unorderedData := e.collectUnorderedData(req)
 
-	return query.NewIteratorWithMemTable(ctx, shards, writerMT, scoped, req, unorderedData...), nil
+	return query.NewIteratorWithMemTable(ctx, shards, writerMT, scoped, req, req.Fields, unorderedData...), nil
 }
 
 // downsampleIterator 创建降采样查询迭代器。
@@ -131,7 +131,7 @@ func (e *Engine) downsampleIterator(ctx context.Context, req *types.QueryRangeRe
 		meas:  req.Measurement,
 	}
 
-	return query.NewIteratorWithMemTable(ctx, nil, nil, scoped, req, downsampledData...), nil
+	return query.NewIteratorWithMemTable(ctx, nil, nil, scoped, req, nil, downsampledData...), nil
 }
 
 // collectDownsampledData 收集降采样数据。
@@ -230,9 +230,112 @@ func listSSTFilesInDir(dir string) ([]string, error) {
 	return files, nil
 }
 
+// Execute 执行查询计划，返回算子 Pipeline 迭代器。
+func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.RowIterator, error) {
+	if e.isClosed() {
+		return nil, fmt.Errorf("engine is closed")
+	}
+
+	var projFields []string
+	for _, op := range plan.Ops {
+		if p := op.GetProject(); p != nil {
+			projFields = p.Fields
+			break
+		}
+	}
+
+	dataIter, err := e.createDataIterator(plan.Database, plan.Measurement, plan.StartTime, plan.EndTime, projFields)
+	if err != nil {
+		return nil, err
+	}
+
+	head, err := query.BuildPipeline(dataIter, plan.Ops)
+	if err != nil {
+		dataIter.Close()
+		return nil, fmt.Errorf("build pipeline: %w", err)
+	}
+
+	rowIter := query.NewRowIterator(head)
+	if err := rowIter.Open(ctx); err != nil {
+		rowIter.Close()
+		return nil, fmt.Errorf("open pipeline: %w", err)
+	}
+
+	return rowIter, nil
+}
+
+// createDataIterator 创建数据源 Iterator（共享逻辑，供 Iterator 和 Execute 使用）。
+func (e *Engine) createDataIterator(database, measurement string, startTime, endTime int64, fields []string) (*query.Iterator, error) {
+	writerMT := e.memTable
+
+	req := &types.QueryRangeRequest{
+		Database:    database,
+		Measurement: measurement,
+		StartTime:   startTime,
+		EndTime:     endTime,
+	}
+
+	shards := e.flusher.GetShards(database, measurement, startTime, endTime)
+	mtHasData := writerMT != nil && (writerMT.Count() > 0 || writerMT.PassiveCount() > 0)
+
+	if len(shards) == 0 && !mtHasData {
+		hasUnordered := false
+		unorderedFiles, _ := unordered.ListFiles(e.dataDir)
+		for _, f := range unorderedFiles {
+			db, meas, _, ok := unordered.ParseFilePath(e.dataDir, f)
+			if ok && db == database && meas == measurement {
+				hasUnordered = true
+				break
+			}
+		}
+		if !hasUnordered {
+			measDir := filepath.Join(e.dataDir, database, measurement)
+			entries, rdErr := os.ReadDir(measDir)
+			if rdErr == nil {
+				for _, entry := range entries {
+					if !entry.IsDir() {
+						continue
+					}
+					parts := strings.SplitN(entry.Name(), "_", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					dataDir := filepath.Join(measDir, entry.Name(), "data")
+					sstEntries, sstErr := os.ReadDir(dataDir)
+					if sstErr != nil {
+						continue
+					}
+					for _, se := range sstEntries {
+						if !se.IsDir() && strings.HasPrefix(se.Name(), "sst_") && strings.HasSuffix(se.Name(), ".bin") {
+							hasUnordered = true
+							break
+						}
+					}
+					if hasUnordered {
+						break
+					}
+				}
+			}
+		}
+		if !hasUnordered {
+			return nil, fmt.Errorf("no data found for %s/%s", database, measurement)
+		}
+	}
+
+	scoped := &scopedSeriesStore{
+		inner: e.seriesStore,
+		db:    database,
+		meas:  measurement,
+	}
+
+	unorderedData := e.collectUnorderedData(req)
+
+	return query.NewIteratorWithMemTable(context.Background(), shards, writerMT, scoped, req, fields, unorderedData...), nil
+}
+
 // IteratorWithMemTable 是包内使用的辅助函数（供测试等场景使用）。
 func IteratorWithMemTable(ctx context.Context, shards []*shard.Shard, wmt *memtable.MemTable, extSeriesStore shard.SeriesStore, req *types.QueryRangeRequest) *query.Iterator {
-	return query.NewIteratorWithMemTable(ctx, shards, wmt, extSeriesStore, req)
+	return query.NewIteratorWithMemTable(ctx, shards, wmt, extSeriesStore, req, req.Fields)
 }
 
 // collectUnorderedData 收集 unordered 目录下匹配 db/measurement 的数据，

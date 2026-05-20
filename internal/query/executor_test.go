@@ -3,76 +3,132 @@ package query
 
 import (
 	"context"
-	"strings"
 	"testing"
-	"time"
 
 	"codeberg.org/micro-ts/mts/types"
 )
 
-func TestQueryExecutor_Execute_NotImplemented(t *testing.T) {
-	executor := NewExecutor(nil)
-
-	req := &types.QueryRangeRequest{
-		Database:    "db1",
-		Measurement: "cpu",
-		StartTime:   time.Now().UnixNano() - int64(time.Hour),
-		EndTime:     time.Now().UnixNano(),
-		Fields:      []string{"usage"},
-		Limit:       100,
+// dataIter 为测试提供数据源迭代器。
+func dataIter(rows []*types.PointRow) *Iterator {
+	req := &types.QueryRangeRequest{}
+	it := &Iterator{req: req}
+	sliceIt := &sliceIterator{rows: rows}
+	it.heap = make(mergeHeap, 0, 1)
+	if sliceIt.Current() != nil {
+		it.heap = append(it.heap, sliceIt)
 	}
+	it.fetchNextValid()
+	return it
+}
 
-	resp, err := executor.Execute(context.TODO(), req)
+func TestBuildPipeline_EmptyOps(t *testing.T) {
+	_, err := BuildPipeline(nil, nil)
 	if err == nil {
-		t.Fatal("expected error for unimplemented executor")
-	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("expected 'not implemented' in error, got: %v", err)
-	}
-	if resp != nil {
-		t.Errorf("expected nil response, got %+v", resp)
+		t.Fatal("expected error for empty ops")
 	}
 }
 
-func TestQueryExecutor_NewExecutor(t *testing.T) {
-	executor := NewExecutor(nil)
-	if executor == nil {
-		t.Fatal("expected non-nil executor")
+func TestBuildPipeline_ScanOnly(t *testing.T) {
+	rows := []*types.PointRow{{Timestamp: 100, Fields: []*types.FieldEntry{{Key: "cpu", Value: types.NewFieldValue(42.0)}}}}
+	iter := dataIter(rows)
+	ops := []*types.OperatorSpec{
+		{Op: &types.OperatorSpec_Scan{Scan: &types.ScanSpec{}}},
+	}
+
+	head, err := BuildPipeline(iter, ops)
+	if err != nil {
+		t.Fatalf("BuildPipeline failed: %v", err)
+	}
+
+	row, err := head.Next()
+	if err != nil {
+		t.Fatalf("Next failed: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected non-nil row")
 	}
 }
 
-func TestQueryExecutor_Execute_WithContext(t *testing.T) {
-	executor := NewExecutor(nil)
-
-	req := &types.QueryRangeRequest{
-		Database:    "testdb",
-		Measurement: "memory",
-		StartTime:   time.Now().UnixNano() - int64(2*time.Hour),
-		EndTime:     time.Now().UnixNano(),
-		Fields:      []string{"used", "free"},
-		Limit:       50,
+func TestBuildPipeline_Project(t *testing.T) {
+	rows := []*types.PointRow{{
+		Timestamp: 100,
+		Fields: []*types.FieldEntry{
+			{Key: "cpu", Value: types.NewFieldValue(42.0)},
+			{Key: "mem", Value: types.NewFieldValue(128.0)},
+		},
+	}}
+	iter := dataIter(rows)
+	ops := []*types.OperatorSpec{
+		{Op: &types.OperatorSpec_Scan{Scan: &types.ScanSpec{}}},
+		{Op: &types.OperatorSpec_Project{Project: &types.ProjectSpec{Fields: []string{"cpu"}}}},
 	}
 
-	_, err := executor.Execute(context.TODO(), req)
-	if err == nil {
-		t.Fatal("expected error for unimplemented executor")
+	head, err := BuildPipeline(iter, ops)
+	if err != nil {
+		t.Fatalf("BuildPipeline failed: %v", err)
+	}
+
+	row, err := head.Next()
+	if err != nil {
+		t.Fatalf("Next failed: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected non-nil row")
+	}
+	if len(row.Fields) != 1 || row.Fields[0].Key != "cpu" {
+		t.Errorf("expected 1 field 'cpu', got %+v", row.Fields)
 	}
 }
 
-func TestQueryExecutor_Execute_EmptyReq(t *testing.T) {
-	executor := NewExecutor(nil)
-
-	req := &types.QueryRangeRequest{
-		Database:    "emptydb",
-		Measurement: "empty",
-		StartTime:   time.Now().UnixNano() - int64(time.Hour),
-		EndTime:     time.Now().UnixNano(),
-		Fields:      []string{"field1"},
-		Limit:       10,
+func TestRowIterator_OpenNextClose(t *testing.T) {
+	rows := []*types.PointRow{{Timestamp: 100, Fields: []*types.FieldEntry{{Key: "cpu", Value: types.NewFieldValue(42.0)}}}}
+	iter := dataIter(rows)
+	ops := []*types.OperatorSpec{
+		{Op: &types.OperatorSpec_Scan{Scan: &types.ScanSpec{}}},
+	}
+	head, err := BuildPipeline(iter, ops)
+	if err != nil {
+		t.Fatalf("BuildPipeline failed: %v", err)
 	}
 
-	_, err := executor.Execute(context.TODO(), req)
-	if err == nil {
-		t.Fatal("expected error for unimplemented executor")
+	ri := NewRowIterator(head)
+	if err := ri.Open(context.Background()); err != nil {
+		t.Fatalf("Open failed: %v", err)
 	}
+
+	if !ri.Next(context.Background()) {
+		t.Fatal("expected Next to return true")
+	}
+	row := ri.Points()
+	if row == nil || row.Timestamp != 100 {
+		t.Errorf("expected timestamp 100, got %+v", row)
+	}
+
+	if err := ri.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	if ri.Next(context.Background()) {
+		t.Fatal("expected Next to return false after close")
+	}
+}
+
+func TestRowIterator_ContextCancel(t *testing.T) {
+	rows := []*types.PointRow{{Timestamp: 100, Fields: []*types.FieldEntry{{Key: "cpu", Value: types.NewFieldValue(42.0)}}}}
+	iter := dataIter(rows)
+	ops := []*types.OperatorSpec{
+		{Op: &types.OperatorSpec_Scan{Scan: &types.ScanSpec{}}},
+	}
+	head, _ := BuildPipeline(iter, ops)
+
+	ri := NewRowIterator(head)
+	_ = ri.Open(context.Background())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if ri.Next(ctx) {
+		t.Fatal("expected Next to return false after context cancel")
+	}
+	_ = ri.Close()
 }

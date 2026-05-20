@@ -417,6 +417,37 @@ func (db *DB) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*quer
 	return db.engine.Iterator(ctx, req)
 }
 
+// Execute 执行查询计划，通过算子 Pipeline 执行 Filter、GroupBy、Aggregate、Sort、Project 等操作。
+//
+// 参数：
+//   - ctx: 上下文
+//   - plan: 查询计划，由 query.Builder 构建
+//
+// 返回：
+//   - *query.RowIterator: 算子 Pipeline 迭代器
+//   - error: 执行失败时返回错误
+//
+// 使用示例：
+//
+//	plan := query.NewBuilder().
+//	    Select("avg(cpu)", "host").
+//	    From("metrics", "cpu").
+//	    TimeRange(start, end).
+//	    GroupBy("host").
+//	    Build()
+//	iter, err := db.Execute(ctx, plan)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer iter.Close()
+//	for iter.Next(ctx) {
+//	    row := iter.Points()
+//	    process(row)
+//	}
+func (db *DB) Execute(ctx context.Context, plan *types.QueryPlan) (*query.RowIterator, error) {
+	return db.engine.Execute(ctx, plan)
+}
+
 // ListMeasurements 列出指定数据库中的所有 Measurement 名称。
 //
 // 参数：
