@@ -331,6 +331,20 @@ func WithCompaction(maxParts int, checkInterval time.Duration) func(*Config) {
 	}
 }
 
+// WithDBName 设置数据库名称。
+func WithDBName(name string) func(*Config) {
+	return func(c *Config) {
+		c.DBName = name
+	}
+}
+
+// WithMeasurementName 设置 Measurement 名称。
+func WithMeasurementName(name string) func(*Config) {
+	return func(c *Config) {
+		c.MeasurementName = name
+	}
+}
+
 // WithCompression 设置压缩算法
 func WithCompression(algo string) func(*Config) {
 	return func(c *Config) {
