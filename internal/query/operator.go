@@ -10,7 +10,6 @@ package query
 import (
 	"container/heap"
 	"context"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -253,13 +252,247 @@ func (f *FilterOperator) Close() error {
 // GroupAggregateOperator —— 分组聚合
 // ===================================
 
-// GroupAggregateOperator 按标签分组并对每个组执行聚合函数。
+// aggAccumulator 聚合累加器接口，支持流式聚合：每行调用 update()，最终调用 result() 产出结果。
+type aggAccumulator interface {
+	update(row *types.PointRow, fieldIndex map[string]int)
+	result() *types.FieldEntry
+}
+
+// avgAccumulator 计算平均值。
+type avgAccumulator struct {
+	field, outputKey string
+	sum              float64
+	count            int
+}
+
+func (a *avgAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	idx, ok := fieldIndex[a.field]
+	if !ok {
+		return
+	}
+	if v, ok := fieldValueFloat(row.Fields[idx].Value); ok {
+		a.sum += v
+		a.count++
+	}
+}
+
+func (a *avgAccumulator) result() *types.FieldEntry {
+	if a.count == 0 {
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+	}
+	return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(a.sum / float64(a.count))}
+}
+
+// maxAccumulator 计算最大值。
+type maxAccumulator struct {
+	field, outputKey string
+	max              float64
+	init             bool
+}
+
+func (a *maxAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	idx, ok := fieldIndex[a.field]
+	if !ok {
+		return
+	}
+	if v, ok := fieldValueFloat(row.Fields[idx].Value); ok {
+		if !a.init || v > a.max {
+			a.max = v
+		}
+		a.init = true
+	}
+}
+
+func (a *maxAccumulator) result() *types.FieldEntry {
+	if !a.init {
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+	}
+	return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(a.max)}
+}
+
+// minAccumulator 计算最小值。
+type minAccumulator struct {
+	field, outputKey string
+	min              float64
+	init             bool
+}
+
+func (a *minAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	idx, ok := fieldIndex[a.field]
+	if !ok {
+		return
+	}
+	if v, ok := fieldValueFloat(row.Fields[idx].Value); ok {
+		if !a.init || v < a.min {
+			a.min = v
+		}
+		a.init = true
+	}
+}
+
+func (a *minAccumulator) result() *types.FieldEntry {
+	if !a.init {
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+	}
+	return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(a.min)}
+}
+
+// sumAccumulator 计算总和。
+type sumAccumulator struct {
+	field, outputKey string
+	sum              float64
+}
+
+func (a *sumAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	idx, ok := fieldIndex[a.field]
+	if !ok {
+		return
+	}
+	if v, ok := fieldValueFloat(row.Fields[idx].Value); ok {
+		a.sum += v
+	}
+}
+
+func (a *sumAccumulator) result() *types.FieldEntry {
+	return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(a.sum)}
+}
+
+// countAccumulator 计算数量。
+type countAccumulator struct {
+	field, outputKey string
+	count            int64
+}
+
+func (a *countAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	if _, ok := fieldIndex[a.field]; ok {
+		a.count++
+	}
+}
+
+func (a *countAccumulator) result() *types.FieldEntry {
+	return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(a.count)}
+}
+
+// firstAccumulator 返回第一个非空值。
+type firstAccumulator struct {
+	field, outputKey string
+	val              *types.FieldValue
+}
+
+func (a *firstAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	if a.val != nil {
+		return
+	}
+	idx, ok := fieldIndex[a.field]
+	if ok {
+		a.val = row.Fields[idx].Value
+	}
+}
+
+func (a *firstAccumulator) result() *types.FieldEntry {
+	if a.val == nil {
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+	}
+	return &types.FieldEntry{Key: a.outputKey, Value: a.val}
+}
+
+// lastAccumulator 返回最后一个非空值。
+type lastAccumulator struct {
+	field, outputKey string
+	val              *types.FieldValue
+}
+
+func (a *lastAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	idx, ok := fieldIndex[a.field]
+	if ok {
+		a.val = row.Fields[idx].Value
+	}
+}
+
+func (a *lastAccumulator) result() *types.FieldEntry {
+	if a.val == nil {
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+	}
+	return &types.FieldEntry{Key: a.outputKey, Value: a.val}
+}
+
+// rangeAccumulator 记录首/尾/尾前值，用于 diff/rate/irate/derivative。
+type rangeAccumulator struct {
+	field, outputKey, fn     string
+	firstVal, lastVal        float64
+	firstTs, lastTs          int64
+	prevVal                 float64
+	prevTs                  int64
+	count                    int
+	hasFirst                  bool
+}
+
+func (a *rangeAccumulator) update(row *types.PointRow, fieldIndex map[string]int) {
+	idx, ok := fieldIndex[a.field]
+	if !ok {
+		return
+	}
+	v, ok := fieldValueFloat(row.Fields[idx].Value)
+	if !ok {
+		return
+	}
+	if !a.hasFirst {
+		a.firstVal = v
+		a.firstTs = row.Timestamp
+		a.hasFirst = true
+	}
+	a.prevVal = a.lastVal
+	a.prevTs = a.lastTs
+	a.lastVal = v
+	a.lastTs = row.Timestamp
+	a.count++
+}
+
+func (a *rangeAccumulator) result() *types.FieldEntry {
+	if a.count < 2 {
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+	}
+	switch a.fn {
+	case "diff":
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(a.lastVal - a.firstVal)}
+	case "rate", "derivative":
+		window := float64(a.lastTs - a.firstTs)
+		if window <= 0 {
+			return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+		}
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue((a.lastVal - a.firstVal) / window * 1e9)}
+	case "irate":
+		window := float64(a.lastTs - a.prevTs)
+		if window <= 0 {
+			return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+		}
+		return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue((a.lastVal - a.prevVal) / window * 1e9)}
+	}
+	return &types.FieldEntry{Key: a.outputKey, Value: types.NewFieldValue(float64(0))}
+}
+
+// fieldValueFloat 从 FieldValue 提取 float64 值（支持 float64 和 int64）。
+func fieldValueFloat(fv *types.FieldValue) (float64, bool) {
+	if fv == nil {
+		return 0, false
+	}
+	switch v := fv.Value.(type) {
+	case *types.FieldValue_FloatValue:
+		return v.FloatValue, true
+	case *types.FieldValue_IntValue:
+		return float64(v.IntValue), true
+	}
+	return 0, false
+}
+
+// GroupAggregateOperator 按标签分组并对每个组执行聚合函数（流式累加器，O(1) 内存）。
 type GroupAggregateOperator struct {
 	upstream    Operator
 	groupByTags []string
 	aggSpecs    []*types.AggFunction
-	rows        []*types.PointRow
+	results     []*types.PointRow
 	pos         int
+	fieldIndex  map[string]int
 }
 
 // NewGroupAggregateOperator 创建分组聚合算子。
@@ -271,7 +504,7 @@ func NewGroupAggregateOperator(upstream Operator, groupByTags []string, aggSpecs
 	}
 }
 
-// Open 初始化上游算子并加载所有数据。
+// Open 初始化上游算子并执行流式聚合。
 func (g *GroupAggregateOperator) Open(ctx context.Context) error {
 	if err := g.upstream.Open(ctx); err != nil {
 		return err
@@ -279,10 +512,42 @@ func (g *GroupAggregateOperator) Open(ctx context.Context) error {
 	return g.loadAndAggregate()
 }
 
-// loadAndAggregate 从上游加载所有数据，分组聚合后排序输出。
+// createAccumulators 根据聚合规格创建累加器列表。
+func (g *GroupAggregateOperator) createAccumulators() []aggAccumulator {
+	accs := make([]aggAccumulator, 0, len(g.aggSpecs))
+	for _, spec := range g.aggSpecs {
+		switch spec.Function {
+		case "avg":
+			accs = append(accs, &avgAccumulator{field: spec.Field, outputKey: "avg_" + spec.Field})
+		case "max":
+			accs = append(accs, &maxAccumulator{field: spec.Field, outputKey: "max_" + spec.Field})
+		case "min":
+			accs = append(accs, &minAccumulator{field: spec.Field, outputKey: "min_" + spec.Field})
+		case "sum":
+			accs = append(accs, &sumAccumulator{field: spec.Field, outputKey: "sum_" + spec.Field})
+		case "count":
+			accs = append(accs, &countAccumulator{field: spec.Field, outputKey: "count_" + spec.Field})
+		case "first":
+			accs = append(accs, &firstAccumulator{field: spec.Field, outputKey: "first_" + spec.Field})
+		case "last":
+			accs = append(accs, &lastAccumulator{field: spec.Field, outputKey: "last_" + spec.Field})
+		case "diff":
+			accs = append(accs, &rangeAccumulator{field: spec.Field, outputKey: "diff_" + spec.Field, fn: "diff"})
+		case "rate":
+			accs = append(accs, &rangeAccumulator{field: spec.Field, outputKey: "rate_" + spec.Field, fn: "rate"})
+		case "irate":
+			accs = append(accs, &rangeAccumulator{field: spec.Field, outputKey: "irate_" + spec.Field, fn: "irate"})
+		case "derivative":
+			accs = append(accs, &rangeAccumulator{field: spec.Field, outputKey: "derivative_" + spec.Field, fn: "derivative"})
+		}
+	}
+	return accs
+}
+
+// loadAndAggregate 流式读取上游数据，实时更新累加器（不物化全量行）。
 func (g *GroupAggregateOperator) loadAndAggregate() error {
-	// 读取所有上游数据并分组
-	groups := make(map[string][]*types.PointRow)
+	groups := make(map[string][]aggAccumulator)
+
 	for {
 		row, err := g.upstream.Next()
 		if err != nil {
@@ -291,22 +556,55 @@ func (g *GroupAggregateOperator) loadAndAggregate() error {
 		if row == nil {
 			break
 		}
-		key := g.groupKey(row)
-		groups[key] = append(groups[key], row)
-	}
 
-	// 对每个分组执行聚合
-	var result []*types.PointRow
-	for _, rows := range groups {
-		aggRow := g.aggregateGroup(rows)
-		if aggRow != nil {
-			result = append(result, aggRow)
+		// 首行惰性构建 fieldIndex
+		if g.fieldIndex == nil {
+			g.fieldIndex = make(map[string]int, len(row.Fields))
+			for i, f := range row.Fields {
+				g.fieldIndex[f.Key] = i
+			}
+		}
+
+		key := g.groupKey(row)
+		accs, ok := groups[key]
+		if !ok {
+			accs = g.createAccumulators()
+			groups[key] = accs
+		}
+		for _, acc := range accs {
+			acc.update(row, g.fieldIndex)
 		}
 	}
 
-	// 排序输出（按标签值保证确定性顺序）
-	g.rows = result
+	for key, accs := range groups {
+		g.results = append(g.results, g.buildResultRow(key, accs))
+	}
 	return nil
+}
+
+// buildResultRow 从累加器构建结果行。
+func (g *GroupAggregateOperator) buildResultRow(key string, accs []aggAccumulator) *types.PointRow {
+	tags := g.parseGroupKey(key)
+	fields := make([]*types.FieldEntry, 0, len(accs))
+	for _, acc := range accs {
+		fields = append(fields, acc.result())
+	}
+	return &types.PointRow{Tags: tags, Fields: fields}
+}
+
+// parseGroupKey 从缓存的 key 还原 tags。
+func (g *GroupAggregateOperator) parseGroupKey(key string) map[string]string {
+	if key == "global" {
+		return nil
+	}
+	tags := make(map[string]string)
+	parts := strings.Split(key, "\x00")
+	for i, tag := range g.groupByTags {
+		if i < len(parts) {
+			tags[tag] = parts[i]
+		}
+	}
+	return tags
 }
 
 // groupKeyCache 缓存 groupKey 计算结果，消除每行字符串分配。
@@ -332,218 +630,12 @@ func (g *GroupAggregateOperator) groupKey(row *types.PointRow) string {
 	return raw
 }
 
-// aggregateGroup 对分组执行聚合计算。
-func (g *GroupAggregateOperator) aggregateGroup(rows []*types.PointRow) *types.PointRow {
-	if len(rows) == 0 {
-		return nil
-	}
-
-	// 按时间戳排序（确保聚合顺序确定）
-	sort.Slice(rows, func(i, j int) bool {
-		return rows[i].Timestamp < rows[j].Timestamp
-	})
-
-	// 保留分组标签
-	tags := make(map[string]string)
-	for _, tag := range g.groupByTags {
-		if len(rows) > 0 {
-			tags[tag] = rows[0].Tags[tag]
-		}
-	}
-
-	// 聚合后的字段
-	var fields []*types.FieldEntry
-
-	for _, spec := range g.aggSpecs {
-		switch spec.Function {
-		case "avg":
-			fields = append(fields, g.aggAvg(rows, spec.Field))
-		case "max":
-			fields = append(fields, g.aggMax(rows, spec.Field))
-		case "min":
-			fields = append(fields, g.aggMin(rows, spec.Field))
-		case "sum":
-			fields = append(fields, g.aggSum(rows, spec.Field))
-		case "count":
-			fields = append(fields, g.aggCount(rows, spec.Field))
-		case "first":
-			fields = append(fields, g.aggFirst(rows, spec.Field))
-		case "last":
-			fields = append(fields, g.aggLast(rows, spec.Field))
-		case "diff":
-			fields = append(fields, g.aggDiff(rows, spec.Field))
-		case "rate":
-			fields = append(fields, g.aggRate(rows, spec.Field))
-		case "irate":
-			fields = append(fields, g.aggIrate(rows, spec.Field))
-		case "derivative":
-			fields = append(fields, g.aggDerivative(rows, spec.Field))
-		}
-	}
-
-	return &types.PointRow{
-		Tags:   tags,
-		Fields: fields,
-	}
-}
-
-// getFieldFloat 获取行中指定字段的 float64 值。
-func getFieldFloat(row *types.PointRow, field string) (float64, bool) {
-	for _, fe := range row.Fields {
-		if fe.Key == field {
-			if fv := fe.Value.GetFloatValue(); fe.Value != nil {
-				return fv, true
-			}
-			if iv := fe.Value.GetIntValue(); fe.Value != nil {
-				return float64(iv), true
-			}
-		}
-	}
-	return 0, false
-}
-
-// aggAvg 计算平均值。
-func (g *GroupAggregateOperator) aggAvg(rows []*types.PointRow, field string) *types.FieldEntry {
-	var sum float64
-	count := 0
-	for _, row := range rows {
-		if v, ok := getFieldFloat(row, field); ok {
-			sum += v
-			count++
-		}
-	}
-	if count == 0 {
-		return &types.FieldEntry{Key: "avg_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	return &types.FieldEntry{Key: "avg_" + field, Value: types.NewFieldValue(sum / float64(count))}
-}
-
-// aggMax 计算最大值。
-func (g *GroupAggregateOperator) aggMax(rows []*types.PointRow, field string) *types.FieldEntry {
-	max := -math.MaxFloat64
-	for _, row := range rows {
-		if v, ok := getFieldFloat(row, field); ok && v > max {
-			max = v
-		}
-	}
-	return &types.FieldEntry{Key: "max_" + field, Value: types.NewFieldValue(max)}
-}
-
-// aggMin 计算最小值。
-func (g *GroupAggregateOperator) aggMin(rows []*types.PointRow, field string) *types.FieldEntry {
-	min := math.MaxFloat64
-	for _, row := range rows {
-		if v, ok := getFieldFloat(row, field); ok && v < min {
-			min = v
-		}
-	}
-	return &types.FieldEntry{Key: "min_" + field, Value: types.NewFieldValue(min)}
-}
-
-// aggSum 计算总和。
-func (g *GroupAggregateOperator) aggSum(rows []*types.PointRow, field string) *types.FieldEntry {
-	var sum float64
-	for _, row := range rows {
-		if v, ok := getFieldFloat(row, field); ok {
-			sum += v
-		}
-	}
-	return &types.FieldEntry{Key: "sum_" + field, Value: types.NewFieldValue(sum)}
-}
-
-// aggCount 计算数量。
-func (g *GroupAggregateOperator) aggCount(rows []*types.PointRow, field string) *types.FieldEntry {
-	count := 0
-	for _, row := range rows {
-		if _, ok := getFieldFloat(row, field); ok {
-			count++
-		}
-	}
-	return &types.FieldEntry{Key: "count_" + field, Value: types.NewFieldValue(int64(count))}
-}
-
-// aggFirst 返回第一个值。
-func (g *GroupAggregateOperator) aggFirst(rows []*types.PointRow, field string) *types.FieldEntry {
-	for _, row := range rows {
-		for _, fe := range row.Fields {
-			if fe.Key == field {
-				return &types.FieldEntry{Key: "first_" + field, Value: fe.Value}
-			}
-		}
-	}
-	return &types.FieldEntry{Key: "first_" + field, Value: types.NewFieldValue(float64(0))}
-}
-
-// aggLast 返回最后一个值。
-func (g *GroupAggregateOperator) aggLast(rows []*types.PointRow, field string) *types.FieldEntry {
-	for i := len(rows) - 1; i >= 0; i-- {
-		for _, fe := range rows[i].Fields {
-			if fe.Key == field {
-				return &types.FieldEntry{Key: "last_" + field, Value: fe.Value}
-			}
-		}
-	}
-	return &types.FieldEntry{Key: "last_" + field, Value: types.NewFieldValue(float64(0))}
-}
-
-// aggDiff 计算最后一个值与第一个值的差。
-func (g *GroupAggregateOperator) aggDiff(rows []*types.PointRow, field string) *types.FieldEntry {
-	if len(rows) < 2 {
-		return &types.FieldEntry{Key: "diff_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	first, ok1 := getFieldFloat(rows[0], field)
-	last, ok2 := getFieldFloat(rows[len(rows)-1], field)
-	if !ok1 || !ok2 {
-		return &types.FieldEntry{Key: "diff_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	return &types.FieldEntry{Key: "diff_" + field, Value: types.NewFieldValue(last - first)}
-}
-
-// aggRate 计算变化率（diff / 时间窗口）。
-func (g *GroupAggregateOperator) aggRate(rows []*types.PointRow, field string) *types.FieldEntry {
-	if len(rows) < 2 {
-		return &types.FieldEntry{Key: "rate_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	first, ok1 := getFieldFloat(rows[0], field)
-	last, ok2 := getFieldFloat(rows[len(rows)-1], field)
-	if !ok1 || !ok2 {
-		return &types.FieldEntry{Key: "rate_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	window := float64(rows[len(rows)-1].Timestamp - rows[0].Timestamp)
-	if window <= 0 {
-		return &types.FieldEntry{Key: "rate_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	return &types.FieldEntry{Key: "rate_" + field, Value: types.NewFieldValue((last - first) / window * 1e9)}
-}
-
-// aggIrate 计算瞬时变化率（最后两个点的变化率）。
-func (g *GroupAggregateOperator) aggIrate(rows []*types.PointRow, field string) *types.FieldEntry {
-	if len(rows) < 2 {
-		return &types.FieldEntry{Key: "irate_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	prev, ok1 := getFieldFloat(rows[len(rows)-2], field)
-	last, ok2 := getFieldFloat(rows[len(rows)-1], field)
-	if !ok1 || !ok2 {
-		return &types.FieldEntry{Key: "irate_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	window := float64(rows[len(rows)-1].Timestamp - rows[len(rows)-2].Timestamp)
-	if window <= 0 {
-		return &types.FieldEntry{Key: "irate_" + field, Value: types.NewFieldValue(float64(0))}
-	}
-	return &types.FieldEntry{Key: "irate_" + field, Value: types.NewFieldValue((last - prev) / window * 1e9)}
-}
-
-// aggDerivative 计算导数（与 rate 相同，按秒归一化）。
-func (g *GroupAggregateOperator) aggDerivative(rows []*types.PointRow, field string) *types.FieldEntry {
-	return g.aggRate(rows, field)
-}
-
 // Next 返回下一行聚合结果。
 func (g *GroupAggregateOperator) Next() (*types.PointRow, error) {
-	if g.pos >= len(g.rows) {
+	if g.pos >= len(g.results) {
 		return nil, nil
 	}
-	row := g.rows[g.pos]
+	row := g.results[g.pos]
 	g.pos++
 	return row, nil
 }
