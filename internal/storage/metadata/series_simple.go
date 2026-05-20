@@ -157,5 +157,5 @@ func (s *SimpleSeriesStore) GetTags(database, measurement string, sid uint64) (m
 	if !ok {
 		return nil, false
 	}
-	return copyTags(tags), true
+	return tags, true
 }

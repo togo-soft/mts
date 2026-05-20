@@ -256,7 +256,7 @@ func getTagsFromSeriesBucket(seriesBucket *bolt.Bucket, sid uint64) (map[string]
 func (s *seriesStore) GetTags(database, measurement string, sid uint64) (map[string]string, bool) {
 	key := s.cacheKey(database, measurement, sid)
 	if cached, ok := s.cache.Load(key); ok {
-		return copyTags(cached.(map[string]string)), true
+		return cached.(map[string]string), true
 	}
 
 	var tags map[string]string
@@ -282,7 +282,7 @@ func (s *seriesStore) GetTags(database, measurement string, sid uint64) (map[str
 	})
 
 	if tags != nil {
-		s.cache.Store(key, copyTags(tags))
+		s.cache.Store(key, tags)
 		return tags, true
 	}
 	return nil, false

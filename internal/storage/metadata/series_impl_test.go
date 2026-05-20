@@ -119,7 +119,7 @@ func TestSeriesStore_GetTags_CacheHit(t *testing.T) {
 	}
 }
 
-func TestSeriesStore_GetTags_CacheCopy(t *testing.T) {
+func TestSeriesStore_GetTags_SharedReference(t *testing.T) {
 	_, ss := openSeriesDB(t)
 	setupSeriesDBMeas(t, ss)
 
@@ -130,8 +130,8 @@ func TestSeriesStore_GetTags_CacheCopy(t *testing.T) {
 	got["host"] = "modified"
 
 	got2, _ := ss.GetTags("testdb", "cpu", sid)
-	if got2["host"] != "s1" {
-		t.Error("GetTags should return a copy, not reference to cached data")
+	if got2["host"] != "modified" {
+		t.Error("GetTags should return a shared reference, not a copy")
 	}
 }
 
@@ -456,7 +456,7 @@ func TestSimpleSeriesStore_MultipleSIDs(t *testing.T) {
 	}
 }
 
-func TestSimpleSeriesStore_CopyIsolation(t *testing.T) {
+func TestSimpleSeriesStore_SharedReference(t *testing.T) {
 	s := NewSimpleSeriesStore()
 
 	sid, _ := s.AllocateSID("", "", map[string]string{"host": "s1"})
@@ -464,8 +464,8 @@ func TestSimpleSeriesStore_CopyIsolation(t *testing.T) {
 	tags["host"] = "modified"
 
 	tags2, _ := s.GetTags("", "", sid)
-	if tags2["host"] != "s1" {
-		t.Error("GetTagsBySID should return a copy")
+	if tags2["host"] != "modified" {
+		t.Error("GetTags should return a shared reference")
 	}
 }
 
