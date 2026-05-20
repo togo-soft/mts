@@ -256,11 +256,27 @@ func (lcm *LevelManager) Compact(ctx context.Context) (string, []string, error) 
 	for i, p := range overlaps {
 		inputNames[i] = p.Name
 	}
-	lcm.Manifest.RemoveParts(targetLevel, inputNames)
 
 	var newPartSize int64
 	if info, err := os.Stat(outputPath); err == nil {
 		newPartSize = info.Size()
+	}
+
+	// 如果合并结果小于当前层级阈值的 75%，保留在当前层级继续参与后续合并
+	targetOutputLevel := targetLevel + 1
+	if newPartSize < lcm.LevelMaxSize(targetLevel)*3/4 {
+		targetOutputLevel = targetLevel
+		keepPath := filepath.Join(lcm.Manifest.GetLevelPath(targetLevel), fmt.Sprintf("sst_%d.bin", outputSeq))
+		if err := os.Rename(outputPath, keepPath); err != nil {
+			return "", nil, fmt.Errorf("move sstable to current level: %w", err)
+		}
+		outputPath = keepPath
+	}
+
+	// 从当前层级和下一层级中移除被合并的 Parts
+	lcm.Manifest.RemoveParts(targetLevel, inputNames)
+	if nextLvl := lcm.Manifest.GetLevel(targetLevel + 1); nextLvl != nil {
+		lcm.Manifest.RemoveParts(targetLevel+1, inputNames)
 	}
 
 	newPart := PartInfo{
@@ -269,22 +285,24 @@ func (lcm *LevelManager) Compact(ctx context.Context) (string, []string, error) 
 		MinTime: overlaps[0].MinTime,
 		MaxTime: overlaps[len(overlaps)-1].MaxTime,
 	}
-	lcm.Manifest.AddPart(targetLevel+1, newPart)
+	lcm.Manifest.AddPart(targetOutputLevel, newPart)
 
 	if err := lcm.Manifest.Save(); err != nil {
 		return "", nil, fmt.Errorf("save manifest: %w", err)
 	}
 
-	for _, path := range inputPaths {
-		if !lcm.shard.IsSSTUnused(path) {
-			slog.Warn("sstable still in use, deferring cleanup", "path", path)
-			continue
-		}
-		_ = os.Remove(path)
-		// 清理关联的 tombstones 文件
-		tombstonePath := path + ".tombstones"
-		if _, err := os.Stat(tombstonePath); err == nil {
-			_ = os.Remove(tombstonePath)
+	// 清理输入文件（从两个层级目录尝试删除）
+	for _, p := range overlaps {
+		for _, lvl := range []int{targetLevel, targetLevel + 1} {
+			path := filepath.Join(lcm.Manifest.GetLevelPath(lvl), p.Name+".bin")
+			if !lcm.shard.IsSSTUnused(path) {
+				continue
+			}
+			_ = os.Remove(path)
+			tombstonePath := path + ".tombstones"
+			if _, err := os.Stat(tombstonePath); err == nil {
+				_ = os.Remove(tombstonePath)
+			}
 		}
 	}
 

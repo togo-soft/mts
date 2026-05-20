@@ -84,7 +84,17 @@ func TestLevelCompactionE2E_L0ToL1(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelConfig()
+	// 使用极小 MaxSize 使合并后 SSTable 必定超过 75% 阈值从而触发提升
+	lcmCfg := &compaction.LevelConfig{
+		Enabled: true,
+		LevelConfigs: []compaction.LevelSpec{
+			{Level: 0, MaxSize: 1, MaxParts: 2},
+			{Level: 1, MaxSize: 256 * 1024 * 1024, MaxParts: 4},
+			{Level: 2, MaxSize: 1024 * 1024 * 1024, MaxParts: 4},
+			{Level: 3, MaxSize: 4 * 1024 * 1024 * 1024, MaxParts: 0},
+		},
+		Timeout: compaction.DefaultLevelConfig().Timeout,
+	}
 	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelManager failed: %v", err)
@@ -310,7 +320,16 @@ func TestLevelCompactionE2E_DataIntegrity(t *testing.T) {
 	shard := NewShard(cfg)
 	defer func() { _ = shard.Close() }()
 
-	lcmCfg := compaction.DefaultLevelConfig()
+	lcmCfg := &compaction.LevelConfig{
+		Enabled: true,
+		LevelConfigs: []compaction.LevelSpec{
+			{Level: 0, MaxSize: 1, MaxParts: 2},
+			{Level: 1, MaxSize: 256 * 1024 * 1024, MaxParts: 4},
+			{Level: 2, MaxSize: 1024 * 1024 * 1024, MaxParts: 4},
+			{Level: 3, MaxSize: 4 * 1024 * 1024 * 1024, MaxParts: 0},
+		},
+		Timeout: compaction.DefaultLevelConfig().Timeout,
+	}
 	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
 	if err != nil {
 		t.Fatalf("NewLevelManager failed: %v", err)
@@ -610,5 +629,80 @@ func TestLevelCompactionE2E_MultipleLevels(t *testing.T) {
 	}
 	if size := lcm.LevelMaxSize(3); size != 4*1024*1024*1024 {
 		t.Errorf("L3 levelMaxSize should be 4GB, got %d", size)
+	}
+}
+
+// TestLevelCompactionE2E_StayOnSmallMerge 验证合并结果小于当前层级 75% 阈值时保留在当前层级。
+func TestLevelCompactionE2E_StayOnSmallMerge(t *testing.T) {
+	tmpDir := t.TempDir()
+	schemaStore := metadata.NewSimpleSchemaStore()
+	_ = schemaStore.SetSchema("testdb", "cpu", &metadata.Schema{
+		Version: 1,
+		Fields:  []metadata.FieldDef{{Name: "usage", Type: 1}},
+	})
+
+	cfg := ShardConfig{
+		DB:          "testdb",
+		Measurement: "cpu",
+		StartTime:   0,
+		EndTime:     time.Hour.Nanoseconds(),
+		Dir:         tmpDir,
+		SeriesStore: metadata.NewSimpleSeriesStore(),
+		SchemaStore: schemaStore,
+	}
+
+	shard := NewShard(cfg)
+	defer func() { _ = shard.Close() }()
+
+	// 使用正常 MaxSize（远大于测试 SSTable），验证小文件不提升
+	lcmCfg := compaction.DefaultLevelConfig()
+	lcm, err := compaction.NewLevelManager(shard, lcmCfg)
+	if err != nil {
+		t.Fatalf("NewLevelManager failed: %v", err)
+	}
+
+	points1 := []*types.Point{
+		{Timestamp: 1000000000, Tags: map[string]string{"host": "srv"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(10.5)}},
+		{Timestamp: 2000000000, Tags: map[string]string{"host": "srv"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(20.5)}},
+	}
+	points2 := []*types.Point{
+		{Timestamp: 1500000000, Tags: map[string]string{"host": "srv"}, Fields: map[string]*types.FieldValue{"usage": types.NewFieldValue(15.0)}},
+	}
+
+	sst1 := createTestSSTableInLevel(t, tmpDir, 0, 1, points1)
+	sst2 := createTestSSTableInLevel(t, tmpDir, 0, 2, points2)
+
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
+		Name: sst1, Size: 512, MinTime: 1000000000, MaxTime: 2000000000,
+	})
+	lcm.Manifest.AddPart(0, compaction.PartInfo{
+		Name: sst2, Size: 256, MinTime: 1500000000, MaxTime: 1500000000,
+	})
+
+	ctx := context.Background()
+	outputPath, deletedFiles, err := lcm.Compact(ctx)
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+	if outputPath == "" {
+		t.Fatal("expected output path from compaction")
+	}
+	if len(deletedFiles) != 2 {
+		t.Errorf("expected 2 deleted files, got %d", len(deletedFiles))
+	}
+
+	// 核心断言：合并结果太小，应保留在 L0 而非提升到 L1
+	l0Parts := lcm.Manifest.GetLevel(0).Parts
+	if len(l0Parts) != 1 {
+		t.Errorf("expected 1 part remaining in L0 (merge result), got %d", len(l0Parts))
+	}
+	l1Parts := lcm.Manifest.GetLevel(1).Parts
+	if len(l1Parts) != 0 {
+		t.Errorf("expected 0 parts in L1 (too small to promote), got %d", len(l1Parts))
+	}
+
+	// 验证输出文件在 L0 目录
+	if filepath.Base(filepath.Dir(outputPath)) != "L0" {
+		t.Errorf("output should be in L0 directory, got %s", filepath.Dir(outputPath))
 	}
 }
