@@ -83,6 +83,10 @@ func BuildPipeline(scanIter *Iterator, ops []*types.OperatorSpec) (Operator, err
 		return nil, fmt.Errorf("empty operator list")
 	}
 
+	// 优化：检测 Sort→Project→Limit 模式，当 Sort 字段 ⊆ Project 字段时，
+	// 将 Project 移到 Sort 之前（Sort 处理裁剪后的轻量行）
+	ops = reorderSortProject(ops)
+
 	var head Operator = NewScanOperator(scanIter)
 	var groupByTags []string
 	var lastSort *SortOperator
@@ -92,7 +96,12 @@ func BuildPipeline(scanIter *Iterator, ops []*types.OperatorSpec) (Operator, err
 		case *types.OperatorSpec_Scan:
 			// skip
 		case *types.OperatorSpec_Filter:
-			head = NewFilterOperator(head, op.Filter.Conditions)
+			// Scan→Filter 融合：消除一层 interface 分发
+			if _, isScan := head.(*ScanOperator); isScan {
+				head = NewFilteredScanOperator(scanIter, op.Filter.Conditions)
+			} else {
+				head = NewFilterOperator(head, op.Filter.Conditions)
+			}
 		case *types.OperatorSpec_GroupBy:
 			groupByTags = op.GroupBy.Tags
 		case *types.OperatorSpec_Aggregate:
@@ -116,4 +125,44 @@ func BuildPipeline(scanIter *Iterator, ops []*types.OperatorSpec) (Operator, err
 	}
 
 	return head, nil
+}
+
+// reorderSortProject 检测 Sort→Project→Limit 连续模式，
+// 当 Sort 的排序字段是 Project 字段的子集时，交换 Sort 和 Project 位置。
+func reorderSortProject(ops []*types.OperatorSpec) []*types.OperatorSpec {
+	for i := 0; i+2 < len(ops); i++ {
+		if ops[i].GetSort() == nil {
+			continue
+		}
+		if ops[i+1].GetProject() == nil {
+			continue
+		}
+		if ops[i+2].GetLimit() == nil {
+			continue
+		}
+		sortFields := ops[i].GetSort().Fields
+		projFields := ops[i+1].GetProject().Fields
+		if sortFieldsSubsetOfProject(sortFields, projFields) {
+			ops[i], ops[i+1] = ops[i+1], ops[i]
+		}
+	}
+	return ops
+}
+
+// sortFieldsSubsetOfProject 检查所有排序字段是否都在投影字段中。
+// timestamp 总是可用，无需在 Project 中显式声明。
+func sortFieldsSubsetOfProject(sortFields []*types.SortField, projFields []string) bool {
+	projSet := make(map[string]bool, len(projFields))
+	for _, f := range projFields {
+		projSet[f] = true
+	}
+	for _, sf := range sortFields {
+		if sf.Field == "timestamp" {
+			continue
+		}
+		if !projSet[sf.Field] {
+			return false
+		}
+	}
+	return true
 }
