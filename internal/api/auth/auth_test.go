@@ -107,7 +107,7 @@ func TestUnaryServerInterceptor_RequiresAuth(t *testing.T) {
 	interceptor := auth.UnaryServerInterceptor()
 
 	info := &grpc.UnaryServerInfo{
-		FullMethod: "/microts.v1.MicroTS/Write",
+		FullMethod: "/mts.v1.MTS/Write",
 	}
 
 	handler := func(ctx context.Context, req any) (any, error) {

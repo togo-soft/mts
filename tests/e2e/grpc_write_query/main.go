@@ -49,7 +49,7 @@ func main() {
 	}
 	defer func() { _ = conn.Close() }()
 
-	client := types.NewMicroTSClient(conn)
+	client := types.NewMTSClient(conn)
 
 	// 创建带超时的上下文
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
@@ -240,7 +240,7 @@ func startServer(ctx context.Context, dataDir string) {
 	}
 
 	s := grpc.NewServer()
-	types.RegisterMicroTSServer(s, api.New(eng))
+	types.RegisterMTSServer(s, api.New(eng))
 
 	// 在后台运行服务器
 	go func() {

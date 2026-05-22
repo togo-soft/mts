@@ -11,9 +11,9 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-func TestMicroTSService_Health(t *testing.T) {
+func TestMTSService_Health(t *testing.T) {
 	// 基础测试：验证服务结构体存在
-	srv := &MicroTSService{}
+	srv := &MTSService{}
 	_ = srv // srv is always non-nil when created with struct literal
 }
 
@@ -36,11 +36,11 @@ func TestNew(t *testing.T) {
 		t.Errorf("expected engine %v, got %v", eng, srv.engine)
 	}
 
-	// 验证嵌入的 UnimplementedMicroTSServer 已正确嵌入
-	var _ types.MicroTSServer = srv
+	// 验证嵌入的 UnimplementedMTSServer 已正确嵌入
+	var _ types.MTSServer = srv
 }
 
-func TestMicroTSService_Health_CheckResponse(t *testing.T) {
+func TestMTSService_Health_CheckResponse(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -66,7 +66,7 @@ func TestMicroTSService_Health_CheckResponse(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_Write(t *testing.T) {
+func TestMTSService_Write(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -97,7 +97,7 @@ func TestMicroTSService_Write(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_WriteBatch(t *testing.T) {
+func TestMTSService_WriteBatch(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -141,7 +141,7 @@ func TestMicroTSService_WriteBatch(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_Write_WithFields(t *testing.T) {
+func TestMTSService_Write_WithFields(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -173,7 +173,7 @@ func TestMicroTSService_Write_WithFields(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_QueryRange(t *testing.T) {
+func TestMTSService_QueryRange(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -196,7 +196,7 @@ func TestMicroTSService_QueryRange(t *testing.T) {
 	defer func() { _ = it.Close() }()
 }
 
-func TestMicroTSService_ListMeasurements(t *testing.T) {
+func TestMTSService_ListMeasurements(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -222,7 +222,7 @@ func TestMicroTSService_ListMeasurements(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_CreateAndDropMeasurement(t *testing.T) {
+func TestMTSService_CreateAndDropMeasurement(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -275,7 +275,7 @@ func TestMicroTSService_CreateAndDropMeasurement(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_DatabaseOperations(t *testing.T) {
+func TestMTSService_DatabaseOperations(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -461,7 +461,7 @@ func TestFieldValueToAny_Unsupported(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_WriteBatch_Error(t *testing.T) {
+func TestMTSService_WriteBatch_Error(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -488,7 +488,7 @@ func TestMicroTSService_WriteBatch_Error(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_DropMeasurement_NotFound(t *testing.T) {
+func TestMTSService_DropMeasurement_NotFound(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -513,7 +513,7 @@ func TestMicroTSService_DropMeasurement_NotFound(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_DropDatabase_NotFound(t *testing.T) {
+func TestMTSService_DropDatabase_NotFound(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -537,7 +537,7 @@ func TestMicroTSService_DropDatabase_NotFound(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_CreateMeasurement_Duplicate(t *testing.T) {
+func TestMTSService_CreateMeasurement_Duplicate(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -568,7 +568,7 @@ func TestMicroTSService_CreateMeasurement_Duplicate(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_ListMeasurements_EmptyDatabase(t *testing.T) {
+func TestMTSService_ListMeasurements_EmptyDatabase(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -588,7 +588,7 @@ func TestMicroTSService_ListMeasurements_EmptyDatabase(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_QueryRange_WithData(t *testing.T) {
+func TestMTSService_QueryRange_WithData(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -689,7 +689,7 @@ func TestPointRowToProto_WithData(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_Write_EngineError(t *testing.T) {
+func TestMTSService_Write_EngineError(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -723,7 +723,7 @@ func TestMicroTSService_Write_EngineError(t *testing.T) {
 	_ = resp
 }
 
-func TestMicroTSService_WriteBatch_WithEngineError(t *testing.T) {
+func TestMTSService_WriteBatch_WithEngineError(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -760,7 +760,7 @@ func TestMicroTSService_WriteBatch_WithEngineError(t *testing.T) {
 	_ = resp
 }
 
-func TestMicroTSService_WriteBatch_PartialError(t *testing.T) {
+func TestMTSService_WriteBatch_PartialError(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -792,7 +792,7 @@ func TestMicroTSService_WriteBatch_PartialError(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_CreateMeasurement_EngineClosed(t *testing.T) {
+func TestMTSService_CreateMeasurement_EngineClosed(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -823,7 +823,7 @@ func TestMicroTSService_CreateMeasurement_EngineClosed(t *testing.T) {
 	_ = resp
 }
 
-func TestMicroTSService_DropMeasurement_EngineClosed(t *testing.T) {
+func TestMTSService_DropMeasurement_EngineClosed(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -852,7 +852,7 @@ func TestMicroTSService_DropMeasurement_EngineClosed(t *testing.T) {
 	_ = resp
 }
 
-func TestMicroTSService_QueryRange_EngineClosed(t *testing.T) {
+func TestMTSService_QueryRange_EngineClosed(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -914,7 +914,7 @@ func TestPointRowToProto_WithUnknownFieldType(t *testing.T) {
 	// The 66.7% coverage is likely due to the nil row case not being tested.
 }
 
-func TestMicroTSService_CreateMeasurement_Success(t *testing.T) {
+func TestMTSService_CreateMeasurement_Success(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,
@@ -942,7 +942,7 @@ func TestMicroTSService_CreateMeasurement_Success(t *testing.T) {
 	}
 }
 
-func TestMicroTSService_DropMeasurement_Success(t *testing.T) {
+func TestMTSService_DropMeasurement_Success(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
 		ShardDuration: time.Hour,

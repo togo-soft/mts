@@ -25,10 +25,10 @@
 //	// 服务端
 //	service := api.New(engine)
 //	grpcServer := grpc.NewServer()
-//	types.RegisterMicroTSServer(grpcServer, service)
+//	types.RegisterMTSServer(grpcServer, service)
 //
 //	// 客户端 (使用生成的 types 包)
-//	client := types.NewMicroTSClient(conn)
+//	client := types.NewMTSClient(conn)
 //	resp, err := client.Write(ctx, &types.WriteRequest{...})
 package api
 
@@ -45,13 +45,13 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
-// MicroTSService 实现 gRPC MicroTS 服务。
+// MTSService 实现 gRPC MTS 服务。
 //
 // 提供时序数据库的核心操作接口，包括写入、查询和管理功能。
 //
 // 字段说明：
 //
-//   - UnimplementedMicroTSServer: 嵌入 gRPC 生成的未实现桩，确保向前兼容
+//   - UnimplementedMTSServer: 嵌入 gRPC 生成的未实现桩，确保向前兼容
 //   - engine:                     存储引擎实例
 //
 // 并发安全：
@@ -65,11 +65,11 @@ import (
 //	service := api.New(eng)
 //
 //	grpcServer := grpc.NewServer()
-//	types.RegisterMicroTSServer(grpcServer, service)
+//	types.RegisterMTSServer(grpcServer, service)
 //	listener, _ := net.Listen("tcp", ":50051")
 //	grpcServer.Serve(listener)
-type MicroTSService struct {
-	types.UnimplementedMicroTSServer
+type MTSService struct {
+	types.UnimplementedMTSServer
 	engine *engine.Engine
 }
 
@@ -79,9 +79,9 @@ type MicroTSService struct {
 //   - eng: 存储引擎实例
 //
 // 返回：
-//   - *MicroTSService: 服务实例
-func New(eng *engine.Engine) *MicroTSService {
-	return &MicroTSService{
+//   - *MTSService: 服务实例
+func New(eng *engine.Engine) *MTSService {
+	return &MTSService{
 		engine: eng,
 	}
 }
@@ -119,7 +119,7 @@ func pointRowToProto(row *types.PointRow) (*types.Row, error) {
 // 返回：
 //   - *types.WriteResponse: 写入响应，Success=true 表示成功
 //   - error: 处理失败时返回 gRPC 错误
-func (s *MicroTSService) Write(ctx context.Context, req *types.WriteRequest) (*types.WriteResponse, error) {
+func (s *MTSService) Write(ctx context.Context, req *types.WriteRequest) (*types.WriteResponse, error) {
 	point, err := writeRequestToPoint(req)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid request: %v", err)
@@ -143,7 +143,7 @@ func (s *MicroTSService) Write(ctx context.Context, req *types.WriteRequest) (*t
 // 返回：
 //   - *types.WriteBatchResponse: 批量写入响应
 //   - error: 处理失败时返回 gRPC 错误
-func (s *MicroTSService) WriteBatch(ctx context.Context, req *types.WriteBatchRequest) (*types.WriteBatchResponse, error) {
+func (s *MTSService) WriteBatch(ctx context.Context, req *types.WriteBatchRequest) (*types.WriteBatchResponse, error) {
 	points := make([]*types.Point, 0, len(req.Points))
 	for i, p := range req.Points {
 		point, err := writeRequestToPoint(p)
@@ -167,7 +167,7 @@ func (s *MicroTSService) WriteBatch(ctx context.Context, req *types.WriteBatchRe
 //
 // 数据按时间戳升序逐行发送，客户端可边接收边处理。
 // 当客户端断开连接或 context 取消时，自动停止迭代。
-func (s *MicroTSService) QueryRange(req *types.QueryRangeRequest, stream types.MicroTS_QueryRangeServer) error {
+func (s *MTSService) QueryRange(req *types.QueryRangeRequest, stream types.MTS_QueryRangeServer) error {
 	ctx := stream.Context()
 
 	qit, err := s.engine.Iterator(ctx, req)
@@ -207,7 +207,7 @@ func (s *MicroTSService) QueryRange(req *types.QueryRangeRequest, stream types.M
 // 返回：
 //   - *types.ListMeasurementsResponse: Measurement 列表
 //   - error: 查询失败时返回 gRPC 错误
-func (s *MicroTSService) ListMeasurements(ctx context.Context, req *types.ListMeasurementsRequest) (*types.ListMeasurementsResponse, error) {
+func (s *MTSService) ListMeasurements(ctx context.Context, req *types.ListMeasurementsRequest) (*types.ListMeasurementsResponse, error) {
 	measurements, found := s.engine.ListMeasurements(req.Database)
 	if !found {
 		return &types.ListMeasurementsResponse{
@@ -228,7 +228,7 @@ func (s *MicroTSService) ListMeasurements(ctx context.Context, req *types.ListMe
 // 返回：
 //   - *types.CreateMeasurementResponse: 创建结果
 //   - error: 创建失败时返回 gRPC 错误
-func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *types.CreateMeasurementRequest) (*types.CreateMeasurementResponse, error) {
+func (s *MTSService) CreateMeasurement(ctx context.Context, req *types.CreateMeasurementRequest) (*types.CreateMeasurementResponse, error) {
 	_, err := s.engine.CreateMeasurement(req.Database, req.Measurement)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create measurement failed: %v", err)
@@ -247,7 +247,7 @@ func (s *MicroTSService) CreateMeasurement(ctx context.Context, req *types.Creat
 // 返回：
 //   - *types.DropMeasurementResponse: 删除结果
 //   - error: 删除失败时返回 gRPC 错误
-func (s *MicroTSService) DropMeasurement(ctx context.Context, req *types.DropMeasurementRequest) (*types.DropMeasurementResponse, error) {
+func (s *MTSService) DropMeasurement(ctx context.Context, req *types.DropMeasurementRequest) (*types.DropMeasurementResponse, error) {
 	found, err := s.engine.DropMeasurement(req.Database, req.Measurement)
 	if err != nil {
 		if errors.Is(err, engine.ErrDatabaseNotFound) || errors.Is(err, engine.ErrMeasurementNotFound) {
@@ -272,7 +272,7 @@ func (s *MicroTSService) DropMeasurement(ctx context.Context, req *types.DropMea
 // 返回：
 //   - *types.ListDatabasesResponse: 数据库列表
 //   - error: 查询失败时返回 gRPC 错误
-func (s *MicroTSService) ListDatabases(ctx context.Context, req *types.ListDatabasesRequest) (*types.ListDatabasesResponse, error) {
+func (s *MTSService) ListDatabases(ctx context.Context, req *types.ListDatabasesRequest) (*types.ListDatabasesResponse, error) {
 	databases := s.engine.ListDatabases()
 	return &types.ListDatabasesResponse{
 		Databases: databases,
@@ -288,7 +288,7 @@ func (s *MicroTSService) ListDatabases(ctx context.Context, req *types.ListDatab
 // 返回：
 //   - *types.CreateDatabaseResponse: 创建结果
 //   - error: 创建失败时返回 gRPC 错误
-func (s *MicroTSService) CreateDatabase(ctx context.Context, req *types.CreateDatabaseRequest) (*types.CreateDatabaseResponse, error) {
+func (s *MTSService) CreateDatabase(ctx context.Context, req *types.CreateDatabaseRequest) (*types.CreateDatabaseResponse, error) {
 	_ = s.engine.CreateDatabase(req.Database, time.Duration(req.RetentionPeriodNanos), req.DownsampleConfig)
 	return &types.CreateDatabaseResponse{
 		Success: true,
@@ -304,7 +304,7 @@ func (s *MicroTSService) CreateDatabase(ctx context.Context, req *types.CreateDa
 // 返回：
 //   - *types.DropDatabaseResponse: 删除结果
 //   - error: 删除失败时返回 gRPC 错误
-func (s *MicroTSService) DropDatabase(ctx context.Context, req *types.DropDatabaseRequest) (*types.DropDatabaseResponse, error) {
+func (s *MTSService) DropDatabase(ctx context.Context, req *types.DropDatabaseRequest) (*types.DropDatabaseResponse, error) {
 	found := s.engine.DropDatabase(req.Database)
 	if !found {
 		return nil, status.Errorf(codes.NotFound, "database not found: %s", req.Database)
@@ -332,7 +332,7 @@ func (s *MicroTSService) DropDatabase(ctx context.Context, req *types.DropDataba
 // 典型用途：
 //
 //	用于负载均衡器健康检查、Kubernetes liveness/readiness 探针。
-func (s *MicroTSService) Health(ctx context.Context, req *types.HealthRequest) (*types.HealthResponse, error) {
+func (s *MTSService) Health(ctx context.Context, req *types.HealthRequest) (*types.HealthResponse, error) {
 	return &types.HealthResponse{
 		Healthy: true,
 		Version: "1.0.0",

@@ -118,7 +118,7 @@ func main() {
 	}
 
 	s := grpc.NewServer(grpcOpts...)
-	types.RegisterMicroTSServer(s, api.New(eng))
+	types.RegisterMTSServer(s, api.New(eng))
 
 	// 注册健康检查服务（用于 K8s 探针）
 	healthServer := health.NewServer()

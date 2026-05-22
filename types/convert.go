@@ -1,7 +1,7 @@
 // Package types 提供所有数据类型的定义和转换工具。
 //
 // 本包包含：
-//   - protobuf 生成的消息类型（来自 microts.proto）
+//   - protobuf 生成的消息类型（来自 mts.proto）
 //   - 类型转换工具函数
 //
 // 类型分类：

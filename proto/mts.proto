@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package microts.v1;
+package mts.v1;
 
 option go_package = "codeberg.org/micro-ts/mts/types;types";
 
@@ -518,7 +518,7 @@ message QueryPlan {
 // gRPC 服务定义
 // ===================================
 
-// MicroTS 时序数据库服务
+// MTS 时序数据库服务
 //
 // 提供完整的时序数据库远程访问接口，包括：
 //
@@ -531,7 +531,7 @@ message QueryPlan {
 //
 //	所有 RPC 方法都可以从多个 goroutine 并发调用。
 //	gRPC 框架保证每个请求在独立的 goroutine 中处理。
-service MicroTS {
+service MTS {
   // 单点写入
   //
   // 将单个数据点写入时序数据库。
