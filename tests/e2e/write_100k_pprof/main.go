@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 )
@@ -42,10 +42,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg := microts.Config{
+	cfg := mts.Config{
 		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
-		MemTableCfg: &microts.MemTableConfig{
+		MemTableCfg: &mts.MemTableConfig{
 			FlushMemorySize: 64 * 1024 * 1024,
 			FlushPointCount: 50000,
 			FlushIdleNanos:  int64(10 * time.Second),
@@ -55,7 +55,7 @@ func main() {
 	fmt.Printf("Temp dir: %s\n", tmpDir)
 	fmt.Printf("CPU profile: %s\n", cpuProfilePath)
 
-	db, err := microts.Open(&cfg)
+	db, err := mts.Open(&cfg)
 	if err != nil {
 		fmt.Printf("Open failed: %v\n", err)
 		os.Exit(1)

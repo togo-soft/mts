@@ -10,7 +10,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -20,7 +20,7 @@ func main() {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	shardDuration := 500 * time.Millisecond
-	dbCfg := microts.Config{
+	dbCfg := mts.Config{
 		DataDir:            tmpDir,
 		ShardDurationNanos: int64(shardDuration),
 	}
@@ -29,7 +29,7 @@ func main() {
 
 	// 第一次打开数据库，写入数据
 	fmt.Printf("=== First session ===\n")
-	db1, err := microts.Open(&dbCfg)
+	db1, err := mts.Open(&dbCfg)
 	if err != nil {
 		fmt.Printf("Open db1 failed: %v\n", err)
 		os.Exit(1)
@@ -126,7 +126,7 @@ func main() {
 	fmt.Printf("\n=== Second session ===\n")
 
 	func() {
-		db2, err := microts.Open(&dbCfg)
+		db2, err := mts.Open(&dbCfg)
 		if err != nil {
 			fmt.Printf("Open db2 failed: %v\n", err)
 			os.Exit(1)

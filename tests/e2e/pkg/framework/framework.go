@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -55,7 +55,7 @@ func WithShardDuration(d time.Duration) func(*Config) {
 // TestHarness 测试工具，管理数据库生命周期
 type TestHarness struct {
 	tmpDir    string
-	db        *microts.DB
+	db        *mts.DB
 	cfg       *Config
 	startTime int64
 }
@@ -94,10 +94,10 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 		return nil, fmt.Errorf("unknown compression algorithm: %s", cfg.CompressionAlgo)
 	}
 
-	dbCfg := microts.Config{
+	dbCfg := mts.Config{
 		DataDir:            tmpDir,
 		ShardDurationNanos: int64(cfg.ShardDuration),
-		MemTableCfg: &microts.MemTableConfig{
+		MemTableCfg: &mts.MemTableConfig{
 			FlushMemorySize: cfg.FlushMemorySize,
 			FlushPointCount: cfg.FlushPointCount,
 			FlushIdleNanos:  cfg.FlushIdleNanos,
@@ -108,7 +108,7 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 		RetentionCheckIntervalNanos: int64(cfg.RetentionCheckInterval),
 	}
 
-	db, err := microts.Open(&dbCfg)
+	db, err := mts.Open(&dbCfg)
 	if err != nil {
 		return nil, fmt.Errorf("open db failed: %w", err)
 	}
@@ -122,7 +122,7 @@ func NewTestHarness(name string, opts ...func(*Config)) (*TestHarness, error) {
 }
 
 // DB 返回数据库实例
-func (h *TestHarness) DB() *microts.DB {
+func (h *TestHarness) DB() *mts.DB {
 	return h.db
 }
 

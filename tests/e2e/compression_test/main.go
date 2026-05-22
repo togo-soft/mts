@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/framework"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -127,15 +127,15 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 		compressionAlgo = types.CompressionLZ4
 	}
 
-	dbCfg := microts.Config{
+	dbCfg := mts.Config{
 		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
-		MemTableCfg: &microts.MemTableConfig{
+		MemTableCfg: &mts.MemTableConfig{
 			FlushMemorySize: 64 * 1024 * 1024,
 			FlushPointCount: 3000,
 			FlushIdleNanos:  int64(time.Second),
 		},
-		CompactionCfg: &microts.CompactionConfig{
+		CompactionCfg: &mts.CompactionConfig{
 			MaxSstableCount:    4,
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
@@ -145,7 +145,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 		CompressionAlgorithm: compressionAlgo,
 	}
 
-	db2, err := microts.Open(&dbCfg)
+	db2, err := mts.Open(&dbCfg)
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
 		fmt.Printf("  FAIL (reopen): %v\n", err)
@@ -155,7 +155,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 	time.Sleep(500 * time.Millisecond)
 
 	fmt.Printf("  Querying after restart...\n")
-	it, err := db2.Iterator(context.Background(), &microts.QueryRangeRequest{
+	it, err := db2.Iterator(context.Background(), &mts.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: measName,
 		StartTime:   startTime,
@@ -170,7 +170,7 @@ func testRestartRecovery(name string, opt func(*framework.Config)) bool {
 		return false
 	}
 	defer func() { _ = it.Close() }()
-	var rows []*microts.PointRow
+	var rows []*mts.PointRow
 	for it.Next(context.Background()) {
 		rows = append(rows, it.Points())
 	}

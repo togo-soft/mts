@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -46,15 +46,15 @@ func downsampleConfig(windowSeconds int64, functions []string) *types.Downsample
 }
 
 // setupDB 创建测试数据库并返回 DB 实例和临时目录。
-func setupDB(name string, shardDuration, retention time.Duration) (*microts.DB, string, error) {
+func setupDB(name string, shardDuration, retention time.Duration) (*mts.DB, string, error) {
 	tmpDir := filepath.Join(os.TempDir(), "microts_ds_"+name)
 	_ = os.RemoveAll(tmpDir)
 
-	db, err := microts.Open(&microts.Config{
+	db, err := mts.Open(&mts.Config{
 		DataDir:              tmpDir,
 		ShardDurationNanos:   int64(shardDuration),
-		MemTableCfg:          microts.DefaultMemTableConfig(),
-		CompactionCfg:        microts.DefaultCompactionConfig(),
+		MemTableCfg:          mts.DefaultMemTableConfig(),
+		CompactionCfg:        mts.DefaultCompactionConfig(),
 		RetentionPeriodNanos: int64(retention),
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func setupDB(name string, shardDuration, retention time.Duration) (*microts.DB, 
 }
 
 // writeOldPoints 写入带有旧时间戳的数据点（使其处于保留期之前）。
-func writeOldPoints(db *microts.DB, count int, ageSeconds int64, interval time.Duration) error {
+func writeOldPoints(db *mts.DB, count int, ageSeconds int64, interval time.Duration) error {
 	baseTime := time.Now().UnixNano() - ageSeconds*1e9
 	for i := 0; i < count; i++ {
 		p := &types.Point{
@@ -86,7 +86,7 @@ func writeOldPoints(db *microts.DB, count int, ageSeconds int64, interval time.D
 }
 
 // writeCounterPoints 写入计数器类型的数据（用于 rate/irate 验证）。
-func writeCounterPoints(db *microts.DB, count int, ageSeconds int64, interval time.Duration) error {
+func writeCounterPoints(db *mts.DB, count int, ageSeconds int64, interval time.Duration) error {
 	baseTime := time.Now().UnixNano() - ageSeconds*1e9
 	for i := 0; i < count; i++ {
 		p := &types.Point{
@@ -616,11 +616,11 @@ func testRestartRecovery() error {
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	db1, err := microts.Open(&microts.Config{
+	db1, err := mts.Open(&mts.Config{
 		DataDir:              tmpDir,
 		ShardDurationNanos:   int64(shardDuration),
-		MemTableCfg:          microts.DefaultMemTableConfig(),
-		CompactionCfg:        microts.DefaultCompactionConfig(),
+		MemTableCfg:          mts.DefaultMemTableConfig(),
+		CompactionCfg:        mts.DefaultCompactionConfig(),
 		RetentionPeriodNanos: int64(retention),
 	})
 	if err != nil {
@@ -657,11 +657,11 @@ func testRestartRecovery() error {
 	fmt.Println("Session 1 已关闭")
 
 	// 重启数据库
-	db2, err := microts.Open(&microts.Config{
+	db2, err := mts.Open(&mts.Config{
 		DataDir:              tmpDir,
 		ShardDurationNanos:   int64(shardDuration),
-		MemTableCfg:          microts.DefaultMemTableConfig(),
-		CompactionCfg:        microts.DefaultCompactionConfig(),
+		MemTableCfg:          mts.DefaultMemTableConfig(),
+		CompactionCfg:        mts.DefaultCompactionConfig(),
 		RetentionPeriodNanos: int64(retention),
 	})
 	if err != nil {
@@ -707,7 +707,7 @@ func testRestartRecovery() error {
 // ============================================================================
 
 // queryRows 执行查询并返回所有行。
-func queryRows(db *microts.DB, req *types.QueryRangeRequest) ([]*types.PointRow, error) {
+func queryRows(db *mts.DB, req *types.QueryRangeRequest) ([]*types.PointRow, error) {
 	it, err := db.Iterator(context.Background(), req)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)

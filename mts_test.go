@@ -1,5 +1,5 @@
-// microts_test.go
-package microts
+// mts_test.go
+package mts
 
 import (
 	"testing"

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
 )
 
@@ -31,17 +31,17 @@ func main() {
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	cfg := microts.Config{
+	cfg := mts.Config{
 		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
-		MemTableCfg: &microts.MemTableConfig{
+		MemTableCfg: &mts.MemTableConfig{
 			FlushMemorySize: 64 * 1024 * 1024,
 			FlushPointCount: 3000,
 			FlushIdleNanos:  int64(5 * time.Second),
 		},
 	}
 
-	db, _ := microts.Open(&cfg)
+	db, _ := mts.Open(&cfg)
 	_ = db.Write(context.Background(), p)
 	time.Sleep(6 * time.Second)
 	_ = db.Close()

@@ -1,12 +1,12 @@
-// Package microts 提供高性能时序数据库功能。
+// Package mts 提供高性能时序数据库功能。
 //
-// microts（micro time-series）是一个专为高性能时间序列数据存储设计的数据库。
+// mts（micro time-series）是一个专为高性能时间序列数据存储设计的数据库。
 // 它支持高效的点写入、批量写入和范围查询操作。
 //
 // 基本使用示例：
 //
-//	db, err := microts.Open(microts.Config{
-//	    DataDir:       "/var/lib/microts",
+//	db, err := mts.Open(mts.Config{
+//	    DataDir:       "/var/lib/mts",
 //	    ShardDuration: 7 * 24 * time.Hour,
 //	})
 //	if err != nil {
@@ -15,7 +15,7 @@
 //	defer db.Close()
 //
 //	// 写入数据点
-//	point := &microts.Point{
+//	point := &mts.Point{
 //	    Database:    "metrics",
 //	    Measurement: "cpu",
 //	    Tags:        map[string]string{"host": "server1"},
@@ -25,7 +25,7 @@
 //	if err := db.Write(ctx, point); err != nil {
 //	    log.Fatal(err)
 //	}
-package microts
+package mts
 
 import (
 	"context"
@@ -51,7 +51,7 @@ type (
 	//
 	// 使用示例：
 	//
-	//	point := &microts.Point{
+	//	point := &mts.Point{
 	//	    Database:    "metrics",
 	//	    Measurement: "cpu",
 	//	    Tags: map[string]string{
@@ -79,7 +79,7 @@ type (
 	//
 	// 使用示例：
 	//
-	//	req := &microts.QueryRangeRequest{
+	//	req := &mts.QueryRangeRequest{
 	//	    Database:    "metrics",
 	//	    Measurement: "cpu",
 	//	    StartTime:   startTime.UnixNano(),
@@ -100,7 +100,7 @@ type (
 	//
 	// 使用示例：
 	//
-	//	cfg := microts.MemTableConfig{
+	//	cfg := mts.MemTableConfig{
 	//	    FlushMemorySize:  64 * 1024 * 1024, // 64MB
 	//	    FlushPointCount: 10000,
 	//	    FlushIdle:  5 * time.Minute,
@@ -113,7 +113,7 @@ type (
 	//
 	// 使用示例：
 	//
-	//	cfg := microts.CompactionConfig{
+	//	cfg := mts.CompactionConfig{
 	//	    MaxSSTableCount: 4,
 	//	    CheckInterval:   1 * time.Hour,
 	//	}
@@ -150,9 +150,9 @@ type Config = types.Config
 //
 // 使用示例：
 //
-//	cfg := microts.Config{
+//	cfg := mts.Config{
 //	    DataDir:       "/data",
-//	    MemTableCfg:   microts.DefaultMemTableConfig(),
+//	    MemTableCfg:   mts.DefaultMemTableConfig(),
 //	}
 func DefaultMemTableConfig() *types.MemTableConfig {
 	return &types.MemTableConfig{
@@ -199,8 +199,8 @@ type DB struct {
 //
 // 使用示例：
 //
-//	db, err := microts.Open(&microts.Config{
-//	    DataDir:       "/var/lib/microts",
+//	db, err := mts.Open(&mts.Config{
+//	    DataDir:       "/var/lib/mts",
 //	    ShardDuration: 7 * 24 * time.Hour,
 //	})
 //	if err != nil {
@@ -270,7 +270,7 @@ func Open(cfg *Config) (*DB, error) {
 //
 // 使用示例：
 //
-//	point := &microts.Point{
+//	point := &mts.Point{
 //	    Database:    "metrics",
 //	    Measurement: "cpu",
 //	    Tags:        map[string]string{"host": "server1"},
@@ -304,7 +304,7 @@ func (db *DB) Write(ctx context.Context, point *types.Point) error {
 //
 // 使用示例：
 //
-//	points := []*microts.Point{p1, p2, p3}
+//	points := []*mts.Point{p1, p2, p3}
 //	if err := db.WriteBatch(ctx, points); err != nil {
 //	    log.Printf("批量写入失败: %v", err)
 //	}
@@ -343,7 +343,7 @@ func (db *DB) WriteBatch(ctx context.Context, points []*types.Point) error {
 //
 // 使用示例：
 //
-//	resp, err := db.QueryRange(ctx, &microts.QueryRangeRequest{
+//	resp, err := db.QueryRange(ctx, &mts.QueryRangeRequest{
 //	    Database:    "metrics",
 //	    Measurement: "cpu",
 //	    StartTime:   start.UnixNano(),
@@ -398,7 +398,7 @@ func (db *DB) QueryRange(ctx context.Context, req *types.QueryRangeRequest) (*ty
 //
 // 使用示例：
 //
-//	it, err := db.Iterator(ctx, &microts.QueryRangeRequest{
+//	it, err := db.Iterator(ctx, &mts.QueryRangeRequest{
 //	    Database:    "metrics",
 //	    Measurement: "cpu",
 //	    StartTime:   start.UnixNano(),
@@ -644,7 +644,7 @@ func (db *DB) DropDatabase(ctx context.Context, database string) error {
 //	多个 Close() 调用是安全的，但只有第一个会生效。
 //	建议配合 defer 使用：
 //
-//		db, err := microts.Open(cfg)
+//		db, err := mts.Open(cfg)
 //		if err != nil {
 //		    log.Fatal(err)
 //		}

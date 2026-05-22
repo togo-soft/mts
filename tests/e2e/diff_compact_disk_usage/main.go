@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/internal/storage/shard/sstable"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/data_gen"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
@@ -33,15 +33,15 @@ type result struct {
 func runTest(dataDir string, compression sstable.CompressionAlgorithm, label string) (int64, int, float64, error) {
 	_ = os.RemoveAll(dataDir)
 
-	cfg := microts.Config{
+	cfg := mts.Config{
 		DataDir:            dataDir,
 		ShardDurationNanos: int64(time.Hour),
-		MemTableCfg: &microts.MemTableConfig{
+		MemTableCfg: &mts.MemTableConfig{
 			FlushMemorySize: 64 * 1024 * 1024,
 			FlushPointCount: 50000,
 			FlushIdleNanos:  int64(30 * time.Second),
 		},
-		CompactionCfg: &microts.CompactionConfig{
+		CompactionCfg: &mts.CompactionConfig{
 			MaxSstableCount:    4,
 			MaxCompactionBatch: 0,
 			ShardSizeLimit:     1 * 1024 * 1024 * 1024,
@@ -51,7 +51,7 @@ func runTest(dataDir string, compression sstable.CompressionAlgorithm, label str
 		CompressionAlgorithm: compression,
 	}
 
-	db, err := microts.Open(&cfg)
+	db, err := mts.Open(&cfg)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("open db: %w", err)
 	}

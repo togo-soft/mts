@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	microts "codeberg.org/micro-ts/mts"
+	"codeberg.org/micro-ts/mts"
 	"codeberg.org/micro-ts/mts/tests/e2e/pkg/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -61,7 +61,7 @@ func getShardDataDir(baseDir, dbName, measurement string) string {
 	return ""
 }
 
-func writePoints(db *microts.DB, dbName, meas string, baseTime int64, count int, step time.Duration, tagCardinality int) error {
+func writePoints(db *mts.DB, dbName, meas string, baseTime int64, count int, step time.Duration, tagCardinality int) error {
 	writeTimer := metrics.NewWriteSummary(count)
 	for i := 0; i < count; i++ {
 		p := &types.Point{
@@ -82,7 +82,7 @@ func writePoints(db *microts.DB, dbName, meas string, baseTime int64, count int,
 	return nil
 }
 
-func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int, error) {
+func queryDedupCount(db *mts.DB, dbName, meas string, start, end int64) (int, error) {
 	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: meas,
@@ -108,7 +108,7 @@ func queryDedupCount(db *microts.DB, dbName, meas string, start, end int64) (int
 	return len(seen), nil
 }
 
-func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.PointRow, error) {
+func mustQuery(db *mts.DB, dbName, meas string, start, end int64) ([]*types.PointRow, error) {
 	it, err := db.Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    dbName,
 		Measurement: meas,
@@ -126,16 +126,16 @@ func mustQuery(db *microts.DB, dbName, meas string, start, end int64) ([]*types.
 	return rows, nil
 }
 
-func defaultDBConfig(tmpDir string) *microts.Config {
-	return &microts.Config{
+func defaultDBConfig(tmpDir string) *mts.Config {
+	return &mts.Config{
 		DataDir:            tmpDir,
 		ShardDurationNanos: int64(time.Hour),
-		MemTableCfg: &microts.MemTableConfig{
+		MemTableCfg: &mts.MemTableConfig{
 			FlushMemorySize: 64 * 1024,
 			FlushPointCount: 2000,
 			FlushIdleNanos:  int64(200 * time.Millisecond),
 		},
-		CompactionCfg: &microts.CompactionConfig{
+		CompactionCfg: &mts.CompactionConfig{
 			MaxSstableCount:    defaultMaxSSTable,
 			CheckIntervalNanos: int64(time.Hour),
 			TimeoutNanos:       int64(defaultTimeout),
@@ -160,7 +160,7 @@ func Test1_LargeScaleIntegrity() error {
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 	cfg.CompactionCfg.MaxCompactionBatch = 1000
 
-	db, err := microts.Open(cfg)
+	db, err := mts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
@@ -235,7 +235,7 @@ func Test2_HighCardinalityDedup() error {
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	db, err := microts.Open(defaultDBConfig(tmpDir))
+	db, err := mts.Open(defaultDBConfig(tmpDir))
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
@@ -278,7 +278,7 @@ func Test3_WriteProtection() error {
 	_ = os.RemoveAll(tmpDir)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	db, err := microts.Open(defaultDBConfig(tmpDir))
+	db, err := mts.Open(defaultDBConfig(tmpDir))
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
@@ -364,7 +364,7 @@ func Test4_ConcurrentWriteCompaction() error {
 	cfg.CompactionCfg.MaxSstableCount = 4
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 
-	db, err := microts.Open(cfg)
+	db, err := mts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
@@ -456,7 +456,7 @@ func Test5_RestartRecovery() error {
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 	cfg.CompactionCfg.MaxCompactionBatch = 1000
 
-	db1, err := microts.Open(cfg)
+	db1, err := mts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open db1: %w", err)
 	}
@@ -479,7 +479,7 @@ func Test5_RestartRecovery() error {
 	fmt.Println("Session 1 已关闭")
 
 	// 重启并验证
-	db2, err := microts.Open(cfg)
+	db2, err := mts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open db2: %w", err)
 	}
@@ -511,7 +511,7 @@ func Test6_CrossShardCompaction() error {
 	cfg.ShardDurationNanos = int64(10 * time.Minute)
 	cfg.MemTableCfg.FlushPointCount = 1000
 
-	db, err := microts.Open(cfg)
+	db, err := mts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
@@ -569,7 +569,7 @@ func Test7_PeriodicCompactionTrigger() error {
 	cfg.MemTableCfg.FlushPointCount = 1000
 	cfg.CompactionCfg.CheckIntervalNanos = int64(2 * time.Second)
 
-	db, err := microts.Open(cfg)
+	db, err := mts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
@@ -638,7 +638,7 @@ func Test8_SSTableReductionEfficiency() error {
 	cfg.CompactionCfg.MaxSstableCount = 4
 	cfg.CompactionCfg.CheckIntervalNanos = int64(3 * time.Second)
 
-	db, err := microts.Open(cfg)
+	db, err := mts.Open(cfg)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
