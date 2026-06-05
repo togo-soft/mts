@@ -11,6 +11,7 @@ package query
 import (
 	"container/heap"
 	"context"
+	"sync/atomic"
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
@@ -117,7 +118,7 @@ type Iterator struct {
 	currentRow *types.PointRow
 	consumed   int64 // 已返回的行数
 	skipped    int64 // 已跳过的行数（用于 offset）
-	closed     bool  // 是否已关闭
+	closed     atomic.Bool // 是否已关闭
 	cancel     context.CancelFunc
 }
 
@@ -410,7 +411,7 @@ func (q *Iterator) projectFields(row *types.PointRow) *types.PointRow {
 //   - 自动检查 context 取消
 //   - 维护 consumed 和 skipped 计数
 func (q *Iterator) Next(ctx context.Context) bool {
-	if q.closed {
+	if q.closed.Load() {
 		return false
 	}
 	// 若调用方未调用 Points() 消费上一行数据，自动跳过
@@ -474,7 +475,7 @@ func (q *Iterator) Points() *types.PointRow {
 //	标记迭代器为已关闭，关闭所有底层数据源以释放资源。
 //	建议配合 defer 使用以确保资源释放。
 func (q *Iterator) Close() error {
-	q.closed = true
+	q.closed.Store(true)
 	if q.cancel != nil {
 		q.cancel()
 	}

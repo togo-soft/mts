@@ -227,14 +227,17 @@ func (lcm *LevelManager) Compact(ctx context.Context) (string, []string, error) 
 			inputNames[i] = p.Name
 		}
 		cp.InputParts = inputNames
+	}
 
+	lcm.manifestMu.Unlock()
+
+	// 在锁外执行文件 I/O，避免慢磁盘阻塞其他 manifest 操作
+	if cp != nil {
 		dataDir := filepath.Join(lcm.shard.Dir(), "data")
 		if err := cp.Save(dataDir); err != nil {
 			slog.Warn("failed to save checkpoint", "error", err)
 		}
 	}
-
-	lcm.manifestMu.Unlock()
 
 	inputPaths := make([]string, len(overlaps))
 	for i, p := range overlaps {
@@ -262,9 +265,15 @@ func (lcm *LevelManager) Compact(ctx context.Context) (string, []string, error) 
 		newPartSize = info.Size()
 	}
 
-	// 如果合并结果小于当前层级阈值的 75%，保留在当前层级继续参与后续合并
+	// 判断合并结果是否应留在当前层级：
+	// - L0→L1 使用配置的 L0ToL1SizeThreshold（低于阈值则留在 L0）
+	// - 其他层级使用当前层级最大容量的 75%
 	targetOutputLevel := targetLevel + 1
-	if newPartSize < lcm.LevelMaxSize(targetLevel)*3/4 {
+	sizeThreshold := lcm.LevelMaxSize(targetLevel) * 3 / 4
+	if targetLevel == 0 && lcm.config.L0ToL1SizeThreshold > 0 {
+		sizeThreshold = lcm.config.L0ToL1SizeThreshold
+	}
+	if newPartSize < sizeThreshold {
 		targetOutputLevel = targetLevel
 		keepPath := filepath.Join(lcm.Manifest.GetLevelPath(targetLevel), fmt.Sprintf("sst_%d.bin", outputSeq))
 		if err := os.Rename(outputPath, keepPath); err != nil {
@@ -430,6 +439,11 @@ func (lcm *LevelManager) merge(ctx context.Context, level int, inputPaths []stri
 	return SaveTombstones(outputPath, tombstones)
 }
 
+// EnsureNextSeq 确保 manifest 的 nextSeq 至少为 minSeq。
+func (lcm *LevelManager) EnsureNextSeq(minSeq uint64) {
+	lcm.Manifest.EnsureNextSeq(minSeq)
+}
+
 // NextSeq 返回下一个序列号。
 func (lcm *LevelManager) NextSeq() uint64 {
 	lcm.seqMu.Lock()
@@ -533,6 +547,7 @@ func (lcm *LevelManager) SelectPartsForMerge(level int) []PartInfo {
 	return selected
 }
 
+// HasOverlap 判断两个 Part 的时间范围是否有重叠。
 func HasOverlap(p1, p2 PartInfo) bool {
 	return p1.MinTime <= p2.MaxTime && p2.MinTime <= p1.MaxTime
 }
@@ -599,18 +614,6 @@ func (lcm *LevelManager) Stop() {
 }
 
 func (lcm *LevelManager) doPeriodicCompaction() {
-	if !lcm.compactInProgress.CompareAndSwap(0, 1) {
-		return
-	}
-
-	if !lcm.ShouldCompact() {
-		lcm.compactInProgress.Store(0)
-		return
-	}
-
-	// 释放锁后调用 Compact()，避免 Compact() 内部的 CAS 自死锁
-	lcm.compactInProgress.Store(0)
-
 	ctx, cancel := context.WithTimeout(lcm.ctx, lcm.config.Timeout)
 	defer cancel()
 

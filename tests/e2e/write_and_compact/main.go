@@ -85,7 +85,7 @@ func main() {
 				{Level: 1, MaxSize: 100 * 1024 * 1024, MaxParts: 0},
 				{Level: 2, MaxSize: 1024 * 1024 * 1024, MaxParts: 0},
 			},
-			L0ToL1SizeThreshold: 1024, // 极小阈值，确保 Size 条件也容易触发
+			L0ToL1SizeThreshold: 100, // 极小阈值（100 字节），确保合并输出晋升到 L1
 			MaxCompactionParts:  10,
 			TombstoneRetention:  1 * time.Hour,
 			CheckInterval:       1 * time.Hour, // 禁用定时检查，仅依赖 Flush 触发

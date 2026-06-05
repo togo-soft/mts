@@ -358,9 +358,19 @@ func (w *WAL) TruncateAfterFlush() error {
 }
 
 // TruncateBefore 删除编号小于 seq 的所有 WAL 段（flush 完成后调用）
+//
+// 如果当前 segment 在删除范围内，先 rotate 关闭它再删除，
+// 确保 Windows 下不会因文件被占用而导致删除失败。
 func (w *WAL) TruncateBefore(seq uint64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// 如果当前 segment 会被删除，先 rotate 关闭它
+	if w.seg != nil && w.seg.num < seq {
+		if err := w.rotateLocked(); err != nil {
+			return err
+		}
+	}
 
 	entries, err := ListSegments(w.dir)
 	if err != nil {
@@ -444,14 +454,15 @@ func (w *WAL) Close() error {
 		return nil
 	}
 
+	// 先获取锁，再关闭 syncDone，避免与周期性同步 goroutine 竞争
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if w.cfg.SyncMode == SyncPeriodic && w.syncDone != nil {
 		if w.syncDoneClosed.CompareAndSwap(false, true) {
 			close(w.syncDone)
 		}
 	}
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
 
 	if err := w.flushLocked(); err != nil {
 		return err
@@ -586,6 +597,9 @@ func (w *WAL) Rotate() error {
 // flushLocked 刷写缓冲（需持有 w.mu）。
 func (w *WAL) flushLocked() error {
 	if w.bufPos == 0 {
+		return nil
+	}
+	if w.seg == nil {
 		return nil
 	}
 	n, err := w.seg.Write(w.buf[:w.bufPos])

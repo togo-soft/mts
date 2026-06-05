@@ -88,10 +88,13 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		Dir:                  shardDir,
 		SeriesStore:          m.seriesStore,
 		SchemaStore:          m.catalog,
-		CompactionCfg:        m.compactionCfg,
 		CompressionAlgorithm: m.compressionAlgo,
 	})
 	m.shards[key] = s
+	s.initCompaction(ShardConfig{
+		CompactionCfg:        m.compactionCfg,
+		CompressionAlgorithm: m.compressionAlgo,
+	})
 
 	if err := m.shardIndex.RegisterShard(db, measurementName, metadata.ShardInfo{
 		ID:        key,
@@ -177,10 +180,13 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 			Dir:                  shardDir,
 			SeriesStore:          m.seriesStore,
 			SchemaStore:          m.catalog,
-			CompactionCfg:        m.compactionCfg,
 			CompressionAlgorithm: m.compressionAlgo,
 		})
 		m.shards[key] = shard
+		shard.initCompaction(ShardConfig{
+			CompactionCfg:        m.compactionCfg,
+			CompressionAlgorithm: m.compressionAlgo,
+		})
 	}
 }
 
@@ -284,11 +290,16 @@ func (m *ShardManager) GetAllShards() []*Shard {
 }
 
 // DeleteShard 删除指定的 Shard。
+// 先从 map 中移除 shard 并释放锁，再执行 Close 和目录删除，
+// 避免长时间持锁阻塞其他 ShardManager 操作。
 func (m *ShardManager) DeleteShard(key string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	shard, ok := m.shards[key]
+	if ok {
+		delete(m.shards, key)
+	}
+	m.mu.Unlock()
+
 	if !ok {
 		return nil
 	}
@@ -304,7 +315,6 @@ func (m *ShardManager) DeleteShard(key string) error {
 		}
 	}
 
-	delete(m.shards, key)
 	return nil
 }
 

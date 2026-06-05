@@ -271,6 +271,7 @@ type MergeIterator struct {
 	err          error
 }
 
+// MergeHeapItem 是归并堆中的一个元素，包含迭代器引用和当前数据点。
 type MergeHeapItem struct {
 	Iter      *sstable.Iterator
 	Point     *types.PointRow
@@ -278,6 +279,7 @@ type MergeHeapItem struct {
 	Timestamp int64
 }
 
+// MergeHeap 是实现 container/heap.Interface 的归并最小堆，按 Timestamp 排序。
 type MergeHeap []*MergeHeapItem
 
 func (h MergeHeap) Len() int { return len(h) }
@@ -305,6 +307,7 @@ func (h *MergeHeap) Pop() any {
 	return item
 }
 
+// NewMergeIterator 创建归并迭代器，将多个有序 SSTable 迭代器合并为单一有序输出流。
 func NewMergeIterator(iters []*sstable.Iterator) *MergeIterator {
 	h := make(MergeHeap, 0, len(iters))
 

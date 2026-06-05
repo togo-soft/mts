@@ -18,7 +18,8 @@ type DedupFilter struct {
 	bloom      []uint64 // 位数组，64位一组
 	window     map[uint64]struct{}
 	ring       []uint64 // 环形缓冲区
-	ringIdx    int
+	ringHead   int      // 环中下一个写入位置
+	ringCount  int      // 环中当前元素数量
 	windowSize int
 	strict     bool
 }
@@ -77,20 +78,19 @@ func (f *DedupFilter) seenRelaxed(key uint64) bool {
 }
 
 // addToWindow 将 key 加入滑动窗口，FIFO 淘汰旧 key。
+// 使用环形缓冲区 + 取模索引，避免 O(windowSize) 复制。
 func (f *DedupFilter) addToWindow(key uint64) {
 	if f.windowSize <= 0 {
 		return
 	}
-	if f.ringIdx >= f.windowSize {
-		old := f.ring[0]
+	if f.ringCount >= f.windowSize {
+		old := f.ring[f.ringHead]
 		delete(f.window, old)
-		copy(f.ring, f.ring[1:])
-		f.ringIdx = f.windowSize - 1
+	} else {
+		f.ringCount++
 	}
-	if f.ringIdx < len(f.ring) {
-		f.ring[f.ringIdx] = key
-		f.ringIdx++
-	}
+	f.ring[f.ringHead] = key
+	f.ringHead = (f.ringHead + 1) % f.windowSize
 	f.window[key] = struct{}{}
 }
 

@@ -32,6 +32,7 @@ type FlushCoordinator struct {
 	closed      bool
 	stopCh      chan struct{}
 	stopOnce    sync.Once
+	wg          sync.WaitGroup
 }
 
 // NewFlushCoordinator 创建新的 FlushCoordinator。
@@ -49,7 +50,9 @@ func NewFlushCoordinator(mt *memtable.MemTable, w *wal.WAL, flusher Flusher, com
 
 // StartPeriodicCheck 启动周期性检查（每 1 秒检查是否需要刷盘）。
 func (fc *FlushCoordinator) StartPeriodicCheck(interval time.Duration) {
+	fc.wg.Add(1)
 	go func() {
+		defer fc.wg.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -130,7 +133,7 @@ func (fc *FlushCoordinator) FlushAll() error {
 	return fc.doFlush()
 }
 
-// Close 停止周期性检查。
+// Close 停止周期性检查并等待 goroutine 退出。
 func (fc *FlushCoordinator) Close() {
 	fc.stopOnce.Do(func() {
 		fc.mu.Lock()
@@ -138,6 +141,7 @@ func (fc *FlushCoordinator) Close() {
 		fc.mu.Unlock()
 		close(fc.stopCh)
 	})
+	fc.wg.Wait()
 }
 
 // MemTable 返回全局 MemTable。

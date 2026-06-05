@@ -97,7 +97,11 @@ type Shard struct {
 	compaction      *compaction.Manager
 	levelCompaction *compaction.LevelManager
 	compressionAlgo types.CompressionAlgorithm
+	compactSem      chan struct{} // 限制并发 compaction goroutine 数量
 }
+
+// maxCompactConcurrency 限制单个 Shard 内并发 compaction goroutine 数量上限。
+const maxCompactConcurrency = 2
 
 // NewShard 创建新的 Shard 实例。
 //
@@ -122,6 +126,7 @@ func NewShard(cfg ShardConfig) *Shard {
 		schemaStore:     cfg.SchemaStore,
 		sstRefs:         newSSTRefs(),
 		compressionAlgo: cfg.CompressionAlgorithm,
+		compactSem:      make(chan struct{}, maxCompactConcurrency),
 	}
 
 	// 恢复 SSTable 序列号
@@ -216,6 +221,9 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 
 	select {
 	case <-ctx.Done():
+		// 超时后清理可能已创建的文件，避免磁盘泄漏
+		expPath := filepath.Join(s.DataDir(), fmt.Sprintf("sst_%d.bin", seq))
+		_ = os.Remove(expPath)
 		return "", 0, 0, 0, fmt.Errorf("write sstable timeout after 5s")
 	case res := <-resCh:
 		return res.sstPath, res.sstSeq, res.minTime, res.maxTime, res.err
@@ -269,17 +277,26 @@ func (s *Shard) RegisterSSTable(sstSeq uint64, minTime, maxTime int64, size int6
 			MinTime: minTime,
 			MaxTime: maxTime,
 		})
+		// 同步 manifest 的 nextSeq，避免 Compact 输出序列号与已有文件冲突
+		s.levelCompaction.EnsureNextSeq(sstSeq + 1)
 	}
 }
 
 // TriggerCompaction 在后台触发 compaction，成功后会级联检查是否仍有文件需要合并。
+// 通过 compactSem 限制并发 goroutine 数量，防止无限递归膨胀。
 func (s *Shard) TriggerCompaction() {
 	if s.closed.Load() {
 		return
 	}
 
 	if s.levelCompaction != nil && s.levelCompaction.ShouldCompact() {
+		select {
+		case s.compactSem <- struct{}{}:
+		default:
+			return
+		}
 		s.compactionWg.Go(func() {
+			defer func() { <-s.compactSem }()
 			if s.closed.Load() {
 				return
 			}
@@ -292,13 +309,18 @@ func (s *Shard) TriggerCompaction() {
 				}
 				return
 			}
-			// 级联：如果仍有文件需要合并，立即触发下一轮
 			if !s.closed.Load() && s.levelCompaction.ShouldCompact() {
 				s.TriggerCompaction()
 			}
 		})
 	} else if s.compaction != nil && s.compaction.ShouldCompactWithLock() {
+		select {
+		case s.compactSem <- struct{}{}:
+		default:
+			return
+		}
 		s.compactionWg.Go(func() {
+			defer func() { <-s.compactSem }()
 			if s.closed.Load() {
 				return
 			}
@@ -313,7 +335,6 @@ func (s *Shard) TriggerCompaction() {
 			}
 			s.compaction.ResetTimer()
 
-			// 级联：如果仍有文件需要合并，立即触发下一轮
 			if !s.closed.Load() && s.compaction.ShouldCompactWithLock() {
 				s.TriggerCompaction()
 			}

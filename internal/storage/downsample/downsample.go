@@ -45,6 +45,7 @@ type Service struct {
 	mu              sync.Mutex
 	running         bool
 	stopCh          chan struct{}
+	wg              sync.WaitGroup
 }
 
 // NewService 创建降采样服务。
@@ -74,23 +75,28 @@ func (s *Service) Start() {
 	s.mu.Unlock()
 
 	slog.Info("downsample service started")
+	s.wg.Add(1)
 	go s.run()
 }
 
-// Stop 停止降采样服务。
+// Stop 停止降采样服务并等待 goroutine 退出。
 func (s *Service) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.running {
+		s.mu.Unlock()
 		return
 	}
 	s.running = false
 	close(s.stopCh)
+	s.mu.Unlock()
+
+	s.wg.Wait()
 	slog.Info("downsample service stopped")
 }
 
 // run 是主循环。
 func (s *Service) run() {
+	defer s.wg.Done()
 	ticker := time.NewTicker(s.defaultInterval)
 	defer ticker.Stop()
 
@@ -274,7 +280,7 @@ func (s *Service) downsampleShard(db, meas string, sstFiles []string, windowDir 
 }
 
 // buildDownsampledFields 为聚合桶构建字段列表。
-func buildDownsampledFields(b bucket, functions []string, windowSeconds float64) []*types.FieldEntry {
+func buildDownsampledFields(b *bucket, functions []string, windowSeconds float64) []*types.FieldEntry {
 	var entries []*types.FieldEntry
 	for _, fn := range functions {
 		switch fn {

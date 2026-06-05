@@ -43,6 +43,16 @@ func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*q
 		return nil, fmt.Errorf("engine is closed")
 	}
 
+	e.queryWg.Add(1)
+	defer e.queryWg.Done()
+
+	// 等待启动恢复完成
+	select {
+	case <-e.recoveryDone:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	if req.DownsampleWindowNanos > 0 {
 		return e.downsampleIterator(ctx, req)
 	}
@@ -56,50 +66,7 @@ func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*q
 	mtHasData := writerMT != nil && (writerMT.Count() > 0 || writerMT.PassiveCount() > 0)
 
 	if len(shards) == 0 && !mtHasData {
-		// 检查是否有 unordered 文件可以查询
-		hasUnordered := false
-		unorderedFiles, _ := unordered.ListFiles(e.dataDir)
-		for _, f := range unorderedFiles {
-			db, meas, _, ok := unordered.ParseFilePath(e.dataDir, f)
-			if ok && db == req.Database && meas == req.Measurement {
-				hasUnordered = true
-				break
-			}
-		}
-		if !hasUnordered {
-			// Fallback: 直接扫描 measurement 目录下的 shard 目录
-			// (异步 compaction 可能在 GetShards 之后才完成 shard 创建)
-			measDir := filepath.Join(e.dataDir, req.Database, req.Measurement)
-			entries, rdErr := os.ReadDir(measDir)
-			if rdErr == nil {
-				for _, entry := range entries {
-					if !entry.IsDir() {
-						continue
-					}
-					// 尝试解析 shard 目录名 {start}_{end}
-					parts := strings.SplitN(entry.Name(), "_", 2)
-					if len(parts) != 2 {
-						continue
-					}
-					// 检查该 shard 目录下是否有 data/ 子目录含 SSTable 文件
-					dataDir := filepath.Join(measDir, entry.Name(), "data")
-					sstEntries, sstErr := os.ReadDir(dataDir)
-					if sstErr != nil {
-						continue
-					}
-					for _, se := range sstEntries {
-						if !se.IsDir() && strings.HasPrefix(se.Name(), "sst_") && strings.HasSuffix(se.Name(), ".bin") {
-							hasUnordered = true
-							break
-						}
-					}
-					if hasUnordered {
-						break
-					}
-				}
-			}
-		}
-		if !hasUnordered {
+		if !e.hasDataForMeasurement(req.Database, req.Measurement) {
 			return nil, fmt.Errorf("no data found for %s/%s", req.Database, req.Measurement)
 		}
 	}
@@ -236,6 +203,16 @@ func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.Row
 		return nil, fmt.Errorf("engine is closed")
 	}
 
+	e.queryWg.Add(1)
+	defer e.queryWg.Done()
+
+	// 等待启动恢复完成
+	select {
+	case <-e.recoveryDone:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	var projFields []string
 	for _, op := range plan.Ops {
 		if p := op.GetProject(); p != nil {
@@ -273,13 +250,13 @@ func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.Row
 
 	head, err := query.BuildPipeline(dataIter, plan.Ops)
 	if err != nil {
-		dataIter.Close()
+		_ = dataIter.Close()
 		return nil, fmt.Errorf("build pipeline: %w", err)
 	}
 
 	rowIter := query.NewRowIterator(head)
 	if err := rowIter.Open(ctx); err != nil {
-		rowIter.Close()
+		_ = rowIter.Close()
 		return nil, fmt.Errorf("open pipeline: %w", err)
 	}
 
@@ -301,45 +278,7 @@ func (e *Engine) createDataIterator(database, measurement string, startTime, end
 	mtHasData := writerMT != nil && (writerMT.Count() > 0 || writerMT.PassiveCount() > 0)
 
 	if len(shards) == 0 && !mtHasData {
-		hasUnordered := false
-		unorderedFiles, _ := unordered.ListFiles(e.dataDir)
-		for _, f := range unorderedFiles {
-			db, meas, _, ok := unordered.ParseFilePath(e.dataDir, f)
-			if ok && db == database && meas == measurement {
-				hasUnordered = true
-				break
-			}
-		}
-		if !hasUnordered {
-			measDir := filepath.Join(e.dataDir, database, measurement)
-			entries, rdErr := os.ReadDir(measDir)
-			if rdErr == nil {
-				for _, entry := range entries {
-					if !entry.IsDir() {
-						continue
-					}
-					parts := strings.SplitN(entry.Name(), "_", 2)
-					if len(parts) != 2 {
-						continue
-					}
-					dataDir := filepath.Join(measDir, entry.Name(), "data")
-					sstEntries, sstErr := os.ReadDir(dataDir)
-					if sstErr != nil {
-						continue
-					}
-					for _, se := range sstEntries {
-						if !se.IsDir() && strings.HasPrefix(se.Name(), "sst_") && strings.HasSuffix(se.Name(), ".bin") {
-							hasUnordered = true
-							break
-						}
-					}
-					if hasUnordered {
-						break
-					}
-				}
-			}
-		}
-		if !hasUnordered {
+		if !e.hasDataForMeasurement(database, measurement) {
 			return nil, fmt.Errorf("no data found for %s/%s", database, measurement)
 		}
 	}
@@ -360,6 +299,44 @@ func IteratorWithMemTable(ctx context.Context, shards []*shard.Shard, wmt *memta
 	return query.NewIteratorWithMemTable(ctx, shards, wmt, extSeriesStore, req, req.Fields, nil)
 }
 
+// hasDataForMeasurement 检查是否存在指定 db/measurement 的数据。
+// 先检查 unordered 文件，再 fallback 扫描 measurement 目录下的 shard 数据目录。
+func (e *Engine) hasDataForMeasurement(db, meas string) bool {
+	unorderedFiles, _ := unordered.ListFiles(e.dataDir)
+	for _, f := range unorderedFiles {
+		fdb, fmeas, _, ok := unordered.ParseFilePath(e.dataDir, f)
+		if ok && fdb == db && fmeas == meas {
+			return true
+		}
+	}
+
+	measDir := filepath.Join(e.dataDir, db, meas)
+	entries, rdErr := os.ReadDir(measDir)
+	if rdErr != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		parts := strings.SplitN(entry.Name(), "_", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		dataDir := filepath.Join(measDir, entry.Name(), "data")
+		sstEntries, sstErr := os.ReadDir(dataDir)
+		if sstErr != nil {
+			continue
+		}
+		for _, se := range sstEntries {
+			if !se.IsDir() && strings.HasPrefix(se.Name(), "sst_") && strings.HasSuffix(se.Name(), ".bin") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // collectUnorderedData 收集 unordered 目录下匹配 db/measurement 的数据，
 // 读取并排序后返回已排序的 PointRow 切片列表。
 func (e *Engine) collectUnorderedData(req *types.QueryRangeRequest) [][]*types.PointRow {
@@ -375,7 +352,7 @@ func (e *Engine) collectUnorderedData(req *types.QueryRangeRequest) [][]*types.P
 	}
 	sstSchema := shard.MetadataSchemaToSSTableSchema(metaSchema)
 
-	var result [][]*types.PointRow
+	result := make([][]*types.PointRow, 0, len(unorderedFiles))
 
 	for _, f := range unorderedFiles {
 		db, meas, _, ok := unordered.ParseFilePath(e.dataDir, f)

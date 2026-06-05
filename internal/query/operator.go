@@ -12,7 +12,6 @@ import (
 	"context"
 	"sort"
 	"strings"
-	"sync"
 
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -200,8 +199,12 @@ func (f *FilterOperator) Next() (*types.PointRow, error) {
 
 // matchAll 检查行是否满足所有条件。
 func (f *FilterOperator) matchAll(row *types.PointRow) bool {
+	fieldIndex := make(map[string]*types.FieldValue, len(row.Fields))
+	for _, fe := range row.Fields {
+		fieldIndex[fe.Key] = fe.Value
+	}
 	for _, cond := range f.conditions {
-		if !f.matchOne(row, cond) {
+		if !f.matchOne(row, cond, fieldIndex) {
 			return false
 		}
 	}
@@ -209,11 +212,11 @@ func (f *FilterOperator) matchAll(row *types.PointRow) bool {
 }
 
 // matchOne 检查行是否满足单个条件。
-func (f *FilterOperator) matchOne(row *types.PointRow, cond *types.FilterCondition) bool {
+func (f *FilterOperator) matchOne(row *types.PointRow, cond *types.FilterCondition, fieldIndex map[string]*types.FieldValue) bool {
 	if cond.Tag != "" {
 		return f.matchTag(row, cond)
 	}
-	return f.matchField(row, cond)
+	return f.matchField(cond, fieldIndex)
 }
 
 // matchTag 检查 tag 值是否满足条件。
@@ -233,14 +236,8 @@ func (f *FilterOperator) matchTag(row *types.PointRow, cond *types.FilterConditi
 }
 
 // matchField 检查字段值是否满足比较条件。
-func (f *FilterOperator) matchField(row *types.PointRow, cond *types.FilterCondition) bool {
-	var fieldVal *types.FieldValue
-	for _, fe := range row.Fields {
-		if fe.Key == cond.Field {
-			fieldVal = fe.Value
-			break
-		}
-	}
+func (f *FilterOperator) matchField(cond *types.FilterCondition, fieldIndex map[string]*types.FieldValue) bool {
+	fieldVal := fieldIndex[cond.Field]
 	if fieldVal == nil {
 		return false
 	}
@@ -599,12 +596,13 @@ func fieldValueFloat(fv *types.FieldValue) (float64, bool) {
 
 // GroupAggregateOperator 按标签分组并对每个组执行聚合函数（流式累加器，O(1) 内存）。
 type GroupAggregateOperator struct {
-	upstream    Operator
-	groupByTags []string
-	aggSpecs    []*types.AggFunction
-	results     []*types.PointRow
-	pos         int
-	fieldIndex  map[string]int
+	upstream      Operator
+	groupByTags   []string
+	aggSpecs      []*types.AggFunction
+	results       []*types.PointRow
+	pos           int
+	fieldIndex    map[string]int
+	groupKeyCache map[string]string // 查询级缓存，随算子生命周期释放
 }
 
 // NewGroupAggregateOperator 创建分组聚合算子。
@@ -719,15 +717,12 @@ func (g *GroupAggregateOperator) parseGroupKey(key string) map[string]string {
 	return tags
 }
 
-// groupKeyCache 缓存 groupKey 计算结果，消除每行字符串分配。
-var groupKeyCache sync.Map
-
 // groupKey 计算分组的 key。
 func (g *GroupAggregateOperator) groupKey(row *types.PointRow) string {
 	if len(g.groupByTags) == 0 {
 		return "global"
 	}
-	// 单 tag 快速路径：直接返回 tag 值，无需 Builder 或 sync.Map 查找
+	// 单 tag 快速路径：直接返回 tag 值，无需 Builder 或缓存查找
 	if len(g.groupByTags) == 1 {
 		return row.Tags[g.groupByTags[0]]
 	}
@@ -739,10 +734,13 @@ func (g *GroupAggregateOperator) groupKey(row *types.PointRow) string {
 		buf.WriteString(row.Tags[tag])
 	}
 	raw := buf.String()
-	if cached, ok := groupKeyCache.Load(raw); ok {
-		return cached.(string)
+	if cached, ok := g.groupKeyCache[raw]; ok {
+		return cached
 	}
-	groupKeyCache.Store(raw, raw)
+	if g.groupKeyCache == nil {
+		g.groupKeyCache = make(map[string]string)
+	}
+	g.groupKeyCache[raw] = raw
 	return raw
 }
 

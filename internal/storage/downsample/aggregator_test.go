@@ -290,7 +290,7 @@ func TestBuildDownsampledFields_Avg(t *testing.T) {
 	acc.add(2.0, 200)
 	acc.add(3.0, 300)
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"cpu": acc},
 	}
@@ -312,7 +312,7 @@ func TestBuildDownsampledFields_MultipleFunctions(t *testing.T) {
 	acc.add(2.0, 200)
 	acc.add(3.0, 300)
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"mem": acc},
 	}
@@ -337,7 +337,7 @@ func TestBuildDownsampledFields_CountIsInt64(t *testing.T) {
 	acc.add(1.0, 100)
 	acc.add(2.0, 200)
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"cpu": acc},
 	}
@@ -354,7 +354,7 @@ func TestBuildDownsampledFields_EmptyFunctions(t *testing.T) {
 	acc := newAccumulator()
 	acc.add(1.0, 100)
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"cpu": acc},
 	}
@@ -375,7 +375,7 @@ func TestBuildDownsampledFields_Diff(t *testing.T) {
 	acc.add(15.0, 200)
 	acc.add(25.0, 300)
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"cpu": acc},
 	}
@@ -396,7 +396,7 @@ func TestBuildDownsampledFields_Rate(t *testing.T) {
 	acc.add(100.0, 1000000000)
 	acc.add(200.0, 61000000000)
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"cpu": acc},
 	}
@@ -419,7 +419,7 @@ func TestBuildDownsampledFields_Irate(t *testing.T) {
 	acc.add(150.0, 6000000000)  // t=6s
 	acc.add(200.0, 11000000000) // t=11s
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"cpu": acc},
 	}
@@ -441,7 +441,7 @@ func TestBuildDownsampledFields_Derivative(t *testing.T) {
 	acc.add(10.0, 1000000000)
 	acc.add(20.0, 31000000000)
 
-	b := bucket{
+	b := &bucket{
 		windowStart:  100,
 		accumulators: map[string]*accumulator{"cpu": acc},
 	}

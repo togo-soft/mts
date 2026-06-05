@@ -101,7 +101,7 @@ type bucket struct {
 }
 
 // aggregateSSTFiles 读取 SSTable 并按窗口聚合。
-func aggregateSSTFiles(files []string, windowNanos, shardStart int64, functions []string, schema sstable.Schema) ([]bucket, error) {
+func aggregateSSTFiles(files []string, windowNanos, shardStart int64, functions []string, schema sstable.Schema) ([]*bucket, error) {
 	bucketMap := make(map[int64]*bucket)
 
 	for _, f := range files {
@@ -167,10 +167,10 @@ func toFloat64(fv *types.FieldValue) float64 {
 }
 
 // sortedBuckets 按窗口起始时间排序桶。
-func sortedBuckets(m map[int64]*bucket) []bucket {
-	result := make([]bucket, 0, len(m))
+func sortedBuckets(m map[int64]*bucket) []*bucket {
+	result := make([]*bucket, 0, len(m))
 	for _, b := range m {
-		result = append(result, *b)
+		result = append(result, b)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].windowStart < result[j].windowStart

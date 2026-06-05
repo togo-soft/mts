@@ -21,6 +21,13 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 		return fmt.Errorf("engine closed")
 	}
 
+	// 等待启动恢复完成（WAL replay + shard 发现）
+	select {
+	case <-e.recoveryDone:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -106,6 +113,13 @@ func (e *Engine) flushWithRetry() error {
 func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 	if e.isClosed() {
 		return fmt.Errorf("engine closed")
+	}
+
+	// 等待启动恢复完成（WAL replay + shard 发现）
+	select {
+	case <-e.recoveryDone:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	select {

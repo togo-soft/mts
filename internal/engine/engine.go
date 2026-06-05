@@ -29,6 +29,15 @@ import (
 	"codeberg.org/micro-ts/mts/types"
 )
 
+const (
+	// maxTimeSentinel 用作最大时间哨兵值，表示无穷远的时间边界。
+	maxTimeSentinel = 1 << 62
+	// unorderedCompactionInterval 是 unordered → L0 compaction 的定时检查间隔。
+	unorderedCompactionInterval = 500 * time.Millisecond
+	// defaultMaxWALSegments 是 WAL 默认最大 segment 数量。
+	defaultMaxWALSegments = 5
+)
+
 // 错误定义
 var (
 	ErrNilPoint            = errors.New("point is nil")
@@ -70,6 +79,10 @@ type Engine struct {
 	closed        bool
 	shutdownMu    sync.Mutex
 
+	// 启动恢复同步：recovery 完成后关闭此 channel，
+	// Write/Query 在继续之前等待此信号。
+	recoveryDone chan struct{}
+
 	// unordered → L0 compaction
 	compactionStopCh chan struct{}
 }
@@ -107,7 +120,7 @@ func New(cfg *Config) (*Engine, error) {
 	walCfg := wal.Config{
 		Dir:          walDir,
 		SegmentSize:  64 * 1024 * 1024,
-		MaxSegments:  5,
+		MaxSegments:  defaultMaxWALSegments,
 		SyncMode:     wal.SyncPeriodic,
 		SyncInterval: time.Minute,
 		Compressed:   true,
@@ -168,7 +181,7 @@ func New(cfg *Config) (*Engine, error) {
 	// 启动 unordered → stable/L0 compaction 定时任务（每 500ms）
 	engine.compactionStopCh = make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
+		ticker := time.NewTicker(unorderedCompactionInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -181,7 +194,11 @@ func New(cfg *Config) (*Engine, error) {
 	}()
 
 	// 后台发现已有 measurement 的 Shard 并重放全局 WAL
-	go engine.discoverAndRecover()
+	engine.recoveryDone = make(chan struct{})
+	go func() {
+		engine.discoverAndRecover()
+		close(engine.recoveryDone)
+	}()
 
 	return engine, nil
 }
@@ -196,7 +213,7 @@ func (e *Engine) discoverAndRecover() {
 		}
 		for _, meas := range measurements {
 			// 发现已有 Shard（填充 ShardManager 缓存）
-			_ = e.flusher.GetShards(db, meas, 0, 1<<62)
+			_ = e.flusher.GetShards(db, meas, 0, maxTimeSentinel)
 		}
 	}
 
@@ -244,13 +261,16 @@ func (e *Engine) Close() error {
 		e.downsampleSvc.Stop()
 	}
 
-	// 停止 unordered compaction
+	// 同步刷写所有数据
+	_ = e.coordinator.FlushAll()
+
+	// 停止 unordered compaction（FlushAll 之后关闭，确保最后的数据被处理）
 	if e.compactionStopCh != nil {
 		close(e.compactionStopCh)
 	}
 
-	// 同步刷写所有数据
-	_ = e.coordinator.FlushAll()
+	// 停止 FlushCoordinator 的周期性检查 goroutine
+	e.coordinator.Close()
 
 	// 关闭全局 WAL
 	if e.wal != nil {

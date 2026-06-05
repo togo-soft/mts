@@ -107,6 +107,15 @@ func (m *LevelManifest) SetNextSeq(seq uint64) {
 	m.nextSeq = seq
 }
 
+// EnsureNextSeq 确保 nextSeq 至少为 minSeq，避免与新注册的 SSTable 文件序列号冲突。
+func (m *LevelManifest) EnsureNextSeq(minSeq uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if minSeq > m.nextSeq {
+		m.nextSeq = minSeq
+	}
+}
+
 // AddPart 添加 Part 到指定层次。
 func (m *LevelManifest) AddPart(level int, part PartInfo) {
 	m.mu.Lock()

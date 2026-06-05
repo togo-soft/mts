@@ -64,6 +64,8 @@ func (ts *TombstoneSet) BuildIndex() {
 	}
 }
 
+// LoadTombstones 从 partPath 对应的 .tombstones 文件加载删除标记集合。
+// 若文件不存在则返回 (nil, nil)。
 func LoadTombstones(partPath string) (*TombstoneSet, error) {
 	tombstonePath := partPath + ".tombstones"
 	data, err := os.ReadFile(tombstonePath)
@@ -81,6 +83,8 @@ func LoadTombstones(partPath string) (*TombstoneSet, error) {
 	return &ts, nil
 }
 
+// SaveTombstones 将删除标记集合序列化保存到 partPath 对应的 .tombstones 文件。
+// 若集合为空则跳过写入。
 func SaveTombstones(partPath string, ts *TombstoneSet) error {
 	if !ts.HasTombstones() {
 		return nil
@@ -99,6 +103,8 @@ func SaveTombstones(partPath string, ts *TombstoneSet) error {
 	return nil
 }
 
+// RemoveTombstones 删除 partPath 对应的 .tombstones 文件。
+// 若文件不存在则忽略，不视为错误。
 func RemoveTombstones(partPath string) error {
 	tombstonePath := partPath + ".tombstones"
 	err := os.Remove(tombstonePath)

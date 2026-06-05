@@ -102,7 +102,9 @@ type SectionEntry struct {
 
 // SectionTable 是文件末尾的段目录。
 type SectionTable struct {
-	Entries []SectionEntry
+	Entries   []SectionEntry
+	nameIndex map[string]*SectionEntry
+	typeIndex map[SectionType]*SectionEntry
 }
 
 // sectionEntrySize 每个 entry 的固定开销 (Type+Encoding+Compression+NameLen+Offset+Size)。
@@ -169,25 +171,54 @@ func UnmarshalSectionTable(data []byte) (SectionTable, error) {
 		}
 		st.Entries = append(st.Entries, e)
 	}
+
+	st.nameIndex = make(map[string]*SectionEntry, len(st.Entries))
+	st.typeIndex = make(map[SectionType]*SectionEntry, len(st.Entries))
+	for i := range st.Entries {
+		e := &st.Entries[i]
+		if e.Name != "" && st.nameIndex[e.Name] == nil {
+			st.nameIndex[e.Name] = e
+		}
+		if _, exists := st.typeIndex[e.Type]; !exists {
+			st.typeIndex[e.Type] = e
+		}
+	}
+
 	return st, nil
 }
 
-// Lookup 按名称查找段，返回 offset 和 size。未找到返回 0,0。
-func (st *SectionTable) Lookup(name string) (offset, size uint64) {
-	for _, e := range st.Entries {
-		if e.Name == name {
-			return e.Offset, e.Size
+// ensureIndices 延迟构建索引（首次查找时触发）。
+func (st *SectionTable) ensureIndices() {
+	if st.nameIndex != nil {
+		return
+	}
+	st.nameIndex = make(map[string]*SectionEntry, len(st.Entries))
+	st.typeIndex = make(map[SectionType]*SectionEntry, len(st.Entries))
+	for i := range st.Entries {
+		e := &st.Entries[i]
+		if e.Name != "" && st.nameIndex[e.Name] == nil {
+			st.nameIndex[e.Name] = e
 		}
+		if _, exists := st.typeIndex[e.Type]; !exists {
+			st.typeIndex[e.Type] = e
+		}
+	}
+}
+
+// Lookup 按名称查找段，返回 offset 和 size。O(1) 索引查找。未找到返回 0,0。
+func (st *SectionTable) Lookup(name string) (offset, size uint64) {
+	st.ensureIndices()
+	if e, ok := st.nameIndex[name]; ok {
+		return e.Offset, e.Size
 	}
 	return 0, 0
 }
 
-// LookupByType 按类型查找段。
+// LookupByType 按类型查找段。O(1) 索引查找。
 func (st *SectionTable) LookupByType(typ SectionType) (offset, size uint64, name string) {
-	for _, e := range st.Entries {
-		if e.Type == typ {
-			return e.Offset, e.Size, e.Name
-		}
+	st.ensureIndices()
+	if e, ok := st.typeIndex[typ]; ok {
+		return e.Offset, e.Size, e.Name
 	}
 	return 0, 0, ""
 }
@@ -203,12 +234,11 @@ func (st *SectionTable) FieldNames() []string {
 	return names
 }
 
-// LookupEncoding 按名称查找段编码。未找到返回 EncodingRaw。
+// LookupEncoding 按名称查找段编码。O(1) 索引查找。未找到返回 EncodingRaw。
 func (st *SectionTable) LookupEncoding(name string) EncodingType {
-	for _, e := range st.Entries {
-		if e.Name == name {
-			return e.Encoding
-		}
+	st.ensureIndices()
+	if e, ok := st.nameIndex[name]; ok {
+		return e.Encoding
 	}
 	return EncodingRaw
 }

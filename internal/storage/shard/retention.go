@@ -3,6 +3,7 @@ package shard
 
 import (
 	"log/slog"
+	"sync"
 	"time"
 )
 
@@ -32,6 +33,7 @@ type RetentionService struct {
 	checkInterval     time.Duration
 	retentionProvider DatabaseRetentionProvider
 	done              chan struct{}
+	wg                sync.WaitGroup
 }
 
 // NewRetentionService 创建 RetentionService。
@@ -59,10 +61,11 @@ func NewRetentionService(manager *ShardManager, defaultRetention, checkInterval 
 // 启动后，服务会定期检查并删除过期的 Shard。
 // 直到调用 Stop 才停止。
 func (s *RetentionService) Start() {
+	s.wg.Add(1)
 	go s.run()
 }
 
-// Stop 停止 RetentionService。
+// Stop 停止 RetentionService 并等待 goroutine 退出。
 //
 // 发送停止信号给后台 goroutine 并等待其退出。
 // 多次调用是安全的。
@@ -74,10 +77,12 @@ func (s *RetentionService) Stop() {
 	default:
 		close(s.done)
 	}
+	s.wg.Wait()
 }
 
 // run 是后台清理循环。
 func (s *RetentionService) run() {
+	defer s.wg.Done()
 	ticker := time.NewTicker(s.checkInterval)
 	defer ticker.Stop()
 

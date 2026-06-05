@@ -516,6 +516,7 @@ func (cm *Manager) CalculateShardSize() (int64, error) {
 	return totalSize, nil
 }
 
+// DirSize 递归计算目录下所有文件的总大小（字节），不包含子目录自身。
 func DirSize(path string) (int64, error) {
 	var size int64
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {

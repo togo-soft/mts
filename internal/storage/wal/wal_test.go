@@ -692,6 +692,64 @@ func TestTruncateBefore(t *testing.T) {
 	}
 }
 
+func TestTruncateBefore_IncludesCurrentSegment(t *testing.T) {
+	dir := t.TempDir()
+	walDir := filepath.Join(dir, "wal")
+	if err := os.MkdirAll(walDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// 创建预存在的 segment 文件 (gen=1, num=1..3)
+	for i := uint64(1); i <= 3; i++ {
+		name := segmentName(1, i)
+		f, err := os.Create(filepath.Join(walDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Close()
+	}
+
+	cfg := Config{
+		Dir:         walDir,
+		SegmentSize: 64 * 1024 * 1024,
+		MaxSegments: 10,
+		SyncMode:    SyncNone,
+	}
+	w, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	// segNum 此时为 4（last.Num + 1），当前 segment 编号=4
+	// TruncateBefore(segNum + 1) 即 TruncateBefore(5)，会包含当前 segment
+	if w.SegmentNum() != 4 {
+		t.Fatalf("expected segNum=4, got %d", w.SegmentNum())
+	}
+
+	if err := w.TruncateBefore(w.SegmentNum() + 1); err != nil {
+		t.Fatal(err)
+	}
+
+	// 所有旧 segment（1-4）应被删除
+	// rotate 后当前 segment 变为 5，不应被删除
+	entries, err := ListSegments(walDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(entries))
+	}
+	if entries[0].Num != 5 {
+		t.Fatalf("expected segment num=5, got num=%d", entries[0].Num)
+	}
+
+	// 验证 WAL 仍可正常写入
+	if _, err := w.Write([]byte("test-data")); err != nil {
+		t.Fatalf("write after TruncateBefore: %v", err)
+	}
+}
+
 func TestDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	w, err := Open(Config{Dir: tmpDir, SyncMode: SyncNone})

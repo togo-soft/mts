@@ -271,81 +271,140 @@ func Test2_HighCardinalityDedup() error {
 }
 
 // Test3_WriteProtection 写入保护验证。
+// 验证 .writing 标志阻止 Compaction Manager 误删正在写入的 SSTable。
 func Test3_WriteProtection() error {
 	fmt.Println("\n=== 测试 3: 写入保护 ===")
 
 	tmpDir := filepath.Join(os.TempDir(), "microts_comp_writeprot")
 	_ = os.RemoveAll(tmpDir)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
-	db, err := mts.Open(defaultDBConfig(tmpDir))
-	if err != nil {
-		return fmt.Errorf("open: %w", err)
-	}
-	defer func() { _ = db.Close() }()
 
 	baseTime := time.Now().UnixNano()
 
+	cfg := defaultDBConfig(tmpDir)
+	db, err := mts.Open(cfg)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+
 	fmt.Println("写入 3000 点...")
 	if err := writePoints(db, "db", "cpu", baseTime, 3000, time.Microsecond, 10); err != nil {
+		_ = db.Close()
+		_ = os.RemoveAll(tmpDir)
 		return err
 	}
 	_ = db.FlushAll()
-	time.Sleep(500 * time.Millisecond)
 
-	dataDir := getShardDataDir(tmpDir, "db", "cpu")
-	var sstFiles []string
-	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
+	// 找到 shard data 目录（可能需要等待 UnorderedCompactor 创建 shard）
+	measDir := filepath.Join(tmpDir, "db", "cpu")
+	var shardDataDir string
+	for retry := 0; retry < 30; retry++ {
+		time.Sleep(200 * time.Millisecond)
+		entries, rdErr := os.ReadDir(measDir)
+		if rdErr != nil {
+			continue
 		}
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".bin") {
-			sstFiles = append(sstFiles, path)
-		}
-		return nil
-	})
-	fmt.Printf("flush 后 SSTable 数: %d\n", len(sstFiles))
-
-	// 对前一半 SSTable 加 .writing 标志
-	if len(sstFiles) > 1 {
-		half := len(sstFiles) / 2
-		for i := 0; i < half; i++ {
-			writingFlag := sstFiles[i] + ".writing"
-			_ = os.WriteFile(writingFlag, nil, 0600)
-		}
-		fmt.Printf("已对 %d 个 SSTable 添加 .writing 标志\n", half)
-		defer func() {
-			for i := 0; i < half; i++ {
-				_ = os.Remove(sstFiles[i] + ".writing")
+		for _, e := range entries {
+			if e.IsDir() {
+				shardDataDir = filepath.Join(measDir, e.Name(), "data")
+				break
 			}
-		}()
+		}
+		if shardDataDir != "" {
+			break
+		}
+	}
+	if shardDataDir == "" {
+		_ = db.Close()
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("shard 目录未创建")
 	}
 
-	fmt.Println("触发 compaction...")
-	_ = db.FlushAll()
-	time.Sleep(2 * time.Second)
+	// 等待 SSTable 文件出现并稳定
+	var sstFiles []string
+	for retry := 0; retry < 30; retry++ {
+		time.Sleep(200 * time.Millisecond)
+		sstFiles = sstFiles[:0]
+		_ = filepath.Walk(shardDataDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !info.IsDir() && strings.HasSuffix(info.Name(), ".bin") {
+				sstFiles = append(sstFiles, path)
+			}
+			return nil
+		})
+		if len(sstFiles) >= 2 {
+			// 连续 2 次数量不变则认为稳定
+			time.Sleep(400 * time.Millisecond)
+			prev := len(sstFiles)
+			sstFiles = sstFiles[:0]
+			_ = filepath.Walk(shardDataDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				if !info.IsDir() && strings.HasSuffix(info.Name(), ".bin") {
+					sstFiles = append(sstFiles, path)
+				}
+				return nil
+			})
+			if len(sstFiles) == prev {
+				break
+			}
+		}
+	}
+	fmt.Printf("flush 后 SSTable 数: %d\n", len(sstFiles))
+
+	if len(sstFiles) < 2 {
+		_ = db.Close()
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("SSTable 文件不足: 期望 >=2, 实际 %d", len(sstFiles))
+	}
+
+	// 对前一半 SSTable 加 .writing 标志
+	half := len(sstFiles) / 2
+	for i := 0; i < half; i++ {
+		writingFlag := sstFiles[i] + ".writing"
+		_ = os.WriteFile(writingFlag, nil, 0600)
+	}
+	fmt.Printf("已对 %d 个 SSTable 添加 .writing 标志\n", half)
+
+	// 关闭 db 触发最终 Compaction（Close → FlushAll → TriggerCompaction）
+	fmt.Println("关闭 db 触发 compaction...")
+	_ = db.Close()
 
 	// 验证有 .writing 标志的 SSTable 文件仍然存在
 	stillExist := 0
-	for i := 0; i < len(sstFiles)/2; i++ {
+	for i := 0; i < half; i++ {
 		if _, err := os.Stat(sstFiles[i]); err == nil {
 			stillExist++
 		}
 	}
-	if stillExist != len(sstFiles)/2 {
-		return fmt.Errorf("有 %d/%d 个受保护的 SSTable 被误删",
-			len(sstFiles)/2-stillExist, len(sstFiles)/2)
+	if stillExist != half {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("有 %d/%d 个受保护的 SSTable 被误删", half-stillExist, half)
 	}
 
-	// 验证数据完整性
-	rows, err := mustQuery(db, "db", "cpu", baseTime, baseTime+int64(3000)*int64(time.Microsecond))
+	// 重新打开验证数据完整性
+	db2, err := mts.Open(cfg)
 	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("reopen: %w", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	time.Sleep(time.Second) // 等待 recovery 完成
+
+	rows, err := mustQuery(db2, "db", "cpu", baseTime, baseTime+int64(3000)*int64(time.Microsecond))
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
 		return fmt.Errorf("query: %w", err)
 	}
 	if len(rows) < 100 {
+		_ = os.RemoveAll(tmpDir)
 		return fmt.Errorf("数据丢失严重: 仅查询到 %d 行", len(rows))
 	}
 
+	_ = os.RemoveAll(tmpDir)
 	fmt.Printf("PASS: 所有受保护 SSTable 未被误删，数据可查询 (%d 行)\n", len(rows))
 	return nil
 }
