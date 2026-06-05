@@ -481,6 +481,3 @@ func findResult(results []benchResult, prefix string) *benchResult {
 	return nil
 }
 
-func sortBy(_ string) []benchResult {
-	return nil
-}

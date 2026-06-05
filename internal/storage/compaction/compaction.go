@@ -6,6 +6,7 @@ package compaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -226,6 +227,7 @@ func (cm *Manager) compactWithTwoPhase(ctx context.Context, inputFiles []string,
 
 	// 分批合并为中间文件
 	var intermediates []string
+	var allMergedFiles []string
 	for i := 0; i < len(inputFiles); i += twoPhaseThreshold {
 		end := min(i+twoPhaseThreshold, len(inputFiles))
 		batch := inputFiles[i:end]
@@ -243,6 +245,7 @@ func (cm *Manager) compactWithTwoPhase(ctx context.Context, inputFiles []string,
 			return nil, fmt.Errorf("phase 1 merge batch %d: %w", i/twoPhaseThreshold, err)
 		}
 		intermediates = append(intermediates, intermediatePath)
+		allMergedFiles = append(allMergedFiles, task.MergedFiles...)
 	}
 
 	// 合并中间文件为最终输出
@@ -259,7 +262,7 @@ func (cm *Manager) compactWithTwoPhase(ctx context.Context, inputFiles []string,
 		_ = os.Remove(p)
 	}
 
-	return task.MergedFiles, nil
+	return allMergedFiles, nil
 }
 
 // GetProgress 获取当前 compaction 进度，无活跃任务时返回 nil。
@@ -581,7 +584,11 @@ func (cm *Manager) DoPeriodicCompaction() {
 
 	_, _, err := cm.Compact(ctx)
 	if err != nil {
-		slog.Error("periodic compaction failed", "error", err)
+		if errors.Is(err, context.Canceled) {
+			slog.Debug("periodic compaction canceled during shutdown")
+		} else {
+			slog.Error("periodic compaction failed", "error", err)
+		}
 	}
 
 	cm.ResetTimer()

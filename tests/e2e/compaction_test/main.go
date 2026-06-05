@@ -191,11 +191,17 @@ func Test1_LargeScaleIntegrity() error {
 	beforeCompact := countSSTableDirs(dataDir)
 	fmt.Printf("FlushAll 后 SSTable 数: %d\n", beforeCompact)
 
-	// 等待 flush 中触发的后台 compaction 完成
+	// 轮询等待 compaction 完成，最长 60 秒
 	fmt.Println("等待 compaction 完成...")
-	time.Sleep(6 * time.Second)
-
-	afterCompact := countSSTableDirs(dataDir)
+	afterCompact := beforeCompact
+	for i := 0; i < 30; i++ {
+		time.Sleep(2 * time.Second)
+		afterCompact = countSSTableDirs(dataDir)
+		fmt.Printf("  等待 compaction... (%ds, SSTable: %d)\n", (i+1)*2, afterCompact)
+		if afterCompact <= defaultMaxSSTable || afterCompact < beforeCompact {
+			break
+		}
+	}
 	fmt.Printf("compaction 后 SSTable 数: %d\n", afterCompact)
 
 	// 压缩后文件数应显著减少

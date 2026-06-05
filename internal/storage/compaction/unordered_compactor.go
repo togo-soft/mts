@@ -85,7 +85,7 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 		slog.Warn("skipping corrupt unordered file", "path", file, "error", err)
 		return nil
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	it, err := reader.NewIterator(nil, nil)
 	if err != nil {

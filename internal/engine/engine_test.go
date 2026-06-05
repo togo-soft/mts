@@ -771,7 +771,7 @@ func TestEngine_Query_NoShards(t *testing.T) {
 		_ = engine.Close()
 	}()
 
-	// 查询不存在的 shard
+	// 查询不存在的 measurement 应返回空结果而非错误
 	req := &types.QueryRangeRequest{
 		Database:    "nonexistent",
 		Measurement: "cpu",
@@ -779,9 +779,12 @@ func TestEngine_Query_NoShards(t *testing.T) {
 		EndTime:     1e9,
 	}
 
-	_, err = engine.Iterator(t.Context(), req)
-	if err == nil {
-		t.Fatalf("expected error for non-existent shard")
+	it, err := engine.Iterator(t.Context(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if it.Next(t.Context()) {
+		t.Fatal("expected no data")
 	}
 }
 
@@ -955,9 +958,12 @@ func TestEngine_Query_EmptyDatabase(t *testing.T) {
 		StartTime:   time.Now().UnixNano(),
 		EndTime:     time.Now().UnixNano() + int64(time.Hour),
 	}
-	_, err = engine.Iterator(t.Context(), req)
-	if err == nil {
-		t.Errorf("expected error for empty database")
+	it, err := engine.Iterator(t.Context(), req)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if it.Next(t.Context()) {
+		t.Error("expected no data for empty database")
 	}
 }
 
@@ -978,9 +984,12 @@ func TestEngine_Query_NonExistent(t *testing.T) {
 		StartTime:   time.Now().UnixNano(),
 		EndTime:     time.Now().UnixNano() + int64(time.Hour),
 	}
-	_, err = engine.Iterator(t.Context(), req)
-	if err == nil {
-		t.Errorf("expected error for non-existent db/measurement")
+	it, err := engine.Iterator(t.Context(), req)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if it.Next(t.Context()) {
+		t.Error("expected no data for non-existent db/measurement")
 	}
 }
 

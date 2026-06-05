@@ -63,15 +63,6 @@ func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*q
 
 	shards := e.flusher.GetShards(req.Database, req.Measurement, req.StartTime, req.EndTime)
 
-	// MemTable 有数据时查询可以继续（含 active 和已 swap 但未刷盘的 passive）
-	mtHasData := writerMT != nil && (writerMT.Count() > 0 || writerMT.PassiveCount() > 0)
-
-	if len(shards) == 0 && !mtHasData {
-		if !e.hasDataForMeasurement(req.Database, req.Measurement) {
-			return nil, fmt.Errorf("no data found for %s/%s", req.Database, req.Measurement)
-		}
-	}
-
 	// 创建 scoped SeriesStore，确保 nil shard 场景下能正确解析 SID→Tags
 	scoped := &scopedSeriesStore{
 		inner: e.seriesStore,
@@ -280,13 +271,6 @@ func (e *Engine) createDataIterator(ctx context.Context, database, measurement s
 	}
 
 	shards := e.flusher.GetShards(database, measurement, startTime, endTime)
-	mtHasData := writerMT != nil && (writerMT.Count() > 0 || writerMT.PassiveCount() > 0)
-
-	if len(shards) == 0 && !mtHasData {
-		if !e.hasDataForMeasurement(database, measurement) {
-			return nil, fmt.Errorf("no data found for %s/%s", database, measurement)
-		}
-	}
 
 	scoped := &scopedSeriesStore{
 		inner: e.seriesStore,
@@ -304,43 +288,6 @@ func IteratorWithMemTable(ctx context.Context, shards []*shard.Shard, wmt *memta
 	return query.NewIteratorWithMemTable(ctx, shards, wmt, extSeriesStore, req, req.Fields, nil)
 }
 
-// hasDataForMeasurement 检查是否存在指定 db/measurement 的数据。
-// 先检查 unordered 文件，再 fallback 扫描 measurement 目录下的 shard 数据目录。
-func (e *Engine) hasDataForMeasurement(db, meas string) bool {
-	unorderedFiles, _ := unordered.ListFiles(e.dataDir)
-	for _, f := range unorderedFiles {
-		fdb, fmeas, _, ok := unordered.ParseFilePath(e.dataDir, f)
-		if ok && fdb == db && fmeas == meas {
-			return true
-		}
-	}
-
-	measDir := filepath.Join(e.dataDir, db, meas)
-	entries, rdErr := os.ReadDir(measDir)
-	if rdErr != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		parts := strings.SplitN(entry.Name(), "_", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		dataDir := filepath.Join(measDir, entry.Name(), "data")
-		sstEntries, sstErr := os.ReadDir(dataDir)
-		if sstErr != nil {
-			continue
-		}
-		for _, se := range sstEntries {
-			if !se.IsDir() && strings.HasPrefix(se.Name(), "sst_") && strings.HasSuffix(se.Name(), ".bin") {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 // collectUnorderedData 收集 unordered 目录下匹配 db/measurement 的数据，
 // 使用 Iterator 逐行过滤，避免 ReadAll 全量加载后再二次分配。

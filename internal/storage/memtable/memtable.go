@@ -234,10 +234,6 @@ func (m *MemTable) WaitNotFullNoCtx() {
 	m.flushMu.Unlock()
 }
 
-func (m *MemTable) estimatedSizeRL() int64 {
-	return m.activeBytes
-}
-
 // ActiveFull 检查 active 是否超过硬限制（5x maxSize/maxCount），需要背压。
 func (m *MemTable) ActiveFull() bool {
 	m.mu.RLock()

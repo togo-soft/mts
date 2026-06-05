@@ -15,7 +15,7 @@ import (
 
 func main() {
 	const count = 1000000
-	const pointInterval = int64(100 * time.Microsecond) // 集中在 1 个 Shard
+	const pointInterval = int64(100 * time.Microsecond)
 	maxCount := int32(count / 6)
 
 	h, err := framework.NewTestHarness("query_1m",
@@ -32,6 +32,9 @@ func main() {
 	gen := data_gen.NewDataGenerator(42)
 	baseTime := h.StartTime()
 	endTime := baseTime + int64(count)*pointInterval
+	tsFmt := "15:04:05.000"
+
+	overallTimer := metrics.NewTimer()
 
 	metrics.GC()
 	memBefore := metrics.ReadMemStats()
@@ -41,6 +44,9 @@ func main() {
 	fmt.Printf("Total points:   %d\n", count)
 	fmt.Printf("MaxCount/flush: %d (~%d flushes)\n\n", maxCount, count/int(maxCount))
 
+	// === Write Phase ===
+	writeTimer := metrics.NewTimer()
+	writeStart := time.Now()
 	for i := 0; i < count; i++ {
 		ts := baseTime + int64(i)*pointInterval
 		p := gen.GeneratePoint(h.Config().DBName, h.Config().MeasurementName, ts)
@@ -49,28 +55,43 @@ func main() {
 			return
 		}
 	}
+	writeElapsed := writeTimer.Elapsed()
 
 	metrics.GC()
 	memAfterWrite := metrics.ReadMemStats()
 	writeDelta := metrics.CalcDelta(memBefore, memAfterWrite)
-	fmt.Printf("Write: %s, Δ: %s\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
-	fmt.Printf("SSTables after write: %d\n\n", h.SSTableCount())
+	fmt.Printf("=== Write Phase ===\n")
+	fmt.Printf("  Start:       %s\n", writeStart.Format(tsFmt))
+	fmt.Printf("  End:         %s\n", time.Now().Format(tsFmt))
+	fmt.Printf("  Duration:    %v\n", writeElapsed)
+	fmt.Printf("  Write TPS:   %.2f\n", metrics.TPS(count, writeElapsed))
+	fmt.Printf("  Memory:      %s, Δ: %s\n", metrics.FormatMemStats(memAfterWrite), writeDelta.Format())
+	fmt.Printf("  SSTables:    %d\n\n", h.SSTableCount())
 
-	fmt.Println("Waiting for compaction...")
+	// === Compaction Phase ===
+	compactTimer := metrics.NewTimer()
+	compactStart := time.Now()
+	fmt.Println("=== Compaction Phase ===")
+	fmt.Printf("  Start:       %s\n", compactStart.Format(tsFmt))
 	_ = h.WaitForCompaction(10, 120*time.Second)
 	time.Sleep(5 * time.Second)
+	compactElapsed := compactTimer.Elapsed()
 
 	sstCount := h.SSTableCount()
 	diskBytes := h.DiskUsage()
-	fmt.Printf("SSTables after compaction: %d\n", sstCount)
-	fmt.Printf("Disk usage: %.2f MB (%.2f bytes/point)\n\n",
+	fmt.Printf("  End:         %s\n", time.Now().Format(tsFmt))
+	fmt.Printf("  Duration:    %v\n", compactElapsed)
+	fmt.Printf("  SSTables:    %d\n", sstCount)
+	fmt.Printf("  Disk usage:  %.2f MB (%.2f bytes/point)\n\n",
 		float64(diskBytes)/(1024*1024), float64(diskBytes)/float64(count))
 
+	// === Query Phase ===
+	const queryLimit = 2000
 	metrics.GC()
 	memBeforeQuery := metrics.ReadMemStats()
 
-	const queryLimit = 2000
-	timer := metrics.NewTimer()
+	queryTimer := metrics.NewTimer()
+	queryStart := time.Now()
 	it, err := h.DB().Iterator(context.Background(), &types.QueryRangeRequest{
 		Database:    h.Config().DBName,
 		Measurement: h.Config().MeasurementName,
@@ -88,17 +109,27 @@ func main() {
 	for it.Next(context.Background()) {
 		rows = append(rows, it.Points())
 	}
-	elapsed := timer.Elapsed()
+	queryElapsed := queryTimer.Elapsed()
 
 	metrics.GC()
 	memAfterQuery := metrics.ReadMemStats()
 	queryDelta := metrics.CalcDelta(memBeforeQuery, memAfterQuery)
 
-	fmt.Printf("=== Query Result (paginated, limit=%d) ===\n", queryLimit)
-	fmt.Printf("Rows returned:  %d\n", len(rows))
-	fmt.Printf("Query latency:  %v\n", elapsed)
-	fmt.Printf("Query TPS:      %.2f\n", metrics.TPS(len(rows), elapsed))
-	fmt.Printf("Memory before:  %s\n", metrics.FormatMemStats(memBeforeQuery))
-	fmt.Printf("Memory after:   %s\n", metrics.FormatMemStats(memAfterQuery))
-	fmt.Printf("Memory delta:   %s\n", queryDelta.Format())
+	fmt.Printf("=== Query Phase ===\n")
+	fmt.Printf("  Start:       %s\n", queryStart.Format(tsFmt))
+	fmt.Printf("  End:         %s\n", time.Now().Format(tsFmt))
+	fmt.Printf("  Duration:    %v\n", queryElapsed)
+	fmt.Printf("  Query TPS:   %.2f\n", metrics.TPS(len(rows), queryElapsed))
+	fmt.Printf("  Rows:        %d (limit=%d)\n", len(rows), queryLimit)
+	fmt.Printf("  Memory:      %s, Δ: %s\n", metrics.FormatMemStats(memAfterQuery), queryDelta.Format())
+	fmt.Printf("  Memory before: %s\n", metrics.FormatMemStats(memBeforeQuery))
+
+	// === Summary ===
+	fmt.Printf("\n=== Summary ===\n")
+	fmt.Printf("  Total elapsed: %v\n", overallTimer.Elapsed())
+	fmt.Printf("  Write:         %v (%.1f%%)\n", writeElapsed, 100*float64(writeElapsed)/float64(overallTimer.Elapsed()))
+	fmt.Printf("  Compaction:    %v (%.1f%%)\n", compactElapsed, 100*float64(compactElapsed)/float64(overallTimer.Elapsed()))
+	fmt.Printf("  Query:         %v (%.1f%%)\n", queryElapsed, 100*float64(queryElapsed)/float64(overallTimer.Elapsed()))
+	fmt.Printf("  Disk:           %.2f MB\n", float64(diskBytes)/(1024*1024))
+	fmt.Printf("  Final SSTables: %d\n", sstCount)
 }
