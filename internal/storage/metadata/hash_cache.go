@@ -69,7 +69,16 @@ func (c *hashSidCache) load(key string) (uint64, bool) {
 	return v, ok
 }
 
-// store 将 SID 存入缓存。若分片已满，淘汰最旧的条目（FIFO）。
+// trimShardOrder 在 order 使用率低于一半时收缩底层数组，释放内存。
+func trimShardOrder(order []string, maxSize int) []string {
+	if len(order) > maxSize/2 {
+		return order
+	}
+	newOrder := make([]string, len(order), maxSize)
+	copy(newOrder, order)
+	return newOrder
+}
+
 func (c *hashSidCache) store(key string, sid uint64) {
 	shard := c.shards[c.shardKey(key)]
 	shard.mu.Lock()
@@ -80,12 +89,14 @@ func (c *hashSidCache) store(key string, sid uint64) {
 	}
 	if len(shard.order) >= shard.maxSize {
 		oldKey := shard.order[0]
-		// 清除对旧字符串的引用，防止底层数组泄漏
 		shard.order[0] = ""
-		shard.order = shard.order[1:]
+		// 原地左移，cap 不变，避免 append 重新分配
+		copy(shard.order, shard.order[1:])
+		shard.order = shard.order[:shard.maxSize-1]
 		delete(shard.entries, oldKey)
 	}
 	shard.order = append(shard.order, key)
+	shard.order = trimShardOrder(shard.order, shard.maxSize)
 	shard.entries[key] = sid
 	shard.mu.Unlock()
 }

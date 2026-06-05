@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	flushCooldown     = 3 * time.Second
+	flushCooldown     = 500 * time.Millisecond
 	maxUnorderedFiles = 50 // 无序文件超过此阈值时跳过 flush，等待 compaction 消化
 )
 

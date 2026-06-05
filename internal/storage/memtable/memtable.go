@@ -39,7 +39,10 @@ type MemTable struct {
 	sorted      bool
 	flushMu     sync.Mutex
 	flushCond   *sync.Cond
+	activeBytes int64
 }
+
+const memPointBaseSize = 128 // MemPoint 结构体 + 字符串/切片头部的近似开销
 
 // NewMemTable 创建新的 MemTable 实例。
 func NewMemTable(cfg *MemTableConfig) *MemTable {
@@ -61,6 +64,7 @@ func (m *MemTable) Write(mp types.MemPoint) error {
 
 	m.active = append(m.active, mp)
 	m.activeCount++
+	m.activeBytes += memPointBaseSize + int64(len(mp.Database)+len(mp.Measurement)+len(mp.FieldData))
 	m.lastWrite = time.Now()
 
 	// 快速路径：时间戳单调递增（最常见场景），跳过排序
@@ -111,8 +115,7 @@ func (m *MemTable) shouldSwapUnsafe() bool {
 	if m.flushing.Load() {
 		return false
 	}
-	estimatedSize := int64(len(m.active)) * 1024
-	if estimatedSize >= m.maxSize {
+	if m.activeBytes >= m.maxSize {
 		return true
 	}
 	if m.maxCount > 0 && m.activeCount >= m.maxCount {
@@ -145,6 +148,7 @@ func (m *MemTable) Swap() []types.MemPoint {
 		m.active = append(m.passive, m.active...)
 		m.passive = nil
 		m.activeCount = len(m.active)
+		m.recalcActiveBytes()
 		m.sortActive()
 	}
 
@@ -162,6 +166,7 @@ func (m *MemTable) Swap() []types.MemPoint {
 	}
 	m.active = make([]types.MemPoint, 0, newCap)
 	m.activeCount = 0
+	m.activeBytes = 0
 	m.sorted = false
 	m.flushing.Store(true)
 
@@ -174,6 +179,9 @@ func (m *MemTable) Swap() []types.MemPoint {
 func (m *MemTable) ClearPassive() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for i := range m.passive {
+		m.passive[i].FieldData = nil
+	}
 	m.passive = nil
 	m.flushing.Store(false)
 	m.flushCond.Broadcast()
@@ -192,6 +200,9 @@ func (m *MemTable) MergePassiveBack() {
 
 	// 将 passive 插入 active 前面，然后整体排序
 	m.active = append(m.passive, m.active...)
+	for _, mp := range m.passive {
+		m.activeBytes += memPointBaseSize + int64(len(mp.Database)+len(mp.Measurement)+len(mp.FieldData))
+	}
 	m.passive = nil
 	m.activeCount = len(m.active)
 	m.sortActive()
@@ -226,29 +237,24 @@ func (m *MemTable) WaitNotFullNoCtx() {
 }
 
 func (m *MemTable) estimatedSizeRL() int64 {
-	return int64(len(m.active)) * 1024
+	return m.activeBytes
 }
 
 // ActiveFull 检查 active 是否超过硬限制（5x maxSize/maxCount），需要背压。
-// 大幅提高阈值以在 Windows 等慢 I/O 平台上为刷盘提供充足缓冲空间。
 func (m *MemTable) ActiveFull() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.estimatedSizeRL() >= m.maxSize*5 || (m.maxCount > 0 && m.activeCount >= m.maxCount*5)
+	return m.activeBytes >= m.maxSize*5 || (m.maxCount > 0 && m.activeCount >= m.maxCount*5)
 }
 
 // NearFull 检查 active 是否接近容量上限（2x 阈值），用于触发预刷盘。
-// 相比 ShouldSwap（1x 阈值），NearFull 延迟刷盘触发以减少 I/O 频率，
-// 同时仍在 ActiveFull（5x 阈值）之前留有充足空间避免背压。
-// 在慢 I/O 平台上（Windows+杀软），刷盘间隔从 ~0.75s 增加到 ~1.5s 以上。
 func (m *MemTable) NearFull() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.flushing.Load() {
 		return false
 	}
-	estimatedSize := int64(len(m.active)) * 1024
-	return estimatedSize >= m.maxSize*2 ||
+	return m.activeBytes >= m.maxSize*2 ||
 		(m.maxCount > 0 && m.activeCount >= m.maxCount*2)
 }
 
@@ -291,6 +297,14 @@ func (m *MemTable) sortActive() {
 		return m.active[i].Timestamp < m.active[j].Timestamp
 	})
 	m.sorted = true
+}
+
+func (m *MemTable) recalcActiveBytes() {
+	var total int64
+	for _, mp := range m.active {
+		total += memPointBaseSize + int64(len(mp.Database)+len(mp.Measurement)+len(mp.FieldData))
+	}
+	m.activeBytes = total
 }
 
 // IdleTimeout 返回空闲超时配置。

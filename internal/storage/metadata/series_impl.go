@@ -53,10 +53,17 @@ func (c *tagsCache) store(key string, tags map[string]string) {
 	if len(c.order) >= c.maxSize {
 		oldKey := c.order[0]
 		c.order[0] = ""
-		c.order = c.order[1:]
+		// 原地左移，cap 不变，避免 append 重新分配
+		copy(c.order, c.order[1:])
+		c.order = c.order[:c.maxSize-1]
 		delete(c.entries, oldKey)
 	}
 	c.order = append(c.order, key)
+	if len(c.order) <= c.maxSize/2 {
+		newOrder := make([]string, len(c.order), c.maxSize)
+		copy(newOrder, c.order)
+		c.order = newOrder
+	}
 	c.entries[key] = tags
 	c.mu.Unlock()
 }

@@ -73,11 +73,11 @@ func (uc *UnorderedCompactor) Compact() error {
 	return nil
 }
 
-// compactFile 处理单个 unordered 文件：读取、分组、排序、写入 L0、删除。
+// compactFile 处理单个 unordered 文件：逐行迭代读取、分组、排序、写入 L0、删除。
 func (uc *UnorderedCompactor) compactFile(file string) error {
 	db, meas, _, ok := unordered.ParseFilePath(uc.dataDir, file)
 	if !ok {
-		return nil // 非法路径格式，跳过
+		return nil
 	}
 
 	reader, err := sstable.NewReader(file, sstable.Schema{})
@@ -85,21 +85,19 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 		slog.Warn("skipping corrupt unordered file", "path", file, "error", err)
 		return nil
 	}
-	rows, err := reader.ReadAll(nil)
-	closeErr := reader.Close()
-	if err != nil && len(rows) == 0 {
-		slog.Warn("failed to read unordered file, no data recovered", "path", file, "error", err)
+	defer reader.Close()
+
+	it, err := reader.NewIterator(nil, nil)
+	if err != nil {
+		slog.Warn("failed to create iterator for unordered file", "path", file, "error", err)
 		return nil
 	}
-	if closeErr != nil {
-		slog.Debug("close reader error", "path", file, "error", closeErr)
-	}
 
-	// 按 (db, meas, shard) 分组
 	groupMap := make(map[string]*pointGroup)
 	var groupOrder []string
 
-	for _, row := range rows {
+	for it.Next() {
+		row := it.Point()
 		shardStart := (row.Timestamp / uc.shardMgr.ShardDurationNanos()) * uc.shardMgr.ShardDurationNanos()
 		key := pointGroupKey(db, meas, shardStart)
 
@@ -151,11 +149,6 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 		}
 		if err := w.Close(); err != nil {
 			return fmt.Errorf("close L0 writer: %w", err)
-		}
-
-		// 写入成功后释放 FieldData
-		for _, mp := range g.points {
-			types.ReleaseFieldData(mp.FieldData)
 		}
 	}
 
