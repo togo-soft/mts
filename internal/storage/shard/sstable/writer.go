@@ -56,9 +56,10 @@ type Writer struct {
 	fieldIdxNames []string       // 索引 → 字段名
 	writtenPool   sync.Pool      // []bool 池化，用于追踪每行已写入字段
 
-	compressAlgo CompressionAlgorithm
-	flags        uint16
-	syncOnClose  bool // Close 时是否 fsync，默认 true
+	compressAlgo       CompressionAlgorithm
+	flags              uint16
+	syncOnClose        bool // Close 时是否 fsync，默认 true
+	fieldDiscoveryDone bool // 首次 WritePointRows/WritePoints 后为 true，后续调用跳过字段发现
 
 	zoneMapCurr  map[string]*zoneAccumulator // 当前 block 各字段的 min/max 累积
 	zoneMapIndex *ZoneMapIndex               // 已完成 block 的 zone map

@@ -113,7 +113,7 @@ func aggregateSSTFiles(files []string, windowNanos, shardStart int64, functions 
 	return sortedBuckets(bucketMap), nil
 }
 
-// aggregateFile 读取单个 SSTable 文件并聚合。
+// aggregateFile 流式读取单个 SSTable 文件并聚合，避免全量内存加载。
 func aggregateFile(path string, windowNanos int64, bucketMap map[int64]*bucket, schema sstable.Schema) error {
 	reader, err := sstable.NewReader(path, schema)
 	if err != nil {
@@ -121,12 +121,13 @@ func aggregateFile(path string, windowNanos int64, bucketMap map[int64]*bucket, 
 	}
 	defer func() { _ = reader.Close() }()
 
-	rows, err := reader.ReadAll(nil)
+	iter, err := reader.NewIterator(nil, nil)
 	if err != nil {
-		return fmt.Errorf("read all: %w", err)
+		return fmt.Errorf("new iterator: %w", err)
 	}
 
-	for _, row := range rows {
+	for iter.Next() {
+		row := iter.Point()
 		windowStart := (row.Timestamp / windowNanos) * windowNanos
 		bk, ok := bucketMap[windowStart]
 		if !ok {

@@ -352,7 +352,26 @@ func (w *Writer) appendZeroValue(buf []byte, t FieldType) []byte {
 }
 
 // WritePointRows 直接写入 PointRow 切片，跳过 InternalField 中间转换。
+// 首次调用执行字段发现和文件映射建立，后续调用复用缓存跳过 O(N*F) 字段扫描。
 func (w *Writer) WritePointRows(rows []*types.PointRow) error {
+	if !w.fieldDiscoveryDone {
+		if err := w.discoverFields(rows); err != nil {
+			return err
+		}
+		w.fieldDiscoveryDone = true
+	}
+
+	for _, row := range rows {
+		if err := w.writePointRow(row); err != nil {
+			return fmt.Errorf("write point (timestamp=%d): %w", row.Timestamp, err)
+		}
+	}
+
+	return nil
+}
+
+// discoverFields 扫描行中的所有字段，检测类型并建立字段文件映射。
+func (w *Writer) discoverFields(rows []*types.PointRow) error {
 	fieldNames := make(map[string]bool)
 	for _, row := range rows {
 		for _, fe := range row.Fields {
@@ -382,18 +401,30 @@ func (w *Writer) WritePointRows(rows []*types.PointRow) error {
 		w.fieldBufs[name] = make([]byte, 0, w.blockSize)
 		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
 	}
+	return nil
+}
 
-	for _, row := range rows {
-		if err := w.writePointRow(row); err != nil {
-			return fmt.Errorf("write point (timestamp=%d): %w", row.Timestamp, err)
+// WritePoints 写入一批 InternalPoint 到 SSTable。
+// 首次调用执行字段发现，后续调用复用缓存跳过扫描。
+func (w *Writer) WritePoints(points []types.InternalPoint) error {
+	if !w.fieldDiscoveryDone {
+		if err := w.discoverFieldsFromInternal(points); err != nil {
+			return err
+		}
+		w.fieldDiscoveryDone = true
+	}
+
+	for _, ip := range points {
+		if err := w.writeInternalPoint(ip); err != nil {
+			return fmt.Errorf("write point (timestamp=%d): %w", ip.Timestamp, err)
 		}
 	}
 
 	return nil
 }
 
-// WritePoints 写入一批 InternalPoint 到 SSTable。
-func (w *Writer) WritePoints(points []types.InternalPoint) error {
+// discoverFieldsFromInternal 从 InternalPoint 切片扫描字段并建立文件映射。
+func (w *Writer) discoverFieldsFromInternal(points []types.InternalPoint) error {
 	fieldNames := make(map[string]bool)
 	for _, ip := range points {
 		for _, fe := range ip.Fields {
@@ -423,13 +454,6 @@ func (w *Writer) WritePoints(points []types.InternalPoint) error {
 		w.fieldBufs[name] = make([]byte, 0, w.blockSize)
 		w.fieldSizes[name] = w.fieldTypeSize(w.schema.Fields[name])
 	}
-
-	for _, ip := range points {
-		if err := w.writeInternalPoint(ip); err != nil {
-			return fmt.Errorf("write point (timestamp=%d): %w", ip.Timestamp, err)
-		}
-	}
-
 	return nil
 }
 

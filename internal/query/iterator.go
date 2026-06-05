@@ -116,8 +116,8 @@ type Iterator struct {
 
 	// 当前行
 	currentRow *types.PointRow
-	consumed   int64 // 已返回的行数
-	skipped    int64 // 已跳过的行数（用于 offset）
+	consumed   int64       // 已返回的行数
+	skipped    int64       // 已跳过的行数（用于 offset）
 	closed     atomic.Bool // 是否已关闭
 	cancel     context.CancelFunc
 }

@@ -11,15 +11,64 @@ import (
 // seriesStore — bbolt 版 SeriesStore
 // ===================================
 
+const (
+	defaultTagsCacheMaxSize = 100000
+)
+
+// tagsCache 有界并发安全的 SID→Tags 缓存，FIFO 淘汰。
+type tagsCache struct {
+	mu      sync.Mutex
+	entries map[string]map[string]string
+	order   []string
+	maxSize int
+}
+
+// newTagsCache 创建有界 tags 缓存。
+func newTagsCache(maxSize int) *tagsCache {
+	if maxSize <= 0 {
+		maxSize = defaultTagsCacheMaxSize
+	}
+	return &tagsCache{
+		entries: make(map[string]map[string]string, maxSize),
+		order:   make([]string, 0, maxSize),
+		maxSize: maxSize,
+	}
+}
+
+func (c *tagsCache) load(key string) (map[string]string, bool) {
+	c.mu.Lock()
+	v, ok := c.entries[key]
+	c.mu.Unlock()
+	return v, ok
+}
+
+func (c *tagsCache) store(key string, tags map[string]string) {
+	c.mu.Lock()
+	if _, exists := c.entries[key]; exists {
+		c.entries[key] = tags
+		c.mu.Unlock()
+		return
+	}
+	if len(c.order) >= c.maxSize {
+		oldKey := c.order[0]
+		c.order = c.order[1:]
+		delete(c.entries, oldKey)
+	}
+	c.order = append(c.order, key)
+	c.entries[key] = tags
+	c.mu.Unlock()
+}
+
 type seriesStore struct {
 	db           *bolt.DB
-	cache        sync.Map // key: "db/meas/{sid}" → map[string]string (SID → tags 缓存)
+	cache        *tagsCache
 	hashSidCache *hashSidCache
 }
 
 func newSeriesStore(db *bolt.DB) *seriesStore {
 	return &seriesStore{
 		db:           db,
+		cache:        newTagsCache(0),
 		hashSidCache: newHashSidCache(0),
 	}
 }
@@ -117,7 +166,7 @@ func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]
 	}
 
 	s.storeHashSid(database, measurement, h, sid)
-	s.cache.Store(s.cacheKey(database, measurement, sid), copyTags(tags))
+	s.cache.store(s.cacheKey(database, measurement, sid), copyTags(tags))
 	return sid, nil
 }
 
@@ -255,8 +304,8 @@ func getTagsFromSeriesBucket(seriesBucket *bolt.Bucket, sid uint64) (map[string]
 
 func (s *seriesStore) GetTags(database, measurement string, sid uint64) (map[string]string, bool) {
 	key := s.cacheKey(database, measurement, sid)
-	if cached, ok := s.cache.Load(key); ok {
-		return cached.(map[string]string), true
+	if cached, ok := s.cache.load(key); ok {
+		return cached, true
 	}
 
 	var tags map[string]string
@@ -282,7 +331,7 @@ func (s *seriesStore) GetTags(database, measurement string, sid uint64) (map[str
 	})
 
 	if tags != nil {
-		s.cache.Store(key, tags)
+		s.cache.store(key, tags)
 		return tags, true
 	}
 	return nil, false
@@ -375,7 +424,7 @@ func (s *seriesStore) rebuildCache() error {
 						continue
 					}
 					ck := s.cacheKey(string(dbName), measName, sid)
-					s.cache.Store(ck, tags)
+					s.cache.store(ck, tags)
 
 					// 重建 hash 缓存
 					h := tagsHash(tags)

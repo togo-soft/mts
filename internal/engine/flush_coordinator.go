@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	flushCooldown = 3 * time.Second
+	flushCooldown     = 3 * time.Second
+	maxUnorderedFiles = 50 // 无序文件超过此阈值时跳过 flush，等待 compaction 消化
 )
 
 // Compactor 是 flush 后需要执行的 unordered→L0 compaction 接口。
@@ -80,6 +81,13 @@ func (fc *FlushCoordinator) checkAndFlush() {
 
 	// NearFull：需要检查冷却时间
 	if !fc.memTable.NearFull() {
+		return
+	}
+
+	// 无序文件反压：当堆积超过阈值时跳过 flush，等待 compaction 消化。
+	// 若 memtable 持续满，Write() 会被阻塞，形成自然的端到端反压。
+	files, _ := unordered.ListFiles(fc.dataDir)
+	if len(files) >= maxUnorderedFiles {
 		return
 	}
 

@@ -292,6 +292,7 @@ func (m *ShardManager) GetAllShards() []*Shard {
 // DeleteShard 删除指定的 Shard。
 // 先从 map 中移除 shard 并释放锁，再执行 Close 和目录删除，
 // 避免长时间持锁阻塞其他 ShardManager 操作。
+// os.RemoveAll 前双重检查 key 是否被重建，防止 TOCTOU 竞态。
 func (m *ShardManager) DeleteShard(key string) error {
 	m.mu.Lock()
 	shard, ok := m.shards[key]
@@ -309,10 +310,20 @@ func (m *ShardManager) DeleteShard(key string) error {
 	}
 
 	dir := shard.Dir()
-	if dir != "" {
-		if err := os.RemoveAll(dir); err != nil {
-			return fmt.Errorf("remove shard dir: %w", err)
-		}
+	if dir == "" {
+		return nil
+	}
+
+	// 双重检查：Close 期间可能有 GetShard 为相同时间窗口创建了新 Shard
+	m.mu.RLock()
+	_, recreated := m.shards[key]
+	m.mu.RUnlock()
+	if recreated {
+		return nil
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove shard dir: %w", err)
 	}
 
 	return nil
