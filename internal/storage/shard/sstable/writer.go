@@ -1,6 +1,7 @@
 package sstable
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,6 +30,8 @@ const BlockSize = 64 * 1024
 
 // Writer SSTable 写入器。
 type Writer struct {
+	ctx context.Context
+
 	shardDir   string
 	seq        uint64
 	blockSize  int
@@ -99,6 +102,7 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 	}
 
 	w := &Writer{
+		ctx:              context.Background(),
 		shardDir:         shardDir,
 		seq:              seq,
 		blockSize:        blockSize,
@@ -131,6 +135,23 @@ func NewWriter(shardDir string, seq uint64, blockSize int, compressAlgo Compress
 // 由 WAL + tmp/rename 模式保证原子性和持久性。
 func (w *Writer) SetSyncOnClose(v bool) {
 	w.syncOnClose = v
+}
+
+// WithContext 设置 Writer 的 context，用于支持超时取消。
+// 取消 context 后，Close() 中正在进行的 I/O 操作会尽快返回错误。
+func (w *Writer) WithContext(ctx context.Context) *Writer {
+	w.ctx = ctx
+	return w
+}
+
+// checkCtx 检查 context 是否已取消，用于在长 I/O 操作中及时退出。
+func (w *Writer) checkCtx() error {
+	select {
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	default:
+		return nil
+	}
 }
 
 // NewBlockIndex 创建空的 BlockIndex。

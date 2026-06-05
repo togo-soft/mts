@@ -49,6 +49,20 @@ func PutVarint(buf []byte, v uint64) int {
 //	// n = 2, buf[0] = 0xAC, buf[1] = 0x02
 //	v, n := Varint(buf)
 //	// v = 300, n = 2
+//
+// Varint 从缓冲区解码变长整数。
+//
+// 参数：
+//   - buf: 包含变长编码数据的缓冲区
+//
+// 返回：
+//   - uint64: 解码后的值
+//   - int:    消耗的字节数
+//
+// 错误处理：
+//
+//	如果缓冲区不完整（缺少终止字节，即所有字节的高位均为 1），
+//	返回已解码的部分值与 len(buf)，调用方需自行判断是否完整。
 func Varint(buf []byte) (uint64, int) {
 	var shift uint
 	var v uint64

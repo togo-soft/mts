@@ -37,17 +37,21 @@ type MemTable struct {
 	lastWrite   time.Time
 	activeCount int
 	sorted      bool
+	flushMu     sync.Mutex
+	flushCond   *sync.Cond
 }
 
 // NewMemTable 创建新的 MemTable 实例。
 func NewMemTable(cfg *MemTableConfig) *MemTable {
-	return &MemTable{
+	mt := &MemTable{
 		active:      make([]types.MemPoint, 0, 1024),
 		maxSize:     cfg.FlushMemorySize,
 		maxCount:    int(cfg.FlushPointCount),
 		idleTimeout: time.Duration(cfg.FlushIdleNanos),
 		lastWrite:   time.Now(),
 	}
+	mt.flushCond = sync.NewCond(&mt.flushMu)
+	return mt
 }
 
 // Write 写入 MemPoint 到 active。直接接管 FieldData 所有权，无需拷贝。
@@ -172,6 +176,7 @@ func (m *MemTable) ClearPassive() {
 	defer m.mu.Unlock()
 	m.passive = nil
 	m.flushing.Store(false)
+	m.flushCond.Broadcast()
 }
 
 // MergePassiveBack 将 flush 失败的 passive 数据合并回 active。
@@ -181,6 +186,7 @@ func (m *MemTable) MergePassiveBack() {
 
 	if len(m.passive) == 0 {
 		m.flushing.Store(false)
+		m.flushCond.Broadcast()
 		return
 	}
 
@@ -190,6 +196,7 @@ func (m *MemTable) MergePassiveBack() {
 	m.activeCount = len(m.active)
 	m.sortActive()
 	m.flushing.Store(false)
+	m.flushCond.Broadcast()
 }
 
 // IsFlushing 返回是否有后台 flush 进行中。
@@ -202,9 +209,24 @@ func (m *MemTable) TrySetFlushing() bool {
 	return m.flushing.CompareAndSwap(false, true)
 }
 
-// ClearFlushing 清除 flushing 标志。
+// ClearFlushing 清除 flushing 标志并通知等待的 goroutine。
 func (m *MemTable) ClearFlushing() {
 	m.flushing.Store(false)
+	m.flushMu.Lock()
+	m.flushCond.Broadcast()
+	m.flushMu.Unlock()
+}
+
+// WaitNotFullNoCtx 阻塞等待直到可能已完成刷盘（条件变量通知）。
+// 返回后调用方需重新检查 ActiveFull() 以确认状态。
+func (m *MemTable) WaitNotFullNoCtx() {
+	m.flushMu.Lock()
+	m.flushCond.Wait()
+	m.flushMu.Unlock()
+}
+
+func (m *MemTable) estimatedSizeRL() int64 {
+	return int64(len(m.active)) * 1024
 }
 
 // ActiveFull 检查 active 是否超过硬限制（5x maxSize/maxCount），需要背压。
@@ -212,8 +234,7 @@ func (m *MemTable) ClearFlushing() {
 func (m *MemTable) ActiveFull() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	estimatedSize := int64(len(m.active)) * 1024
-	return estimatedSize >= m.maxSize*5 || (m.maxCount > 0 && m.activeCount >= m.maxCount*5)
+	return m.estimatedSizeRL() >= m.maxSize*5 || (m.maxCount > 0 && m.activeCount >= m.maxCount*5)
 }
 
 // NearFull 检查 active 是否接近容量上限（2x 阈值），用于触发预刷盘。

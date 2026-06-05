@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
@@ -75,7 +76,9 @@ func (fc *FlushCoordinator) checkAndFlush() {
 
 	// 空闲超时：不检查冷却时间
 	if fc.memTable.IdleExceeded() {
-		_ = fc.doFlush()
+		if err := fc.doFlush(); err != nil {
+			slog.Warn("idle flush failed", "error", err)
+		}
 		return
 	}
 
@@ -86,7 +89,11 @@ func (fc *FlushCoordinator) checkAndFlush() {
 
 	// 无序文件反压：当堆积超过阈值时跳过 flush，等待 compaction 消化。
 	// 若 memtable 持续满，Write() 会被阻塞，形成自然的端到端反压。
-	files, _ := unordered.ListFiles(fc.dataDir)
+	files, err := unordered.ListFiles(fc.dataDir)
+	if err != nil {
+		slog.Warn("failed to list unordered files, skipping flush", "error", err)
+		return
+	}
 	if len(files) >= maxUnorderedFiles {
 		return
 	}
@@ -98,7 +105,9 @@ func (fc *FlushCoordinator) checkAndFlush() {
 	}
 	fc.mu.Unlock()
 
-	_ = fc.doFlush()
+	if err := fc.doFlush(); err != nil {
+		slog.Warn("near-full flush failed", "error", err)
+	}
 }
 
 // doFlush 执行实际的刷盘操作。
@@ -114,7 +123,9 @@ func (fc *FlushCoordinator) doFlush() error {
 	}
 
 	// 调用 Flusher.Flush（当前为桩，实际在 unordered 写入中处理）
-	_ = fc.flusher.Flush(passive)
+	if err := fc.flusher.Flush(passive); err != nil {
+		slog.Warn("flusher.Flush failed", "error", err)
+	}
 
 	// 写入 unordered 目录
 	_, err := unordered.Write(fc.dataDir, passive, fc.compression)
@@ -131,7 +142,9 @@ func (fc *FlushCoordinator) doFlush() error {
 	fc.mu.Unlock()
 
 	// 销毁已刷盘的 WAL 段
-	_ = fc.wal.TruncateBefore(fc.wal.SegmentNum() + 1)
+	if err := fc.wal.TruncateBefore(fc.wal.SegmentNum() + 1); err != nil {
+		slog.Warn("failed to truncate WAL after flush", "error", err)
+	}
 
 	return nil
 }

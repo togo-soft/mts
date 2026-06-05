@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
 
 const maxFlushRetries = 10
-
-const flushRetryInterval = 50 * time.Millisecond
 
 // Write 写入单个数据点到存储引擎。
 // 直接写入全局 WAL 和全局 MemTable。
@@ -93,6 +90,7 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 // flushWithRetry 触发刷盘，若其他 goroutine 正在刷盘则等待其完成。
 // 并发写入场景下，多个 goroutine 可能同时发现 MemTable 满，
 // 但只有第一个能启动刷盘（TrySetFlushing），其他的需要等待。
+// 使用条件变量代替 busy-wait，减少 CPU 开销和延迟。
 func (e *Engine) flushWithRetry() error {
 	for range maxFlushRetries {
 		if err := e.coordinator.FlushAll(); err != nil {
@@ -101,7 +99,8 @@ func (e *Engine) flushWithRetry() error {
 		if !e.memTable.ActiveFull() {
 			return nil
 		}
-		time.Sleep(flushRetryInterval)
+		// 等待 flush 完成通知，而不是 busy-wait
+		e.memTable.WaitNotFullNoCtx()
 	}
 	return fmt.Errorf("memtable still full after %d flush attempts", maxFlushRetries)
 }

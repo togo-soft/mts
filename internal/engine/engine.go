@@ -36,6 +36,8 @@ const (
 	unorderedCompactionInterval = 500 * time.Millisecond
 	// defaultMaxWALSegments 是 WAL 默认最大 segment 数量。
 	defaultMaxWALSegments = 5
+	// flushCheckInterval 是 FlushCoordinator 周期性检查刷盘的时间间隔。
+	flushCheckInterval = time.Second
 )
 
 // 错误定义
@@ -45,6 +47,7 @@ var (
 	ErrEmptyMeasurement    = errors.New("measurement name is empty")
 	ErrInvalidTimestamp    = errors.New("timestamp is negative")
 	ErrDatabaseNotFound    = errors.New("database not found")
+	ErrDatabaseAlreadyExists = errors.New("database already exists")
 	ErrMeasurementNotFound = errors.New("measurement not found")
 )
 
@@ -119,7 +122,7 @@ func New(cfg *Config) (*Engine, error) {
 	walDir := wal.GlobalDir(cfg.DataDir)
 	walCfg := wal.Config{
 		Dir:          walDir,
-		SegmentSize:  64 * 1024 * 1024,
+		SegmentSize:  wal.DefaultSegmentSize,
 		MaxSegments:  defaultMaxWALSegments,
 		SyncMode:     wal.SyncPeriodic,
 		SyncInterval: time.Minute,
@@ -160,7 +163,7 @@ func New(cfg *Config) (*Engine, error) {
 	uc := compaction.NewUnorderedCompactor(cfg.DataDir, engine.shardMgr, cfg.CompressionAlgorithm)
 
 	coordinator := NewFlushCoordinator(globalMT, globalWAL, flusher, uc, cfg.DataDir, cfg.CompressionAlgorithm)
-	coordinator.StartPeriodicCheck(time.Second)
+	coordinator.StartPeriodicCheck(flushCheckInterval)
 	engine.coordinator = coordinator
 
 	// 启动数据保留清理服务
@@ -170,13 +173,13 @@ func New(cfg *Config) (*Engine, error) {
 			checkInterval = time.Hour
 		}
 		engine.retentionSvc = shard.NewRetentionService(engine.shardMgr, cfg.RetentionPeriod, checkInterval, engine.catalog)
-		engine.retentionSvc.Start()
+		engine.retentionSvc.Start() // TODO: Start 方法未返回 error，后续可考虑加入错误处理
 	}
 
 	// 启动降采样服务
 	dsAdapter := &downsampleCatalogAdapter{catalog: engine.catalog}
 	engine.downsampleSvc = downsample.NewService(cfg.DataDir, dsAdapter, cfg.CompressionAlgorithm)
-	engine.downsampleSvc.Start()
+	engine.downsampleSvc.Start() // TODO: Start 方法未返回 error，后续可考虑加入错误处理
 
 	// 启动 unordered → stable/L0 compaction 定时任务（每 500ms）
 	engine.compactionStopCh = make(chan struct{})
@@ -186,7 +189,9 @@ func New(cfg *Config) (*Engine, error) {
 		for {
 			select {
 			case <-ticker.C:
-				_ = uc.Compact()
+				if err := uc.Compact(); err != nil {
+					slog.Warn("unordered compaction failed", "error", err)
+				}
 			case <-engine.compactionStopCh:
 				return
 			}
@@ -196,8 +201,13 @@ func New(cfg *Config) (*Engine, error) {
 	// 后台发现已有 measurement 的 Shard 并重放全局 WAL
 	engine.recoveryDone = make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("discoverAndRecover panic", "error", r)
+			}
+			close(engine.recoveryDone)
+		}()
 		engine.discoverAndRecover()
-		close(engine.recoveryDone)
 	}()
 
 	return engine, nil
@@ -225,7 +235,9 @@ func (e *Engine) discoverAndRecover() {
 		}
 		// 如果 MemTable 接近满，先刷盘
 		if e.memTable.NearFull() {
-			_ = e.coordinator.FlushAll()
+			if err := e.coordinator.FlushAll(); err != nil {
+				slog.Warn("flush during WAL replay failed", "error", err)
+			}
 		}
 		return e.memTable.Write(mp)
 	}); err != nil {
@@ -236,7 +248,9 @@ func (e *Engine) discoverAndRecover() {
 	e.memTable.Sort()
 
 	// 删除已 replay 的 WAL 段
-	_ = e.wal.TruncateBefore(e.wal.SegmentNum() + 1)
+	if err := e.wal.TruncateBefore(e.wal.SegmentNum() + 1); err != nil {
+		slog.Warn("failed to truncate WAL after replay", "error", err)
+	}
 }
 
 // Close 关闭引擎，释放所有资源。
@@ -251,6 +265,8 @@ func (e *Engine) Close() error {
 
 	e.queryWg.Wait()
 
+	var errs []error
+
 	// 停止数据保留清理服务
 	if e.retentionSvc != nil {
 		e.retentionSvc.Stop()
@@ -261,8 +277,10 @@ func (e *Engine) Close() error {
 		e.downsampleSvc.Stop()
 	}
 
-	// 同步刷写所有数据
-	_ = e.coordinator.FlushAll()
+	// 同步刷新所有数据
+	if err := e.coordinator.FlushAll(); err != nil {
+		errs = append(errs, fmt.Errorf("flush all: %w", err))
+	}
 
 	// 停止 unordered compaction（FlushAll 之后关闭，确保最后的数据被处理）
 	if e.compactionStopCh != nil {
@@ -274,21 +292,25 @@ func (e *Engine) Close() error {
 
 	// 关闭全局 WAL
 	if e.wal != nil {
-		_ = e.wal.Close()
+		if err := e.wal.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close wal: %w", err))
+		}
 	}
 
 	// 关闭所有 Shard
-	_ = e.flusher.CloseAll()
+	if err := e.flusher.CloseAll(); err != nil {
+		errs = append(errs, fmt.Errorf("close all shards: %w", err))
+	}
 
 	// 同步 metadata
 	if err := e.metaManager.Sync(); err != nil {
-		return fmt.Errorf("sync metadata: %w", err)
+		errs = append(errs, fmt.Errorf("sync metadata: %w", err))
 	}
 
 	if err := e.metaManager.Close(); err != nil {
-		return fmt.Errorf("close metadata manager: %w", err)
+		errs = append(errs, fmt.Errorf("close metadata manager: %w", err))
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // isClosed 检查引擎是否已关闭。

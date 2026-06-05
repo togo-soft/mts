@@ -463,9 +463,10 @@ func TestSimpleSeriesStore_SharedReference(t *testing.T) {
 	tags, _ := s.GetTags("", "", sid)
 	tags["host"] = "modified"
 
+	// GetTags 应返回防御性拷贝，修改不影响内部状态
 	tags2, _ := s.GetTags("", "", sid)
-	if tags2["host"] != "modified" {
-		t.Error("GetTags should return a shared reference")
+	if tags2["host"] != "s1" {
+		t.Errorf("GetTags should return a defensive copy, got host=%q, want %q", tags2["host"], "s1")
 	}
 }
 

@@ -17,6 +17,14 @@ type Schema struct {
 	UpdatedAt int64      `json:"updated_at"`
 }
 
+// 字段类型 ID 常量（用于 FieldDef.Type）。
+const (
+	FieldTypeFloat64ID = 1
+	FieldTypeInt64ID   = 2
+	FieldTypeStringID  = 3
+	FieldTypeBoolID    = 4
+)
+
 // FieldDef 定义单个字段的属性。
 type FieldDef struct {
 	Name     string `json:"name"`

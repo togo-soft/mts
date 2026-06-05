@@ -6,10 +6,20 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"codeberg.org/micro-ts/mts/internal/storage"
 	"codeberg.org/micro-ts/mts/types"
 )
+
+var errInvalidFieldName = fmt.Errorf("field name contains invalid characters")
+
+func validateFieldName(name string) error {
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("%w: %q", errInvalidFieldName, name)
+	}
+	return nil
+}
 
 // WriteMemPoints 直接写入 MemPoint 切片，从 FieldData 字节流解码字段值到列式缓冲区。
 // 跳过 MemPoint → InternalPoint → WritePoints 中间态，消除 deserializeFieldData + NewFieldValue 分配。
@@ -42,6 +52,9 @@ func (w *Writer) WriteMemPoints(points []types.MemPoint) error {
 	}
 
 	for name, ft := range fieldSet {
+		if err := validateFieldName(name); err != nil {
+			return fmt.Errorf("invalid field name: %w", err)
+		}
 		if _, exists := w.fields[name]; exists {
 			continue
 		}
@@ -209,7 +222,10 @@ func (w *Writer) writeMemPoint(mp types.MemPoint) error {
 			kLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
 			pos += 2
 			// 字节级字段查找：获取索引，零字符串分配
-			idx := w.lookupFieldIdx(data[pos : pos+kLen])
+			idx, err := w.lookupFieldIdx(data[pos : pos+kLen])
+			if err != nil {
+				return fmt.Errorf("write mempoint field lookup: %w", err)
+			}
 			pos += kLen
 			typ := data[pos]
 			pos++
@@ -259,13 +275,14 @@ func (w *Writer) writeMemPoint(mp types.MemPoint) error {
 }
 
 // lookupFieldIdx 通过字节级比较查找字段索引，零字符串分配。
-func (w *Writer) lookupFieldIdx(data []byte) int {
+// 未找到时返回错误而非 -1，防止越界访问。
+func (w *Writer) lookupFieldIdx(data []byte) (int, error) {
 	for i, name := range w.fieldIdxNames {
 		if len(name) == len(data) && stringEqualBytes(name, data) {
-			return i
+			return i, nil
 		}
 	}
-	return -1
+	return -1, fmt.Errorf("field not found: %q", string(data))
 }
 
 // appendFieldValueIdx 将字段值追加到 field buffer（使用字段索引）。

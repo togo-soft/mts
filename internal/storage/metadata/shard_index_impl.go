@@ -3,6 +3,7 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	bolt "go.etcd.io/bbolt"
@@ -43,13 +44,9 @@ func (idx *shardIndex) RegisterShard(database, measurement string, info ShardInf
 
 func (idx *shardIndex) UnregisterShard(database, measurement, shardID string) error {
 	return idx.db.Update(func(tx *bolt.Tx) error {
-		dbBucket := tx.Bucket([]byte(database))
-		if dbBucket == nil {
-			return fmt.Errorf("database %q not found", database)
-		}
-		measBucket := dbBucket.Bucket([]byte(measurement))
-		if measBucket == nil {
-			return fmt.Errorf("measurement %q not found", measurement)
+		measBucket, err := getMeasBucket(tx, database, measurement)
+		if err != nil {
+			return err
 		}
 		shardsBucket := measBucket.Bucket([]byte("shards"))
 		if shardsBucket == nil {
@@ -64,7 +61,7 @@ func (idx *shardIndex) UnregisterShard(database, measurement, shardID string) er
 
 func (idx *shardIndex) QueryShards(database, measurement string, startTime, endTime int64) []ShardInfo {
 	var result []ShardInfo
-	_ = idx.db.View(func(tx *bolt.Tx) error {
+	if err := idx.db.View(func(tx *bolt.Tx) error {
 		dbBucket := tx.Bucket([]byte(database))
 		if dbBucket == nil {
 			return nil
@@ -87,7 +84,9 @@ func (idx *shardIndex) QueryShards(database, measurement string, startTime, endT
 			}
 			return nil
 		})
-	})
+	}); err != nil {
+		slog.Warn("db.View failed", "error", err)
+	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].StartTime < result[j].StartTime
 	})
@@ -96,7 +95,7 @@ func (idx *shardIndex) QueryShards(database, measurement string, startTime, endT
 
 func (idx *shardIndex) ListShards(database, measurement string) []ShardInfo {
 	var result []ShardInfo
-	_ = idx.db.View(func(tx *bolt.Tx) error {
+	if err := idx.db.View(func(tx *bolt.Tx) error {
 		dbBucket := tx.Bucket([]byte(database))
 		if dbBucket == nil {
 			return nil
@@ -117,7 +116,9 @@ func (idx *shardIndex) ListShards(database, measurement string) []ShardInfo {
 			result = append(result, info)
 			return nil
 		})
-	})
+	}); err != nil {
+		slog.Warn("db.View failed", "error", err)
+	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].StartTime < result[j].StartTime
 	})
@@ -126,13 +127,9 @@ func (idx *shardIndex) ListShards(database, measurement string) []ShardInfo {
 
 func (idx *shardIndex) UpdateShardStats(database, measurement, shardID string, sstableCount int, totalSize int64) error {
 	return idx.db.Update(func(tx *bolt.Tx) error {
-		dbBucket := tx.Bucket([]byte(database))
-		if dbBucket == nil {
-			return fmt.Errorf("database %q not found", database)
-		}
-		measBucket := dbBucket.Bucket([]byte(measurement))
-		if measBucket == nil {
-			return fmt.Errorf("measurement %q not found", measurement)
+		measBucket, err := getMeasBucket(tx, database, measurement)
+		if err != nil {
+			return err
 		}
 		shardsBucket := measBucket.Bucket([]byte("shards"))
 		if shardsBucket == nil {

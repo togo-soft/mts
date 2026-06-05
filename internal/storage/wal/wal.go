@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	defaultSegmentSize  = 64 * 1024 * 1024 // 默认 segment 大小 64MB
+	DefaultSegmentSize  = 64 * 1024 * 1024 // 默认 segment 大小 64MB
+	defaultSegmentSize  = DefaultSegmentSize
 	writeBufSize        = 1 * 1024 * 1024  // 写缓冲大小 1MB，减少慢 I/O 平台上 file.Write 频率
 	defaultSyncInterval = time.Second      // 默认同步间隔
 )
@@ -91,7 +92,7 @@ func Open(cfg Config) (*WAL, error) {
 
 	w := &WAL{
 		dir:        cfg.Dir,
-		buf:        make([]byte, writeBufSize), // 64KB 写缓冲
+		buf:        make([]byte, writeBufSize), // 1MB 写缓冲
 		cfg:        cfg,
 		syncDone:   make(chan struct{}),
 		compressed: cfg.Compressed,
@@ -352,7 +353,9 @@ func (w *WAL) TruncateAfterFlush() error {
 		}
 	}
 
-	_ = ClearCheckpoint(w.dir)
+	if err := ClearCheckpoint(w.dir); err != nil {
+		w.cfg.Logger.Warn("failed to clear checkpoint after flush", "error", err)
+	}
 
 	return nil
 }
@@ -517,8 +520,10 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 	}
 
 	// 加载 checkpoint，跳过已完成 flush 的旧 segment
-	cp, _ := LoadCheckpoint(w.dir)
-	if cp != nil {
+	cp, err := LoadCheckpoint(w.dir)
+	if err != nil {
+		w.cfg.Logger.Warn("failed to load WAL checkpoint, replaying all segments", "error", err)
+	} else if cp != nil {
 		w.cfg.Logger.Info("WAL checkpoint found, skipping persisted segments",
 			"checkpoint_gen", cp.Generation,
 			"checkpoint_seg", cp.Segment)
@@ -545,11 +550,6 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 			continue
 		}
 
-		// 跳过 segment header，从数据部分开始读取
-		if _, err := file.Seek(0, 0); err != nil {
-			_ = file.Close()
-			return err
-		}
 		_, _, compressed, err := readSegmentHeader(file)
 		if err != nil {
 			_ = file.Close()

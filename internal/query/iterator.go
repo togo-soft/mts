@@ -73,6 +73,8 @@ func (c *channelIterator) Next() *types.PointRow {
 }
 
 func (c *channelIterator) Close() {
+	// 注意：如果 producer goroutine panic 或死锁，此 drain 会永久阻塞。
+	// 当前依赖 producer 在完成/取消时 close channel 来保证退出。
 	for range c.ch {
 	}
 }

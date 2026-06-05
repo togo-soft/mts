@@ -2,6 +2,7 @@ package sstable
 
 import (
 	"container/heap"
+	"log/slog"
 
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -92,6 +93,7 @@ func NewMergeIterator(filePaths []string, startTime, endTime int64, schema Schem
 
 		r, err := NewReader(fp, schema)
 		if err != nil {
+			slog.Warn("failed to open SSTable, skipping", "path", fp, "error", err)
 			if refMgr != nil {
 				refMgr.ReleaseSSTRef(fp)
 			}
@@ -102,6 +104,7 @@ func NewMergeIterator(filePaths []string, startTime, endTime int64, schema Schem
 
 		iter, err := r.NewIterator(fields, filterConds)
 		if err != nil {
+			slog.Warn("failed to create iterator, skipping SSTable", "path", fp, "error", err)
 			if refMgr != nil {
 				refMgr.ReleaseSSTRef(fp)
 			}
@@ -109,7 +112,9 @@ func NewMergeIterator(filePaths []string, startTime, endTime int64, schema Schem
 		}
 
 		if startTime > 0 {
-			_ = iter.SeekToTime(startTime)
+			if err := iter.SeekToTime(startTime); err != nil {
+				slog.Debug("SeekToTime failed", "path", fp, "error", err)
+			}
 		}
 
 		if iter.Next() {

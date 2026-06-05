@@ -6,6 +6,7 @@ package compaction
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -81,12 +82,17 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 
 	reader, err := sstable.NewReader(file, sstable.Schema{})
 	if err != nil {
-		return nil // 跳过损坏文件
+		slog.Warn("skipping corrupt unordered file", "path", file, "error", err)
+		return nil
 	}
 	rows, err := reader.ReadAll(nil)
-	_ = reader.Close()
-	if err != nil || len(rows) == 0 {
+	closeErr := reader.Close()
+	if err != nil && len(rows) == 0 {
+		slog.Warn("failed to read unordered file, no data recovered", "path", file, "error", err)
 		return nil
+	}
+	if closeErr != nil {
+		slog.Debug("close reader error", "path", file, "error", closeErr)
 	}
 
 	// 按 (db, meas, shard) 分组
@@ -154,16 +160,21 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 	}
 
 	// 删除已处理的源文件
-	_ = os.Remove(file)
+	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove source file %s: %w", file, err)
+	}
 
 	// 清理空目录（递归向上清理）
 	dir := filepath.Dir(file)
 	for strings.Count(dir, string(filepath.Separator)) >= strings.Count(uc.dataDir, string(filepath.Separator)) {
-		entries, _ := os.ReadDir(dir)
-		if len(entries) > 0 {
+		entries, readErr := os.ReadDir(dir)
+		if readErr != nil || len(entries) > 0 {
 			break
 		}
-		_ = os.Remove(dir)
+		if err := os.Remove(dir); err != nil {
+			slog.Warn("failed to remove empty dir during unordered cleanup", "dir", dir, "error", err)
+			break
+		}
 		dir = filepath.Dir(dir)
 	}
 

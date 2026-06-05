@@ -3,6 +3,7 @@ package sstable
 import (
 	"encoding/binary"
 	"io"
+	"log/slog"
 	"math"
 	"os"
 
@@ -69,8 +70,10 @@ func NewReader(filePath string, schema Schema) (*Reader, error) {
 	if idxSize > 0 {
 		idxData := make([]byte, idxSize)
 		if _, err := f.ReadAt(idxData, int64(idxOffset)); err != nil {
+			slog.Warn("failed to read block index, reader may return empty data", "path", filePath, "error", err)
 			blockIndex = nil
 		} else if err := blockIndex.parse(idxData); err != nil {
+			slog.Warn("failed to parse block index, reader may return empty data", "path", filePath, "error", err)
 			blockIndex = nil
 		}
 	}

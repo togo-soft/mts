@@ -31,6 +31,8 @@ func newSSTRefs() *sstRefs {
 }
 
 // acquire 增加对指定路径 SSTable 的引用，必要时创建新的引用对象。
+// 始终返回 true：内存 map 操作不会失败，新路径会自动创建引用对象；
+// 保留 bool 返回值是为了与调用方接口兼容。
 func (sr *sstRefs) acquire(path string) bool {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()

@@ -669,7 +669,7 @@ func TestTruncateBefore(t *testing.T) {
 	// Open WAL instance to call TruncateBefore
 	cfg := Config{
 		Dir:         walDir,
-		SegmentSize: 64 * 1024 * 1024,
+		SegmentSize: DefaultSegmentSize,
 		MaxSegments: 10,
 		SyncMode:    SyncNone,
 	}
@@ -711,7 +711,7 @@ func TestTruncateBefore_IncludesCurrentSegment(t *testing.T) {
 
 	cfg := Config{
 		Dir:         walDir,
-		SegmentSize: 64 * 1024 * 1024,
+		SegmentSize: DefaultSegmentSize,
 		MaxSegments: 10,
 		SyncMode:    SyncNone,
 	}

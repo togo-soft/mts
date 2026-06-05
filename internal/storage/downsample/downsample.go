@@ -408,7 +408,7 @@ func isDownsampleDone(windowDir string) bool {
 
 // markDownsampleDone 标记窗口降采样完成。
 func markDownsampleDone(windowDir string) error {
-	f, err := os.Create(filepath.Join(windowDir, "_downsample_done"))
+	f, err := os.OpenFile(filepath.Join(windowDir, "_downsample_done"), os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
@@ -424,11 +424,13 @@ func nextSSTSeq(dir string) (int, error) {
 		}
 		return 0, err
 	}
+	const sstPrefixLen = len("sst_")
+	const sstSuffixLen = len(".bin")
 	maxSeq := 0
 	for _, e := range entries {
 		name := e.Name()
 		if strings.HasPrefix(name, "sst_") && strings.HasSuffix(name, ".bin") {
-			numStr := name[4 : len(name)-4]
+			numStr := name[sstPrefixLen : len(name)-sstSuffixLen]
 			if n, err := strconv.Atoi(numStr); err == nil && n > maxSeq {
 				maxSeq = n
 			}

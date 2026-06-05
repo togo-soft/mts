@@ -8,6 +8,9 @@ import (
 	"os"
 )
 
+// maxRecordPayloadSize 是单条 WAL 记录的最大负载大小（256MB）。
+const maxRecordPayloadSize = 256 * 1024 * 1024
+
 // ErrCorruptRecord 表示发现一条损坏的 WAL 记录。
 var ErrCorruptRecord = &FormatError{Reason: "CRC mismatch"}
 
@@ -53,7 +56,7 @@ func readRecords(file *os.File, startPos int64, fn func(payload []byte) error, c
 		recType := headerBuf[4]
 		payloadLen := binary.BigEndian.Uint32(headerBuf[5:9])
 
-		if payloadLen > 256*1024*1024 {
+		if payloadLen > maxRecordPayloadSize {
 			slog.Warn("WAL record too large, stopping replay",
 				"offset", pos-recordHeaderSize,
 				"payloadLen", payloadLen)

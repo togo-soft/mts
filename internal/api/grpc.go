@@ -1,4 +1,6 @@
 // Package api 实现 gRPC API 服务。
+package api
+
 //
 // 提供完整的时序数据库远程访问接口，兼容常见的时序数据库操作语义。
 //
@@ -13,7 +15,6 @@
 //	ListDatabases:     枚举数据库
 //	CreateDatabase:    创建数据库
 //	DropDatabase:      删除数据库
-//	Health:            健康检查
 //
 // 错误处理：
 //
@@ -30,8 +31,6 @@
 //	// 客户端 (使用生成的 types 包)
 //	client := types.NewMTSClient(conn)
 //	resp, err := client.Write(ctx, &types.WriteRequest{...})
-package api
-
 import (
 	"context"
 	"errors"
@@ -44,6 +43,8 @@ import (
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/types"
 )
+
+const grpcVersion = "1.0.0"
 
 // MTSService 实现 gRPC MTS 服务。
 //
@@ -87,14 +88,14 @@ func New(eng *engine.Engine) *MTSService {
 }
 
 // writeRequestToPoint 将 types.WriteRequest 转换为 types.Point。
-func writeRequestToPoint(req *types.WriteRequest) (*types.Point, error) {
+func writeRequestToPoint(req *types.WriteRequest) *types.Point {
 	return &types.Point{
 		Database:    req.Database,
 		Measurement: req.Measurement,
 		Tags:        req.Tags,
 		Timestamp:   req.Timestamp,
 		Fields:      req.Fields,
-	}, nil
+	}
 }
 
 // pointRowToProto 将 types.PointRow 转换为 types.Row。
@@ -120,10 +121,7 @@ func pointRowToProto(row *types.PointRow) (*types.Row, error) {
 //   - *types.WriteResponse: 写入响应，Success=true 表示成功
 //   - error: 处理失败时返回 gRPC 错误
 func (s *MTSService) Write(ctx context.Context, req *types.WriteRequest) (*types.WriteResponse, error) {
-	point, err := writeRequestToPoint(req)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid request: %v", err)
-	}
+	point := writeRequestToPoint(req)
 
 	if err := s.engine.Write(ctx, point); err != nil {
 		return nil, status.Errorf(codes.Internal, "write failed: %v", err)
@@ -145,11 +143,8 @@ func (s *MTSService) Write(ctx context.Context, req *types.WriteRequest) (*types
 //   - error: 处理失败时返回 gRPC 错误
 func (s *MTSService) WriteBatch(ctx context.Context, req *types.WriteBatchRequest) (*types.WriteBatchResponse, error) {
 	points := make([]*types.Point, 0, len(req.Points))
-	for i, p := range req.Points {
-		point, err := writeRequestToPoint(p)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "point %d: %v", i, err)
-		}
+	for _, p := range req.Points {
+		point := writeRequestToPoint(p)
 		points = append(points, point)
 	}
 
@@ -208,11 +203,9 @@ func (s *MTSService) QueryRange(req *types.QueryRangeRequest, stream types.MTS_Q
 //   - *types.ListMeasurementsResponse: Measurement 列表
 //   - error: 查询失败时返回 gRPC 错误
 func (s *MTSService) ListMeasurements(ctx context.Context, req *types.ListMeasurementsRequest) (*types.ListMeasurementsResponse, error) {
-	measurements, found := s.engine.ListMeasurements(req.Database)
-	if !found {
-		return &types.ListMeasurementsResponse{
-			Measurements: []string{},
-		}, nil
+	measurements, err := s.engine.ListMeasurements(req.Database)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "list measurements failed: %v", err)
 	}
 	return &types.ListMeasurementsResponse{
 		Measurements: measurements,
@@ -289,7 +282,9 @@ func (s *MTSService) ListDatabases(ctx context.Context, req *types.ListDatabases
 //   - *types.CreateDatabaseResponse: 创建结果
 //   - error: 创建失败时返回 gRPC 错误
 func (s *MTSService) CreateDatabase(ctx context.Context, req *types.CreateDatabaseRequest) (*types.CreateDatabaseResponse, error) {
-	_ = s.engine.CreateDatabase(req.Database, time.Duration(req.RetentionPeriodNanos), req.DownsampleConfig)
+	if err := s.engine.CreateDatabase(req.Database, time.Duration(req.RetentionPeriodNanos), req.DownsampleConfig); err != nil {
+		return nil, status.Errorf(codes.Internal, "create database failed: %v", err)
+	}
 	return &types.CreateDatabaseResponse{
 		Success: true,
 	}, nil
@@ -305,9 +300,8 @@ func (s *MTSService) CreateDatabase(ctx context.Context, req *types.CreateDataba
 //   - *types.DropDatabaseResponse: 删除结果
 //   - error: 删除失败时返回 gRPC 错误
 func (s *MTSService) DropDatabase(ctx context.Context, req *types.DropDatabaseRequest) (*types.DropDatabaseResponse, error) {
-	found := s.engine.DropDatabase(req.Database)
-	if !found {
-		return nil, status.Errorf(codes.NotFound, "database not found: %s", req.Database)
+	if err := s.engine.DropDatabase(req.Database); err != nil {
+		return nil, status.Errorf(codes.NotFound, "drop database failed: %v", err)
 	}
 	return &types.DropDatabaseResponse{
 		Success: true,
@@ -335,7 +329,7 @@ func (s *MTSService) DropDatabase(ctx context.Context, req *types.DropDatabaseRe
 func (s *MTSService) Health(ctx context.Context, req *types.HealthRequest) (*types.HealthResponse, error) {
 	return &types.HealthResponse{
 		Healthy: true,
-		Version: "1.0.0",
+		Version: grpcVersion,
 	}, nil
 }
 
@@ -351,6 +345,8 @@ func (s *MTSService) Health(ctx context.Context, req *types.HealthRequest) (*typ
 //
 //	如果输入为 nil，返回 nil。
 //	当前实现仅转换时间戳和标签，字段转换待完善。
+//
+// Deprecated: use pointRowToProto instead
 func toProtoPointRow(row *types.PointRow) *types.Row {
 	if row == nil {
 		return nil

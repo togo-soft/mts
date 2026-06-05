@@ -474,13 +474,11 @@ func (db *DB) Execute(ctx context.Context, plan *types.QueryPlan) (*query.RowIte
 //	    fmt.Println(m)
 //	}
 func (db *DB) ListMeasurements(ctx context.Context, database string) ([]string, error) {
-	_ = ctx // 保留参数以符合接口约定
-	measurements, found := db.engine.ListMeasurements(database)
-	if !found {
-		// 数据库不存在时返回空列表（与旧行为兼容）
+	_ = ctx
+	measurements, err := db.engine.ListMeasurements(database)
+	if err != nil {
 		return []string{}, nil
 	}
-	// 按字母序排序
 	sort.Strings(measurements)
 	return measurements, nil
 }
@@ -599,8 +597,7 @@ func (db *DB) ListDatabases(ctx context.Context) ([]string, error) {
 //	}
 func (db *DB) CreateDatabase(ctx context.Context, database string, retention time.Duration, downsample *types.DownsampleConfig) error {
 	_ = ctx
-	_ = db.engine.CreateDatabase(database, retention, downsample)
-	return nil
+	return db.engine.CreateDatabase(database, retention, downsample)
 }
 
 // DropDatabase 删除指定的数据库。
@@ -624,10 +621,9 @@ func (db *DB) CreateDatabase(ctx context.Context, database string, retention tim
 //	    log.Fatal(err)
 //	}
 func (db *DB) DropDatabase(ctx context.Context, database string) error {
-	_ = ctx // 保留参数以符合接口约定
-	found := db.engine.DropDatabase(database)
-	if !found {
-		return fmt.Errorf("database not found: %s", database)
+	_ = ctx
+	if err := db.engine.DropDatabase(database); err != nil {
+		return fmt.Errorf("failed to drop database: %w", err)
 	}
 	return nil
 }

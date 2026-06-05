@@ -103,6 +103,7 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		DataDir:   shardDir,
 	}); err != nil {
 		slog.Warn("failed to register shard", "key", key, "error", err)
+		// 注册失败不影响 shard 返回，但调用方应关注
 	}
 
 	return s, nil

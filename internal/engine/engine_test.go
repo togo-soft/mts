@@ -513,8 +513,8 @@ func TestEngine_ListDatabases(t *testing.T) {
 	}()
 
 	// 创建 database
-	engine.CreateDatabase("db1", 0, nil)
-	engine.CreateDatabase("db2", 0, nil)
+	_ = engine.CreateDatabase("db1", 0, nil)
+	_ = engine.CreateDatabase("db2", 0, nil)
 
 	databases := engine.ListDatabases()
 	if len(databases) != 2 {
@@ -537,7 +537,7 @@ func TestEngine_ListMeasurements(t *testing.T) {
 	}()
 
 	// 创建 database 和 measurement
-	engine.CreateDatabase("db1", 0, nil)
+	_ = engine.CreateDatabase("db1", 0, nil)
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}
@@ -545,17 +545,17 @@ func TestEngine_ListMeasurements(t *testing.T) {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}
 
-	measurements, found := engine.ListMeasurements("db1")
-	if !found {
-		t.Fatalf("expected db1 to be found")
+	measurements, err := engine.ListMeasurements("db1")
+	if err != nil {
+		t.Fatalf("ListMeasurements failed: %v", err)
 	}
 	if len(measurements) != 2 {
 		t.Errorf("expected 2 measurements, got %v", measurements)
 	}
 
 	// 不存在的 database
-	_, found = engine.ListMeasurements("nonexistent")
-	if found {
+	_, err = engine.ListMeasurements("nonexistent")
+	if err == nil {
 		t.Errorf("expected not found for nonexistent database")
 	}
 }
@@ -575,8 +575,8 @@ func TestEngine_CreateDatabase(t *testing.T) {
 	}()
 
 	// 创建已存在的 database
-	engine.CreateDatabase("db1", 0, nil)
-	engine.CreateDatabase("db1", 0, nil) // 再次创建
+	_ = engine.CreateDatabase("db1", 0, nil)
+	_ = engine.CreateDatabase("db1", 0, nil) // 再次创建
 
 	databases := engine.ListDatabases()
 	if len(databases) != 1 {
@@ -599,21 +599,21 @@ func TestEngine_DropDatabase(t *testing.T) {
 	}()
 
 	// 创建 database
-	engine.CreateDatabase("db1", 0, nil)
+	_ = engine.CreateDatabase("db1", 0, nil)
 
 	// 删除不存在的
-	if engine.DropDatabase("nonexistent") {
-		t.Errorf("expected false for nonexistent database")
+	if err := engine.DropDatabase("nonexistent"); err == nil {
+		t.Errorf("expected error for nonexistent database")
 	}
 
 	// 删除已存在的
-	if !engine.DropDatabase("db1") {
-		t.Errorf("expected true for existing database")
+	if err := engine.DropDatabase("db1"); err != nil {
+		t.Errorf("expected success for existing database, got: %v", err)
 	}
 
 	// 再次删除已删除的
-	if engine.DropDatabase("db1") {
-		t.Errorf("expected false for already deleted database")
+	if err := engine.DropDatabase("db1"); err == nil {
+		t.Errorf("expected error for already deleted database")
 	}
 }
 
@@ -632,7 +632,7 @@ func TestEngine_CreateMeasurement(t *testing.T) {
 	}()
 
 	// 创建 measurement
-	engine.CreateDatabase("db1", 0, nil)
+	_ = engine.CreateDatabase("db1", 0, nil)
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}
@@ -661,7 +661,7 @@ func TestEngine_DropMeasurement(t *testing.T) {
 	}()
 
 	// 创建 measurement
-	engine.CreateDatabase("db1", 0, nil)
+	_ = engine.CreateDatabase("db1", 0, nil)
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatalf("CreateMeasurement failed: %v", err)
 	}

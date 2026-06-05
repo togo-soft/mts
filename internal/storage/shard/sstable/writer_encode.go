@@ -33,7 +33,10 @@ func (w *Writer) encodeTimestampsSection(rowCount int) ([]byte, []uint64, Encodi
 		}
 		values := compression.ExtractInt64Data(raw, n)
 		blockData := compression.EncodeTimestamps(values)
-		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		compressed, err := CompressBlock(blockData, w.compressAlgo)
+		if err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("compress timestamps block %d: %w", i, err)
+		}
 		encoded = append(encoded, compressed...)
 		off += uint64(len(compressed))
 		offsets = append(offsets, off)
@@ -64,7 +67,10 @@ func (w *Writer) encodeSidsSection(rowCount int) ([]byte, []uint64, error) {
 		}
 		values := compression.ExtractUint64Data(raw, n)
 		blockData := compression.EncodeSidsDelta(values)
-		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		compressed, err := CompressBlock(blockData, w.compressAlgo)
+		if err != nil {
+			return nil, nil, fmt.Errorf("compress sids block %d: %w", i, err)
+		}
 		encoded = append(encoded, compressed...)
 		off += uint64(len(compressed))
 		offsets = append(offsets, off)
@@ -103,7 +109,10 @@ func (w *Writer) encodeFieldSection(name string, rowCount int) ([]byte, []uint64
 		if err != nil {
 			return nil, nil, EncodingRaw, fmt.Errorf("read field %s temp: %w", name, err)
 		}
-		data, offsets := encodePerBlockRaw(w, raw, rowCount)
+		data, offsets, err := encodePerBlockRaw(w, raw, rowCount)
+		if err != nil {
+			return nil, nil, EncodingRaw, err
+		}
 		return data, offsets, EncodingRaw, nil
 	}
 }
@@ -161,7 +170,10 @@ func (w *Writer) encodeStringFieldSection(name string, rowCount int) ([]byte, []
 		}
 		blockData = append([]byte{flag}, blockData...)
 
-		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		compressed, err := CompressBlock(blockData, w.compressAlgo)
+		if err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("compress string field %s block %d: %w", name, i, err)
+		}
 		encoded = append(encoded, compressed...)
 		off += uint64(len(compressed))
 		offsets = append(offsets, off)
@@ -198,7 +210,10 @@ func (w *Writer) encodeFixedFieldSection(
 		if err != nil {
 			return nil, nil, EncodingRaw, err
 		}
-		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		compressed, err := CompressBlock(blockData, w.compressAlgo)
+		if err != nil {
+			return nil, nil, EncodingRaw, fmt.Errorf("compress fixed field block %d: %w", i, err)
+		}
 		encoded = append(encoded, compressed...)
 		off += uint64(len(compressed))
 		offsets = append(offsets, off)
@@ -207,7 +222,7 @@ func (w *Writer) encodeFixedFieldSection(
 }
 
 // encodePerBlockRaw 对原始字节数据按 block 的行范围切片。
-func encodePerBlockRaw(w *Writer, raw []byte, rowCount int) ([]byte, []uint64) {
+func encodePerBlockRaw(w *Writer, raw []byte, rowCount int) ([]byte, []uint64, error) {
 	var encoded []byte
 	offsets := make([]uint64, 0, w.blockIndex.Len()+1)
 	offset := uint64(0)
@@ -220,12 +235,15 @@ func encodePerBlockRaw(w *Writer, raw []byte, rowCount int) ([]byte, []uint64) {
 		start := int(entry.Offset) * bytesPerRow
 		end := start + int(entry.RowCount)*bytesPerRow
 		blockData := raw[start:end]
-		compressed, _ := CompressBlock(blockData, w.compressAlgo)
+		compressed, err := CompressBlock(blockData, w.compressAlgo)
+		if err != nil {
+			return nil, nil, fmt.Errorf("compress raw block %d: %w", i, err)
+		}
 		encoded = append(encoded, compressed...)
 		offset += uint64(len(compressed))
 		offsets = append(offsets, offset)
 	}
-	return encoded, offsets
+	return encoded, offsets, nil
 }
 
 // encodeBlockIndex 将 BlockIndex 序列化为字节。

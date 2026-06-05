@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -18,6 +19,7 @@ func Cleanup(dir string, beforeGen uint64) error {
 		}
 		gen, _, err := parseSegmentName(e.Name())
 		if err != nil {
+			slog.Debug("WAL cleanup: skipping file with invalid segment name", "file", e.Name(), "error", err)
 			continue
 		}
 		if gen < beforeGen {

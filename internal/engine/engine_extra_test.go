@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -372,8 +373,8 @@ func TestScopedSeriesStore_AllocateSID(t *testing.T) {
 	}
 
 	// SeriesStore requires db/meas to exist first
-	if !engine.CreateDatabase("db1", 0, nil) {
-		t.Fatal("CreateDatabase failed")
+	if err := engine.CreateDatabase("db1", 0, nil); err != nil {
+		t.Fatalf("CreateDatabase failed: %v", err)
 	}
 	if _, err := engine.CreateMeasurement("db1", "cpu"); err != nil {
 		t.Fatal("CreateMeasurement failed:", err)
@@ -450,12 +451,13 @@ func TestEngine_CreateDatabase_AlreadyExists(t *testing.T) {
 	}
 	defer func() { _ = engine.Close() }()
 
-	first := engine.CreateDatabase("db1", 0, nil)
-	if !first {
-		t.Error("CreateDatabase should return true for first creation")
+	if err := engine.CreateDatabase("db1", 0, nil); err != nil {
+		t.Error("CreateDatabase should succeed for first creation", err)
 	}
-	if engine.CreateDatabase("db1", 0, nil) {
-		t.Error("CreateDatabase should return false for existing database")
+	if err := engine.CreateDatabase("db1", 0, nil); err == nil {
+		t.Error("CreateDatabase should return error for existing database")
+	} else if !errors.Is(err, ErrDatabaseAlreadyExists) {
+		t.Errorf("expected ErrDatabaseAlreadyExists, got %v", err)
 	}
 }
 
@@ -471,7 +473,7 @@ func TestEngine_DropMeasurement_NotExist(t *testing.T) {
 	}
 	defer func() { _ = engine.Close() }()
 
-	engine.CreateDatabase("db1", 0, nil)
+	_ = engine.CreateDatabase("db1", 0, nil)
 
 	// DropMeasurement for non-existent measurement
 	found, err := engine.DropMeasurement("db1", "nonexistent")
@@ -523,9 +525,9 @@ func TestEngine_ListMeasurements_NonExistentDB(t *testing.T) {
 		t.Error("expected db1 to be listed")
 	}
 
-	meas, ok := engine.ListMeasurements("db1")
-	if !ok {
-		t.Fatal("ListMeasurements should return ok for db1")
+	meas, err := engine.ListMeasurements("db1")
+	if err != nil {
+		t.Fatalf("ListMeasurements failed: %v", err)
 	}
 	if len(meas) != 1 || meas[0] != "cpu" {
 		t.Errorf("expected [cpu] measurements, got %v", meas)
@@ -608,9 +610,9 @@ func TestEngine_Write_DifferentMeasurements(t *testing.T) {
 		t.Errorf("expected 2 databases, got %v", dbs)
 	}
 
-	cpuMeas, ok := engine.ListMeasurements("db1")
-	if !ok {
-		t.Fatal("ListMeasurements should return ok for db1")
+	cpuMeas, err := engine.ListMeasurements("db1")
+	if err != nil {
+		t.Fatalf("ListMeasurements failed: %v", err)
 	}
 	if len(cpuMeas) != 2 {
 		t.Errorf("expected 2 measurements in db1, got %v", cpuMeas)

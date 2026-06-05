@@ -259,7 +259,7 @@ func (cm *Manager) compactWithTwoPhase(ctx context.Context, inputFiles []string,
 		_ = os.Remove(p)
 	}
 
-	return nil, nil
+	return task.MergedFiles, nil
 }
 
 // GetProgress 获取当前 compaction 进度，无活跃任务时返回 nil。

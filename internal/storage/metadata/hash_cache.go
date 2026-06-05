@@ -80,6 +80,8 @@ func (c *hashSidCache) store(key string, sid uint64) {
 	}
 	if len(shard.order) >= shard.maxSize {
 		oldKey := shard.order[0]
+		// 清除对旧字符串的引用，防止底层数组泄漏
+		shard.order[0] = ""
 		shard.order = shard.order[1:]
 		delete(shard.entries, oldKey)
 	}

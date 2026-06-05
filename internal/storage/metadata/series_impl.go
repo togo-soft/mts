@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
 	bolt "go.etcd.io/bbolt"
@@ -51,6 +52,7 @@ func (c *tagsCache) store(key string, tags map[string]string) {
 	}
 	if len(c.order) >= c.maxSize {
 		oldKey := c.order[0]
+		c.order[0] = ""
 		c.order = c.order[1:]
 		delete(c.entries, oldKey)
 	}
@@ -133,20 +135,6 @@ func (s *seriesStore) storeHashSid(db, meas string, h, sid uint64) {
 	s.hashSidCache.store(s.hashCacheKey(db, meas, h), sid)
 }
 
-func appendSIDToBuf(buf []byte, v uint64) []byte {
-	off := len(buf)
-	buf = append(buf, 0, 0, 0, 0, 0, 0, 0, 0)
-	buf[off] = byte(v >> 56)
-	buf[off+1] = byte(v >> 48)
-	buf[off+2] = byte(v >> 40)
-	buf[off+3] = byte(v >> 32)
-	buf[off+4] = byte(v >> 24)
-	buf[off+5] = byte(v >> 16)
-	buf[off+6] = byte(v >> 8)
-	buf[off+7] = byte(v)
-	return buf
-}
-
 func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]string) (uint64, error) {
 	h := tagsHash(tags)
 	hashKey := encodeSIDKey(h)
@@ -174,7 +162,7 @@ func (s *seriesStore) AllocateSID(database, measurement string, tags map[string]
 func (s *seriesStore) lookupSIDReadOnly(database, measurement string, hashKey []byte, tags map[string]string) (uint64, bool) {
 	var sid uint64
 	found := false
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	if err := s.db.View(func(tx *bolt.Tx) error {
 		dbBucket := tx.Bucket([]byte(database))
 		if dbBucket == nil {
 			return nil
@@ -203,7 +191,9 @@ func (s *seriesStore) lookupSIDReadOnly(database, measurement string, hashKey []
 			found = true
 		}
 		return nil
-	})
+	}); err != nil {
+		slog.Warn("db.View failed", "error", err)
+	}
 	if found {
 		return sid, true
 	}
@@ -292,173 +282,4 @@ func (s *seriesStore) allocateSIDWriteTx(database, measurement string, tags map[
 	return sid, nil
 }
 
-// getTagsFromSeriesBucket 从 series bucket 读取指定 SID 的 tags。
-func getTagsFromSeriesBucket(seriesBucket *bolt.Bucket, sid uint64) (map[string]string, error) {
-	sidKey := encodeSIDKey(sid)
-	data := seriesBucket.Get(sidKey)
-	if data == nil {
-		return nil, fmt.Errorf("sid %d not found", sid)
-	}
-	return unmarshalTags(data)
-}
 
-func (s *seriesStore) GetTags(database, measurement string, sid uint64) (map[string]string, bool) {
-	key := s.cacheKey(database, measurement, sid)
-	if cached, ok := s.cache.load(key); ok {
-		return cached, true
-	}
-
-	var tags map[string]string
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		dbBucket := tx.Bucket([]byte(database))
-		if dbBucket == nil {
-			return nil
-		}
-		measBucket := dbBucket.Bucket([]byte(measurement))
-		if measBucket == nil {
-			return nil
-		}
-		seriesBucket := measBucket.Bucket([]byte("series"))
-		if seriesBucket == nil {
-			return nil
-		}
-		t, err := getTagsFromSeriesBucket(seriesBucket, sid)
-		if err != nil {
-			return nil
-		}
-		tags = t
-		return nil
-	})
-
-	if tags != nil {
-		s.cache.store(key, tags)
-		return tags, true
-	}
-	return nil, false
-}
-
-func (s *seriesStore) GetSIDsByTag(database, measurement, tagKey, tagValue string) []uint64 {
-	var sids []uint64
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		dbBucket := tx.Bucket([]byte(database))
-		if dbBucket == nil {
-			return nil
-		}
-		measBucket := dbBucket.Bucket([]byte(measurement))
-		if measBucket == nil {
-			return nil
-		}
-		tagIdxBucket := measBucket.Bucket([]byte("tag_index"))
-		if tagIdxBucket == nil {
-			return nil
-		}
-		idxBucket := tagIdxBucket.Bucket([]byte(tagKey + "\x00" + tagValue))
-		if idxBucket == nil {
-			return nil
-		}
-		_ = idxBucket.ForEach(func(k, _ []byte) error {
-			sids = append(sids, decodeSIDKey(k))
-			return nil
-		})
-		return nil
-	})
-	return sids
-}
-
-func (s *seriesStore) SeriesCount(database, measurement string) int {
-	count := 0
-	_ = s.db.View(func(tx *bolt.Tx) error {
-		dbBucket := tx.Bucket([]byte(database))
-		if dbBucket == nil {
-			return nil
-		}
-		measBucket := dbBucket.Bucket([]byte(measurement))
-		if measBucket == nil {
-			return nil
-		}
-		seriesBucket := measBucket.Bucket([]byte("series"))
-		if seriesBucket == nil {
-			return nil
-		}
-		c := seriesBucket.Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			if string(k) == "_next_sid" {
-				continue
-			}
-			count++
-		}
-		return nil
-	})
-	return count
-}
-
-// rebuildCache 从 bbolt 遍历所有 series 重建内存缓存（Load 时调用）。
-func (s *seriesStore) rebuildCache() error {
-	return s.db.View(func(tx *bolt.Tx) error {
-		return tx.ForEach(func(dbName []byte, dbBucket *bolt.Bucket) error {
-			if len(dbName) > 0 && dbName[0] == '_' {
-				return nil
-			}
-			cur := dbBucket.Cursor()
-			for k, v := cur.First(); k != nil; k, v = cur.Next() {
-				if v != nil {
-					continue
-				}
-				measBucket := dbBucket.Bucket(k)
-				if measBucket == nil {
-					continue
-				}
-				measName := string(k)
-				seriesBucket := measBucket.Bucket([]byte("series"))
-				if seriesBucket == nil {
-					continue
-				}
-				sc := seriesBucket.Cursor()
-				for sk, sv := sc.First(); sk != nil; sk, sv = sc.Next() {
-					if len(sk) == 0 || sk[0] == '_' {
-						continue
-					}
-					sid := decodeSIDKey(sk)
-					tags, err := unmarshalTags(sv)
-					if err != nil {
-						continue
-					}
-					ck := s.cacheKey(string(dbName), measName, sid)
-					s.cache.store(ck, tags)
-
-					// 重建 hash 缓存
-					h := tagsHash(tags)
-					s.storeHashSid(string(dbName), measName, h, sid)
-				}
-			}
-			return nil
-		})
-	})
-}
-
-// ===================================
-// MeasSeriesStore — 绑定 db/meas 的适配器
-// ===================================
-
-// MeasSeriesStore 将 SeriesStore 绑定到特定 database/measurement，
-// 实现 shard.SeriesStore 接口（AllocateSID 和 GetTagsBySID 无 db/meas 参数）。
-type MeasSeriesStore struct {
-	store *seriesStore
-	db    string
-	meas  string
-}
-
-// NewMeasSeriesStore 创建绑定到指定 db/meas 的 MeasSeriesStore。
-func NewMeasSeriesStore(store *seriesStore, db, meas string) *MeasSeriesStore {
-	return &MeasSeriesStore{store: store, db: db, meas: meas}
-}
-
-// AllocateSID 为 tags 分配 SID。
-func (a *MeasSeriesStore) AllocateSID(tags map[string]string) (uint64, error) {
-	return a.store.AllocateSID(a.db, a.meas, tags)
-}
-
-// GetTagsBySID 根据 SID 获取 tags。
-func (a *MeasSeriesStore) GetTagsBySID(sid uint64) (map[string]string, bool) {
-	return a.store.GetTags(a.db, a.meas, sid)
-}

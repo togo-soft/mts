@@ -2,6 +2,7 @@ package sstable
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +12,19 @@ import (
 	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
-// flushBlock 将当前 block 缓冲写入临时文件。
+func (w *Writer) recordBlockZoneMap() {
+	bzm := BlockZoneMap{FieldZMaps: make([]ZoneMapEntry, 0, len(w.zoneMapCurr))}
+	for name, acc := range w.zoneMapCurr {
+		if acc.initialized {
+			bzm.FieldZMaps = append(bzm.FieldZMaps, ZoneMapEntry{
+				FieldName: name, Min: acc.min, Max: acc.max,
+			})
+		}
+	}
+	w.zoneMapIndex.Blocks = append(w.zoneMapIndex.Blocks, bzm)
+	w.zoneMapCurr = make(map[string]*zoneAccumulator)
+}
+
 func (w *Writer) flushBlock() error {
 	if w.bufPos == 0 && w.rowCount == 0 {
 		return nil
@@ -31,7 +44,6 @@ func (w *Writer) flushBlock() error {
 	w.sidBuf = w.sidBuf[:0]
 
 	for name, buf := range w.fieldBufs {
-		// 记录此 block 在 temp 文件中的字节起始偏移
 		curOff, err := w.fields[name].Seek(0, io.SeekCurrent)
 		if err != nil {
 			return fmt.Errorf("seek field %s for offset: %w", name, err)
@@ -44,17 +56,7 @@ func (w *Writer) flushBlock() error {
 		w.fieldBufs[name] = w.fieldBufs[name][:0]
 	}
 
-	// 记录当前 block 的 ZoneMap
-	bzm := BlockZoneMap{FieldZMaps: make([]ZoneMapEntry, 0, len(w.zoneMapCurr))}
-	for name, acc := range w.zoneMapCurr {
-		if acc.initialized {
-			bzm.FieldZMaps = append(bzm.FieldZMaps, ZoneMapEntry{
-				FieldName: name, Min: acc.min, Max: acc.max,
-			})
-		}
-	}
-	w.zoneMapIndex.Blocks = append(w.zoneMapIndex.Blocks, bzm)
-	w.zoneMapCurr = make(map[string]*zoneAccumulator)
+	w.recordBlockZoneMap()
 
 	lastTs := int64(binary.BigEndian.Uint64(w.buf[w.bufPos-8:]))
 	w.blockIndex.Add(w.firstTs, lastTs, uint32(w.totalRows), uint32(w.rowCount))
@@ -67,198 +69,274 @@ func (w *Writer) flushBlock() error {
 	return nil
 }
 
-// Close 关闭 Writer，编码并合并临时文件到单一 .bin 文件。
-func (w *Writer) Close() error {
-	if err := w.flushBlock(); err != nil {
-		return fmt.Errorf("flush block: %w", err)
-	}
+type sstableOutput struct {
+	file *os.File
+	path string
+}
 
-	// 关闭所有临时文件
-	_ = w.timestamp.Close()
-	_ = w.sids.Close()
-	for _, f := range w.fields {
-		_ = f.Close()
-	}
+func (o *sstableOutput) fail(cause error) error {
+	_ = o.file.Close()
+	_ = os.Remove(o.path)
+	_ = os.RemoveAll(filepath.Dir(o.path))
+	return fmt.Errorf("failed to finalize SSTable: %w", cause)
+}
 
-	// 获取字段名并按字典序排序
+func (o *sstableOutput) cleanup() {
+	_ = o.file.Close()
+	_ = os.Remove(o.path)
+	_ = os.RemoveAll(filepath.Dir(o.path))
+}
+
+type closeState struct {
+	out              *sstableOutput
+	fieldNames       []string
+	timestampsOffset uint64
+	timestampsSize   uint64
+	sidsOffset       uint64
+	sidsSize         uint64
+	tsEncoding       EncodingType
+	fieldInfoMap     map[string]struct {
+		offset   uint64
+		size     uint64
+		encoding EncodingType
+	}
+	blockMap         *BlockSectionMap
+	currentOffset    uint64
+	blockIndexOffset uint64
+	blockMapOffset   uint64
+	zoneMapOffset    uint64
+	indexData        []byte
+	blockMapData     []byte
+	zoneMapData      []byte
+}
+
+func (w *Writer) closeTempFiles() ([]string, []error) {
+	var closeErrs []error
+	if err := w.timestamp.Close(); err != nil {
+		closeErrs = append(closeErrs, fmt.Errorf("close timestamp file: %w", err))
+	}
+	if err := w.sids.Close(); err != nil {
+		closeErrs = append(closeErrs, fmt.Errorf("close sids file: %w", err))
+	}
+	for name, f := range w.fields {
+		if err := f.Close(); err != nil {
+			closeErrs = append(closeErrs, fmt.Errorf("close field %s: %w", name, err))
+		}
+	}
 	fieldNames := make([]string, 0, len(w.fields))
 	for name := range w.fields {
 		fieldNames = append(fieldNames, name)
 	}
 	sort.Strings(fieldNames)
+	return fieldNames, closeErrs
+}
 
-	// 创建最终的单文件
+func (w *Writer) createOutputFile() (*sstableOutput, error) {
 	outPath := filepath.Join(w.dataDir, fmt.Sprintf("sst_%d.bin", w.seq))
 	outFile, err := storage.SafeCreate(outPath, 0600)
 	if err != nil {
 		_ = os.RemoveAll(w.tmpDir)
-		return fmt.Errorf("create output file: %w", err)
+		return nil, fmt.Errorf("create output file: %w", err)
 	}
-	cleanupErr := func(cause error) error {
-		_ = outFile.Close()
-		_ = os.Remove(outPath)
-		_ = os.RemoveAll(w.tmpDir)
-		return fmt.Errorf("failed to finalize SSTable: %w", cause)
-	}
+	return &sstableOutput{file: outFile, path: outPath}, nil
+}
 
-	// 写入占位 header (64B)
-	var placeholder [HeaderSize]byte
-	if _, err := outFile.Write(placeholder[:]); err != nil {
-		return cleanupErr(err)
-	}
-
-	rowCount := int(w.totalRows)
-
-	// 跟踪各段偏移量和大小
-	var timestampsOffset, timestampsSize uint64
-	var sidsOffset, sidsSize uint64
-	type fieldInfo struct {
-		offset   uint64
-		size     uint64
-		encoding EncodingType
-	}
-	fieldInfoMap := make(map[string]fieldInfo)
-
-	// 构建 BlockSectionMap
-	blockMap := &BlockSectionMap{}
-
-	currentOffset := uint64(HeaderSize)
-
-	// 1. 编码并写入 timestamps
-	timestampsOffset = currentOffset
-	timestampsEncoded, tsOffsets, tsEncoding, err := w.encodeTimestampsSection(rowCount)
+func (s *closeState) writeDataSections(w *Writer) error {
+	s.timestampsOffset = s.currentOffset
+	timestampsEncoded, tsOffsets, tsEncoding, err := w.encodeTimestampsSection(int(w.totalRows))
 	if err != nil {
-		return cleanupErr(err)
+		return s.out.fail(err)
 	}
-	if _, err := outFile.Write(timestampsEncoded); err != nil {
-		return cleanupErr(err)
+	if _, err := s.out.file.Write(timestampsEncoded); err != nil {
+		return s.out.fail(err)
 	}
-	timestampsSize = uint64(len(timestampsEncoded))
-	blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
-		Name: "_timestamps", Offsets: tsOffsets,
-	})
-	currentOffset += timestampsSize
+	s.timestampsSize = uint64(len(timestampsEncoded))
+	s.tsEncoding = tsEncoding
+	s.blockMap.Sections = append(s.blockMap.Sections,
+		BlockSectionOffsets{Name: "_timestamps", Offsets: tsOffsets})
+	s.currentOffset += s.timestampsSize
 
-	// 2. 编码并写入 sids
-	sidsOffset = currentOffset
-	sidsEncoded, sidOffsets, err := w.encodeSidsSection(rowCount)
+	s.sidsOffset = s.currentOffset
+	sidsEncoded, sidOffsets, err := w.encodeSidsSection(int(w.totalRows))
 	if err != nil {
-		return cleanupErr(err)
+		return s.out.fail(err)
 	}
-	if _, err := outFile.Write(sidsEncoded); err != nil {
-		return cleanupErr(err)
+	if _, err := s.out.file.Write(sidsEncoded); err != nil {
+		return s.out.fail(err)
 	}
-	sidsSize = uint64(len(sidsEncoded))
-	blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
-		Name: "_sids", Offsets: sidOffsets,
-	})
-	currentOffset += sidsSize
+	s.sidsSize = uint64(len(sidsEncoded))
+	s.blockMap.Sections = append(s.blockMap.Sections,
+		BlockSectionOffsets{Name: "_sids", Offsets: sidOffsets})
+	s.currentOffset += s.sidsSize
 
-	// 3. 编码并写入每个 field
-	for _, name := range fieldNames {
-		fi := fieldInfo{offset: currentOffset}
-		encoded, fieldOffsets, enc, err := w.encodeFieldSection(name, rowCount)
+	return s.writeFieldsSections(w)
+}
+
+func (s *closeState) writeFieldsSections(w *Writer) error {
+	for _, name := range s.fieldNames {
+		fi := struct {
+			offset   uint64
+			size     uint64
+			encoding EncodingType
+		}{offset: s.currentOffset}
+		encoded, fieldOffsets, enc, err := w.encodeFieldSection(name, int(w.totalRows))
 		if err != nil {
-			return cleanupErr(err)
+			return s.out.fail(err)
 		}
-		if _, err := outFile.Write(encoded); err != nil {
-			return cleanupErr(err)
+		if _, err := s.out.file.Write(encoded); err != nil {
+			return s.out.fail(err)
 		}
 		fi.size = uint64(len(encoded))
 		fi.encoding = enc
-		fieldInfoMap[name] = fi
-		blockMap.Sections = append(blockMap.Sections, BlockSectionOffsets{
-			Name: name, Offsets: fieldOffsets,
-		})
-		currentOffset += fi.size
+		s.fieldInfoMap[name] = fi
+		s.blockMap.Sections = append(s.blockMap.Sections,
+			BlockSectionOffsets{Name: name, Offsets: fieldOffsets})
+		s.currentOffset += fi.size
 	}
+	return nil
+}
 
-	// 4. 写入 block index
-	blockIndexOffset := currentOffset
+func (s *closeState) writeMetadataSections(w *Writer) error {
+	s.blockIndexOffset = s.currentOffset
 	indexData, err := w.encodeBlockIndex()
 	if err != nil {
-		return cleanupErr(err)
+		return s.out.fail(err)
 	}
-	if _, err := outFile.Write(indexData); err != nil {
-		return cleanupErr(err)
+	s.indexData = indexData
+	if _, err := s.out.file.Write(indexData); err != nil {
+		return s.out.fail(err)
 	}
-	currentOffset += uint64(len(indexData))
+	s.currentOffset += uint64(len(indexData))
 
-	// 5. 写入 _block_map section
-	blockMapOffset := currentOffset
-	blockMapData := blockMap.Marshal()
-	if _, err := outFile.Write(blockMapData); err != nil {
-		return cleanupErr(err)
+	s.blockMapOffset = s.currentOffset
+	s.blockMapData = s.blockMap.Marshal()
+	if _, err := s.out.file.Write(s.blockMapData); err != nil {
+		return s.out.fail(err)
 	}
-	currentOffset += uint64(len(blockMapData))
+	s.currentOffset += uint64(len(s.blockMapData))
 
-	// 5.5 写入 _zone_map section
-	zoneMapOffset := currentOffset
-	zoneMapData := w.zoneMapIndex.Marshal()
-	if _, err := outFile.Write(zoneMapData); err != nil {
-		return cleanupErr(err)
+	s.zoneMapOffset = s.currentOffset
+	s.zoneMapData = w.zoneMapIndex.Marshal()
+	if _, err := s.out.file.Write(s.zoneMapData); err != nil {
+		return s.out.fail(err)
 	}
-	currentOffset += uint64(len(zoneMapData))
+	s.currentOffset += uint64(len(s.zoneMapData))
+	return nil
+}
 
-	// 6. 构建 Section Table
-	sectionTable := SectionTable{
-		Entries: []SectionEntry{
-			{Type: SectionTimestamps, Name: "_timestamps", Offset: timestampsOffset, Size: timestampsSize, Encoding: tsEncoding, Compression: w.compressAlgo},
-			{Type: SectionSids, Name: "_sids", Offset: sidsOffset, Size: sidsSize, Encoding: EncodingVarint, Compression: w.compressAlgo},
-			{Type: SectionIndex, Name: "_index", Offset: blockIndexOffset, Size: uint64(len(indexData)), Encoding: EncodingRaw, Compression: CompressionNone},
-			{Type: SectionIndex, Name: "_block_map", Offset: blockMapOffset, Size: uint64(len(blockMapData)), Encoding: EncodingRaw, Compression: CompressionNone},
-			{Type: SectionIndex, Name: "_zone_map", Offset: zoneMapOffset, Size: uint64(len(zoneMapData)), Encoding: EncodingRaw, Compression: CompressionNone},
-		},
+func (s *closeState) writeSectionTable(w *Writer) (uint64, error) {
+	entries := []SectionEntry{
+		{Type: SectionTimestamps, Name: "_timestamps", Offset: s.timestampsOffset, Size: s.timestampsSize, Encoding: s.tsEncoding, Compression: w.compressAlgo},
+		{Type: SectionSids, Name: "_sids", Offset: s.sidsOffset, Size: s.sidsSize, Encoding: EncodingVarint, Compression: w.compressAlgo},
+		{Type: SectionIndex, Name: "_index", Offset: s.blockIndexOffset, Size: uint64(len(s.indexData)), Encoding: EncodingRaw, Compression: CompressionNone},
+		{Type: SectionIndex, Name: "_block_map", Offset: s.blockMapOffset, Size: uint64(len(s.blockMapData)), Encoding: EncodingRaw, Compression: CompressionNone},
+		{Type: SectionIndex, Name: "_zone_map", Offset: s.zoneMapOffset, Size: uint64(len(s.zoneMapData)), Encoding: EncodingRaw, Compression: CompressionNone},
 	}
-	for _, name := range fieldNames {
-		fi := fieldInfoMap[name]
-		sectionTable.Entries = append(sectionTable.Entries, SectionEntry{
+	for _, name := range s.fieldNames {
+		fi := s.fieldInfoMap[name]
+		entries = append(entries, SectionEntry{
 			Type: SectionField, Name: name, Offset: fi.offset, Size: fi.size, Encoding: fi.encoding, Compression: w.compressAlgo,
 		})
 	}
 
-	// 7. 写入 Section Table
-	sectionTableData := sectionTable.Marshal()
-	sectionTableOffset := currentOffset
-	if _, err := outFile.Write(sectionTableData); err != nil {
-		return cleanupErr(err)
+	sectionTableData := (&SectionTable{Entries: entries}).Marshal()
+	sectionTableOffset := s.currentOffset
+	if _, err := s.out.file.Write(sectionTableData); err != nil {
+		return 0, s.out.fail(err)
 	}
+	return sectionTableOffset, nil
+}
 
-	// 8. 回填 header
+func (s *closeState) writeHeader(w *Writer, sectionTableOffset uint64) error {
 	header := FileHeader{
 		Magic:              Magic,
 		Version:            FileVersion,
 		RowCount:           w.totalRows,
-		FieldCount:         uint16(len(fieldNames)),
+		FieldCount:         uint16(len(s.fieldNames)),
 		BlockCount:         uint16(w.blockIndex.Len()),
 		BlockSize:          uint16(w.blockSize),
 		Flags:              w.flags | FlagHasZoneMap,
-		TimestampsOffset:   timestampsOffset,
-		SidsOffset:         sidsOffset,
-		BlockIndexOffset:   blockIndexOffset,
+		TimestampsOffset:   s.timestampsOffset,
+		SidsOffset:         s.sidsOffset,
+		BlockIndexOffset:   s.blockIndexOffset,
 		SectionTableOffset: sectionTableOffset,
 	}
 	headerBuf := header.Marshal()
-	if _, err := outFile.WriteAt(headerBuf[:], 0); err != nil {
-		return cleanupErr(err)
+	if _, err := s.out.file.WriteAt(headerBuf[:], 0); err != nil {
+		return s.out.fail(err)
 	}
+	return nil
+}
 
+func (w *Writer) finalizeOutput(out *sstableOutput, closeErrs []error) error {
 	if w.syncOnClose {
-		if err := outFile.Sync(); err != nil {
-			_ = outFile.Close()
-			_ = os.Remove(outPath)
+		if err := out.file.Sync(); err != nil {
+			out.cleanup()
 			_ = os.RemoveAll(w.tmpDir)
 			return fmt.Errorf("sync output file: %w", err)
 		}
 	}
-	if err := outFile.Close(); err != nil {
-		_ = os.Remove(outPath)
+	if err := out.file.Close(); err != nil {
+		_ = os.Remove(out.path)
 		_ = os.RemoveAll(w.tmpDir)
 		return fmt.Errorf("close output file: %w", err)
 	}
-
-	// 清理临时目录
-	_ = os.RemoveAll(w.tmpDir)
-
+	if err := os.RemoveAll(w.tmpDir); err != nil {
+		closeErrs = append(closeErrs, fmt.Errorf("clean tmp dir: %w", err))
+	}
+	if len(closeErrs) > 0 {
+		return errors.Join(closeErrs...)
+	}
 	return nil
+}
+
+func (w *Writer) Close() error {
+	if err := w.flushBlock(); err != nil {
+		return fmt.Errorf("flush block: %w", err)
+	}
+	if err := w.checkCtx(); err != nil {
+		_ = os.RemoveAll(w.tmpDir)
+		return fmt.Errorf("sstable write cancelled: %w", err)
+	}
+
+	fieldNames, closeErrs := w.closeTempFiles()
+
+	out, err := w.createOutputFile()
+	if err != nil {
+		return err
+	}
+
+	var placeholder [HeaderSize]byte
+	if _, err := out.file.Write(placeholder[:]); err != nil {
+		return out.fail(err)
+	}
+
+	s := &closeState{
+		out:           out,
+		fieldNames:    fieldNames,
+		fieldInfoMap:  make(map[string]struct {
+			offset   uint64
+			size     uint64
+			encoding EncodingType
+		}),
+		blockMap:      &BlockSectionMap{},
+		currentOffset: HeaderSize,
+	}
+
+	if err := s.writeDataSections(w); err != nil {
+		return err
+	}
+	if err := s.writeMetadataSections(w); err != nil {
+		return err
+	}
+
+	sectionTableOffset, err := s.writeSectionTable(w)
+	if err != nil {
+		return err
+	}
+	if err := s.writeHeader(w, sectionTableOffset); err != nil {
+		return err
+	}
+
+	return w.finalizeOutput(out, closeErrs)
 }

@@ -208,17 +208,25 @@ func TestMTSService_ListMeasurements(t *testing.T) {
 		Database: "testdb",
 	}
 
-	resp, err := srv.ListMeasurements(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := srv.ListMeasurements(ctx, req)
+	if err == nil {
+		t.Fatal("expected error for non-existent database")
 	}
+}
 
-	if resp == nil {
-		t.Fatal("expected non-nil response")
-	}
+func TestMTSService_ListMeasurements_EmptyDatabase(t *testing.T) {
+	eng, _ := engine.New(&engine.Config{
+		DataDir:       t.TempDir(),
+		ShardDuration: time.Hour,
+	})
+	srv := New(eng)
+	ctx := t.Context()
 
-	if resp.Measurements == nil {
-		t.Error("expected non-nil measurements slice")
+	_, err := srv.ListMeasurements(ctx, &types.ListMeasurementsRequest{
+		Database: "nonexistent",
+	})
+	if err == nil {
+		t.Fatal("expected error for non-existent database")
 	}
 }
 
@@ -398,10 +406,7 @@ func TestWriteRequestToPoint(t *testing.T) {
 		},
 	}
 
-	point, err := writeRequestToPoint(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	point := writeRequestToPoint(req)
 
 	if point.Database != req.Database {
 		t.Errorf("expected database %s, got %s", req.Database, point.Database)
@@ -568,26 +573,6 @@ func TestMTSService_CreateMeasurement_Duplicate(t *testing.T) {
 	}
 }
 
-func TestMTSService_ListMeasurements_EmptyDatabase(t *testing.T) {
-	eng, _ := engine.New(&engine.Config{
-		DataDir:       t.TempDir(),
-		ShardDuration: time.Hour,
-	})
-	srv := New(eng)
-	ctx := t.Context()
-
-	// 列出不存在的 database 的 measurements
-	resp, err := srv.ListMeasurements(ctx, &types.ListMeasurementsRequest{
-		Database: "nonexistent",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(resp.Measurements) != 0 {
-		t.Errorf("expected 0 measurements, got %d", len(resp.Measurements))
-	}
-}
-
 func TestMTSService_QueryRange_WithData(t *testing.T) {
 	eng, _ := engine.New(&engine.Config{
 		DataDir:       t.TempDir(),
@@ -651,10 +636,7 @@ func TestWriteRequestToPoint_WithFields(t *testing.T) {
 		},
 	}
 
-	point, err := writeRequestToPoint(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	point := writeRequestToPoint(req)
 
 	if point.Database != req.Database {
 		t.Errorf("expected database %s, got %s", req.Database, point.Database)

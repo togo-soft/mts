@@ -101,7 +101,11 @@ type Shard struct {
 }
 
 // maxCompactConcurrency 限制单个 Shard 内并发 compaction goroutine 数量上限。
-const maxCompactConcurrency = 2
+const (
+	maxCompactConcurrency = 2
+	// sstableWriteTimeout 是 SSTable 写入的超时时间。
+	sstableWriteTimeout = 5 * time.Second
+)
 
 // NewShard 创建新的 Shard 实例。
 //
@@ -138,12 +142,19 @@ func NewShard(cfg ShardConfig) *Shard {
 }
 
 // initCompaction 初始化 compaction manager。
+// 防止重复调用导致 goroutine 泄漏：若已有 compaction/levelCompaction 实例，先停止再替换。
 func (s *Shard) initCompaction(cfg ShardConfig) {
 	if cfg.CompactionCfg != nil {
+		if s.compaction != nil {
+			s.compaction.Stop()
+		}
 		s.compaction = compaction.NewManager(s, cfg.CompactionCfg)
 		s.compaction.StartPeriodicCheck()
 	}
 	if cfg.LevelCompactionCfg != nil {
+		if s.levelCompaction != nil {
+			s.levelCompaction.Stop()
+		}
 		var err error
 		s.levelCompaction, err = compaction.NewLevelManager(s, cfg.LevelCompactionCfg)
 		if err != nil {
@@ -167,7 +178,7 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 		err     error
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), sstableWriteTimeout)
 	defer cancel()
 
 	resCh := make(chan result, 1)
@@ -193,6 +204,7 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 			resCh <- result{"", 0, 0, 0, fmt.Errorf("create sstable writer: %w", wErr)}
 			return
 		}
+		w.WithContext(ctx)
 
 		if err := w.WriteMemPoints(points); err != nil {
 			_ = w.Close()
@@ -266,8 +278,12 @@ func (s *Shard) RegisterSSTable(sstSeq uint64, minTime, maxTime int64, size int6
 		if srcPath != dstPath {
 			if mkErr := os.MkdirAll(dstDir, 0700); mkErr == nil {
 				if _, err := os.Stat(srcPath); err == nil {
-					_ = os.Rename(srcPath, dstPath)
+					if renameErr := os.Rename(srcPath, dstPath); renameErr != nil {
+						slog.Error("failed to move SSTable to L0", "src", srcPath, "dst", dstPath, "error", renameErr)
+					}
 				}
+			} else {
+				slog.Warn("failed to create L0 directory", "dir", dstDir, "error", mkErr)
 			}
 		}
 
@@ -445,21 +461,15 @@ func MetadataSchemaToSSTableSchema(metaSchema *metadata.Schema) sstable.Schema {
 }
 
 // MetadataFieldTypeToSSTableFieldType 将 metadata 字段类型转换为 sstable 字段类型。
-//
-// 类型映射：
-//   - 1: float64
-//   - 2: int64
-//   - 3: string
-//   - 4: bool
 func MetadataFieldTypeToSSTableFieldType(t int32) sstable.FieldType {
 	switch t {
-	case 1:
+	case metadata.FieldTypeFloat64ID:
 		return sstable.FieldTypeFloat64
-	case 2:
+	case metadata.FieldTypeInt64ID:
 		return sstable.FieldTypeInt64
-	case 3:
+	case metadata.FieldTypeStringID:
 		return sstable.FieldTypeString
-	case 4:
+	case metadata.FieldTypeBoolID:
 		return sstable.FieldTypeBool
 	default:
 		return sstable.FieldTypeFloat64

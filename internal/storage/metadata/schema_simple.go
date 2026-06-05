@@ -20,6 +20,7 @@ func schemaKey(db, measurement string) string {
 }
 
 // GetSchema 获取 schema。
+// TODO: 返回内部指针，调用方修改返回值会影响内部状态，后续可考虑返回深拷贝。
 func (s *SimpleSchemaStore) GetSchema(db, measurement string) (*Schema, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -31,6 +32,7 @@ func (s *SimpleSchemaStore) GetSchema(db, measurement string) (*Schema, error) {
 }
 
 // SetSchema 设置 schema。
+// TODO: 直接存储传入指针，调用方后续修改会影响内部状态，后续可考虑存储深拷贝。
 func (s *SimpleSchemaStore) SetSchema(db, measurement string, schema *Schema) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

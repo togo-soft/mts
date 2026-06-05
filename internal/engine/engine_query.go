@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -131,6 +132,7 @@ func (e *Engine) collectDownsampledData(req *types.QueryRangeRequest) [][]*types
 		shardStart, err1 := strconv.ParseInt(parts[0], 10, 64)
 		shardEnd, err2 := strconv.ParseInt(parts[1], 10, 64)
 		if err1 != nil || err2 != nil {
+			slog.Debug("failed to parse shard dir name", "dir", entry.Name(), "err1", err1, "err2", err2)
 			continue
 		}
 
@@ -142,7 +144,10 @@ func (e *Engine) collectDownsampledData(req *types.QueryRangeRequest) [][]*types
 		shardDir := filepath.Join(measDir, entry.Name())
 		windowDir := filepath.Join(shardDir, "downsampled", fmt.Sprintf("%d", windowNanos))
 
-		sstFiles, _ := listSSTFilesInDir(windowDir)
+		sstFiles, listErr := listSSTFilesInDir(windowDir)
+		if listErr != nil {
+			slog.Debug("failed to list SST files in downsample dir", "dir", windowDir, "error", listErr)
+		}
 		if len(sstFiles) == 0 {
 			continue
 		}
@@ -243,7 +248,7 @@ func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.Row
 		}
 	}
 
-	dataIter, err := e.createDataIterator(plan.Database, plan.Measurement, plan.StartTime, plan.EndTime, projFields, filterConds)
+	dataIter, err := e.createDataIterator(ctx, plan.Database, plan.Measurement, plan.StartTime, plan.EndTime, projFields, filterConds)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +269,7 @@ func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.Row
 }
 
 // createDataIterator 创建数据源 Iterator（共享逻辑，供 Iterator 和 Execute 使用）。
-func (e *Engine) createDataIterator(database, measurement string, startTime, endTime int64, fields []string, filterConds []sstable.FilterCondition) (*query.Iterator, error) {
+func (e *Engine) createDataIterator(ctx context.Context, database, measurement string, startTime, endTime int64, fields []string, filterConds []sstable.FilterCondition) (*query.Iterator, error) {
 	writerMT := e.memTable
 
 	req := &types.QueryRangeRequest{
@@ -291,7 +296,7 @@ func (e *Engine) createDataIterator(database, measurement string, startTime, end
 
 	unorderedData := e.collectUnorderedData(req)
 
-	return query.NewIteratorWithMemTable(context.Background(), shards, writerMT, scoped, req, fields, filterConds, unorderedData...), nil
+	return query.NewIteratorWithMemTable(ctx, shards, writerMT, scoped, req, fields, filterConds, unorderedData...), nil
 }
 
 // IteratorWithMemTable 是包内使用的辅助函数（供测试等场景使用）。

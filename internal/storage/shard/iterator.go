@@ -130,9 +130,9 @@ func NewShardIteratorWithMemTable(shard *Shard, externalMT *memtable.MemTable, e
 func (si *ShardIterator) pointToRow(ip types.InternalPoint) *types.PointRow {
 	tags := make(map[string]string)
 	if si.shard != nil && si.shard.seriesStore != nil {
-		tags, _ = si.shard.seriesStore.GetTags(si.shard.db, si.shard.measurement, ip.Sid)
+		tags, _ = si.shard.seriesStore.GetTags(si.shard.db, si.shard.measurement, ip.Sid) // bool 表示是否找到，忽略则使用空 tags
 	} else if si.extSeriesStore != nil {
-		tags, _ = si.extSeriesStore.GetTags(si.db, si.measurement, ip.Sid)
+		tags, _ = si.extSeriesStore.GetTags(si.db, si.measurement, ip.Sid) // bool 表示是否找到，忽略则使用空 tags
 	}
 	return &types.PointRow{
 		Sid:       ip.Sid,
@@ -241,10 +241,10 @@ func (si *ShardIterator) resolveTags(row *types.PointRow) *types.PointRow {
 		return nil
 	}
 	if si.shard != nil && si.shard.seriesStore != nil {
-		tags, _ := si.shard.seriesStore.GetTags(si.shard.db, si.shard.measurement, row.Sid)
+		tags, _ := si.shard.seriesStore.GetTags(si.shard.db, si.shard.measurement, row.Sid) // bool 表示是否找到，忽略则使用空 tags
 		row.Tags = tags
 	} else if si.extSeriesStore != nil {
-		tags, _ := si.extSeriesStore.GetTags(si.db, si.measurement, row.Sid)
+		tags, _ := si.extSeriesStore.GetTags(si.db, si.measurement, row.Sid) // bool 表示是否找到，忽略则使用空 tags
 		row.Tags = tags
 	}
 	return row

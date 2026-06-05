@@ -99,7 +99,9 @@ func DecompressBlock(data []byte, algo CompressionAlgorithm) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("snappy decode: %w", err)
 		}
-		_ = origLen // snappy 自带长度验证
+		// origLen 从 payload 头部读取原始长度，snappy.Decode 内部会自行验证，
+		// 此处无需手动比对；保留读取逻辑以便未来启用长度校验。
+		_ = origLen
 		return decoded, nil
 	case CompressionLZ4:
 		if len(data) < 8 {

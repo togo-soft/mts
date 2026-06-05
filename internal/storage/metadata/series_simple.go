@@ -8,6 +8,12 @@ import (
 	"sync"
 )
 
+// FNV-1a 哈希参数。
+const (
+	fnvOffsetBasis = 14695981039346656037
+	fnvPrime       = 1099511628211
+)
+
 // tagsHash 计算 tags 的哈希值（与顺序无关）。
 func tagsHash(tags map[string]string) uint64 {
 	if len(tags) == 0 {
@@ -18,16 +24,16 @@ func tagsHash(tags map[string]string) uint64 {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var h uint64 = 14695981039346656037
+	var h uint64 = fnvOffsetBasis
 	for _, k := range keys {
 		v := tags[k]
 		for i := 0; i < len(k); i++ {
 			h ^= uint64(k[i])
-			h *= 1099511628211
+			h *= fnvPrime
 		}
 		for i := 0; i < len(v); i++ {
 			h ^= uint64(v[i])
-			h *= 1099511628211
+			h *= fnvPrime
 		}
 	}
 	return h
@@ -149,7 +155,7 @@ func (s *SimpleSeriesStore) AllocateSID(database, measurement string, tags map[s
 	return sid, nil
 }
 
-// GetTags 根据 SID 获取 tags。
+// GetTags 根据 SID 获取 tags（返回防御性拷贝）。
 func (s *SimpleSeriesStore) GetTags(database, measurement string, sid uint64) (map[string]string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -157,5 +163,5 @@ func (s *SimpleSeriesStore) GetTags(database, measurement string, sid uint64) (m
 	if !ok {
 		return nil, false
 	}
-	return tags, true
+	return copyTags(tags), true
 }

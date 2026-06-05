@@ -15,7 +15,6 @@ import (
 //  4. 停止 Level Compaction Manager
 //  5. 等待所有后台 compaction goroutine 完成
 func (s *Shard) Close() error {
-	var err error
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed.Store(true)
@@ -31,7 +30,7 @@ func (s *Shard) Close() error {
 
 		slog.Debug("Shard.Close: completed")
 	})
-	return err
+	return nil
 }
 
 // DataDir 返回 Shard 的数据目录。
