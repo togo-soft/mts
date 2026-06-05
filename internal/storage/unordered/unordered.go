@@ -130,6 +130,11 @@ func Write(dataDir string, points []types.MemPoint, compressionAlgo types.Compre
 		// 清理空的 data 目录
 		_ = os.Remove(filepath.Join(parentDir, "data"))
 
+		// FieldData 由 PointToMemPoint 从 fieldSerialPool 分配，写入完成后归还 pool
+		for _, mp := range g.points {
+			types.ReleaseFieldData(mp.FieldData)
+		}
+
 		paths = append(paths, targetPath)
 	}
 

@@ -176,13 +176,10 @@ func (m *MemTable) Swap() []types.MemPoint {
 }
 
 // ClearPassive 在后台 flush 成功后清空 passive，释放内存。
-// FieldData 由 PointToMemPoint 从 pool 分配，此处统一归还。
+// FieldData 由 unordered.Write 统一归还 pool，此处仅释放切片引用。
 func (m *MemTable) ClearPassive() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, mp := range m.passive {
-		types.ReleaseFieldData(mp.FieldData)
-	}
 	m.passive = nil
 	m.flushing.Store(false)
 	m.flushCond.Broadcast()
