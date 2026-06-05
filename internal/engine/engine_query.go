@@ -343,14 +343,13 @@ func (e *Engine) hasDataForMeasurement(db, meas string) bool {
 }
 
 // collectUnorderedData 收集 unordered 目录下匹配 db/measurement 的数据，
-// 读取并排序后返回已排序的 PointRow 切片列表。
+// 使用 Iterator 逐行过滤，避免 ReadAll 全量加载后再二次分配。
 func (e *Engine) collectUnorderedData(req *types.QueryRangeRequest) [][]*types.PointRow {
 	unorderedFiles, err := unordered.ListFiles(e.dataDir)
 	if err != nil || len(unorderedFiles) == 0 {
 		return nil
 	}
 
-	// 获取 schema 用于读取 SSTable
 	metaSchema, schemaErr := e.catalog.GetSchema(req.Database, req.Measurement)
 	if schemaErr != nil {
 		return nil
@@ -365,36 +364,33 @@ func (e *Engine) collectUnorderedData(req *types.QueryRangeRequest) [][]*types.P
 			continue
 		}
 
-		// 打开 SSTable reader
 		reader, err := sstable.NewReader(f, sstSchema)
 		if err != nil {
 			continue
 		}
 
-		// 读取所有数据
-		rows, err := reader.ReadAll(req.Fields)
+		it, err := reader.NewIterator(req.Fields, nil)
 		if err != nil {
 			_ = reader.Close()
 			continue
 		}
-		_ = reader.Close()
 
-		// 过滤时间范围并解析 Tags
-		filtered := make([]*types.PointRow, 0, len(rows))
-		for _, row := range rows {
+		var filtered []*types.PointRow
+		for it.Next() {
+			row := it.Point()
 			if row.Timestamp >= req.StartTime && (req.EndTime <= 0 || row.Timestamp < req.EndTime) {
-				// 通过 Sid 从 SeriesStore 恢复 Tags
 				tags, _ := e.seriesStore.GetTags(req.Database, req.Measurement, row.Sid)
 				row.Tags = tags
 				filtered = append(filtered, row)
 			}
 		}
 
+		_ = reader.Close()
+
 		if len(filtered) == 0 {
 			continue
 		}
 
-		// 按时间戳排序（unordered 文件内数据无序）
 		sort.Slice(filtered, func(i, j int) bool {
 			return filtered[i].Timestamp < filtered[j].Timestamp
 		})
