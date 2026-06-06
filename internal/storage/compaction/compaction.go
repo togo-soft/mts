@@ -175,9 +175,13 @@ func (cm *Manager) Compact(ctx context.Context) (string, []string, error) {
 
 	cm.Mu.Unlock()
 
+	// 在输出文件上添加 .writing 标记，防止并发查询读到写入中的文件
+	_ = cm.MarkWriting(outputPath)
+
 	// 两阶段合并：当文件数超过阈值时分批合并为中间文件，再合并中间文件。
 	mergedFiles, mergeErr := cm.compactWithTwoPhase(ctx, sstFiles, outputPath)
 	if mergeErr != nil {
+		_ = cm.UnmarkWriting(outputPath)
 		metrics.Incr(metrics.CompactionErrors, 1)
 		cm.Mu.Lock()
 		cm.CurrentTask = &Progress{Status: "failed", Err: mergeErr}
@@ -202,10 +206,14 @@ func (cm *Manager) Compact(ctx context.Context) (string, []string, error) {
 	}
 
 	if err := cm.Commit(task); err != nil {
+		_ = cm.UnmarkWriting(outputPath)
 		metrics.Incr(metrics.CompactionErrors, 1)
 		_ = os.Remove(outputPath)
 		return "", nil, fmt.Errorf("commit failed: %w", err)
 	}
+
+	// 旧文件已删除，移除 .writing 标记，此时新文件才对查询可见
+	_ = cm.UnmarkWriting(outputPath)
 
 	metrics.Incr(metrics.CompactionTotal, 1)
 	metrics.Incr(metrics.CompactionInputFiles, int64(len(task.MergedFiles)))

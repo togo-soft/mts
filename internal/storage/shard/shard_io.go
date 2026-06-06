@@ -28,6 +28,10 @@ func (s *Shard) listSSTableFiles() []string {
 			if !strings.HasPrefix(entry.Name(), "sst_") || !strings.HasSuffix(entry.Name(), ".bin") {
 				continue
 			}
+			// 跳过正在写入中的文件（compaction 写入中），避免读到不完整或重复数据
+			if _, err := os.Stat(filepath.Join(dataDir, entry.Name()+".writing")); err == nil {
+				continue
+			}
 			files = append(files, filepath.Join(dataDir, entry.Name()))
 		}
 	}
@@ -45,6 +49,9 @@ func (s *Shard) listSSTableFiles() []string {
 					continue
 				}
 				if !strings.HasPrefix(entry.Name(), "sst_") || !strings.HasSuffix(entry.Name(), ".bin") {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(levelDir, entry.Name()+".writing")); err == nil {
 					continue
 				}
 				files = append(files, filepath.Join(levelDir, entry.Name()))
