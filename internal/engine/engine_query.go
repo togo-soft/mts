@@ -40,11 +40,11 @@ func (s *scopedSeriesStore) GetTags(database, measurement string, sid uint64) (m
 // 合并全局 MemTable（未刷盘数据）、Shard SSTable（已刷盘数据）和 unordered 文件（未 compaction 数据）。
 // 当 req.DownsampleWindowNanos > 0 时，读取降采样数据而非原始数据。
 func (e *Engine) Iterator(ctx context.Context, req *types.QueryRangeRequest) (*query.Iterator, error) {
+	e.queryWg.Add(1)
 	if e.isClosed() {
+		e.queryWg.Done()
 		return nil, fmt.Errorf("engine is closed")
 	}
-
-	e.queryWg.Add(1)
 	defer e.queryWg.Done()
 
 	// 等待启动恢复完成
@@ -195,11 +195,11 @@ func listSSTFilesInDir(dir string) ([]string, error) {
 
 // Execute 执行查询计划，返回算子 Pipeline 迭代器。
 func (e *Engine) Execute(ctx context.Context, plan *types.QueryPlan) (*query.RowIterator, error) {
+	e.queryWg.Add(1)
 	if e.isClosed() {
+		e.queryWg.Done()
 		return nil, fmt.Errorf("engine is closed")
 	}
-
-	e.queryWg.Add(1)
 	defer e.queryWg.Done()
 
 	// 等待启动恢复完成
