@@ -110,10 +110,12 @@ func NewReader(filePath string, schema Schema) (*Reader, error) {
 	}, nil
 }
 
-// Close 关闭读取器。
+// Close 关闭读取器，可重复调用。
 func (r *Reader) Close() error {
 	if r.file != nil {
-		return r.file.Close()
+		err := r.file.Close()
+		r.file = nil
+		return err
 	}
 	return nil
 }

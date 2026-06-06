@@ -19,8 +19,8 @@ func main() {
 	maxCount := int32(count / 6)
 
 	h, err := framework.NewTestHarness("query_1m",
-		framework.WithFlushCount(maxCount),
-		framework.WithFlushIdle(1*time.Minute),
+		framework.WithFlushCount(50000),
+		framework.WithFlushIdle(10*time.Second),
 		framework.WithCompaction(3, 5*time.Second),
 	)
 	if err != nil {

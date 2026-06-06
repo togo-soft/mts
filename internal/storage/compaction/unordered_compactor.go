@@ -85,7 +85,6 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 		slog.Warn("skipping corrupt unordered file", "path", file, "error", err)
 		return nil
 	}
-
 	it, err := reader.NewIterator(nil, nil)
 	if err != nil {
 		_ = reader.Close()
@@ -97,8 +96,8 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 	var groupOrder []string
 
 	for it.Next() {
-		row := it.Point()
-		shardStart := (row.Timestamp / uc.shardMgr.ShardDurationNanos()) * uc.shardMgr.ShardDurationNanos()
+		mp := it.CurrentMemPoint(db, meas)
+		shardStart := (mp.Timestamp / uc.shardMgr.ShardDurationNanos()) * uc.shardMgr.ShardDurationNanos()
 		key := pointGroupKey(db, meas, shardStart)
 
 		g, ok := groupMap[key]
@@ -112,17 +111,11 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 			groupOrder = append(groupOrder, key)
 		}
 
-		mp := types.MemPoint{
-			Database:    db,
-			Measurement: meas,
-			Timestamp:   row.Timestamp,
-			Sid:         row.Sid,
-			FieldData:   rowToFieldData(row.Fields),
-		}
 		g.points = append(g.points, mp)
 	}
 
-	// 数据已全部读入内存，关闭源文件释放句柄，避免后续删除失败
+	// 数据已全部读入内存，关闭 reader 释放文件句柄
+	// 必须在写入 L0 和删除源文件之前完成，否则 Windows 上删除会因文件被占用而失败
 	_ = reader.Close()
 
 	// 对每组排序并写入 L0
@@ -155,8 +148,8 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 		}
 	}
 
-	// 删除已处理的源文件
-	if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+	// 删除已处理的源文件（带重试，兼容 Windows 文件锁定延迟）
+	if err := retryDelete(file); err != nil {
 		return fmt.Errorf("remove source file %s: %w", file, err)
 	}
 
@@ -180,16 +173,4 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 // pointGroupKey 生成分组 key。
 func pointGroupKey(db, meas string, shardStart int64) string {
 	return db + "\000" + meas + "\000" + fmt.Sprintf("%d", shardStart)
-}
-
-// rowToFieldData 将 []*FieldEntry 序列化为 FieldData 字节。
-func rowToFieldData(fields []*types.FieldEntry) []byte {
-	if len(fields) == 0 {
-		return nil
-	}
-	m := make(map[string]*types.FieldValue, len(fields))
-	for _, f := range fields {
-		m[f.Key] = f.Value
-	}
-	return types.AppendFieldData(nil, m)
 }
