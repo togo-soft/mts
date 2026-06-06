@@ -85,10 +85,10 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 		slog.Warn("skipping corrupt unordered file", "path", file, "error", err)
 		return nil
 	}
-	defer func() { _ = reader.Close() }()
 
 	it, err := reader.NewIterator(nil, nil)
 	if err != nil {
+		_ = reader.Close()
 		slog.Warn("failed to create iterator for unordered file", "path", file, "error", err)
 		return nil
 	}
@@ -121,6 +121,9 @@ func (uc *UnorderedCompactor) compactFile(file string) error {
 		}
 		g.points = append(g.points, mp)
 	}
+
+	// 数据已全部读入内存，关闭源文件释放句柄，避免后续删除失败
+	_ = reader.Close()
 
 	// 对每组排序并写入 L0
 	for _, key := range groupOrder {
