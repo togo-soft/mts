@@ -1,6 +1,7 @@
 package shard
 
 import (
+	"log/slog"
 	"sync"
 	"sync/atomic"
 )
@@ -48,13 +49,15 @@ func (sr *sstRefs) acquire(path string) bool {
 	return true
 }
 
-// release 释放对指定路径的引用。
+// release 释放对指定路径的引用。未知路径记录警告日志，帮助排查调用链问题。
 func (sr *sstRefs) release(path string) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
 	if ref, ok := sr.refs[path]; ok {
 		ref.Release()
+	} else {
+		slog.Warn("sstRefs: release called for unknown path", "path", path)
 	}
 }
 

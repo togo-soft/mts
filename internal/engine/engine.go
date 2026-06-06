@@ -232,7 +232,7 @@ func (e *Engine) discoverAndRecover() {
 	}
 
 	// 全局 WAL 重放到全局 MemTable
-	if err := e.wal.Replay(func(payload []byte) error {
+	stats, err := e.wal.Replay(func(payload []byte) error {
 		mp, err := wal.DeserializePoint(payload)
 		if err != nil {
 			return err
@@ -244,8 +244,13 @@ func (e *Engine) discoverAndRecover() {
 			}
 		}
 		return e.memTable.Write(mp)
-	}); err != nil {
+	})
+	if err != nil {
 		slog.Warn("global WAL replay failed", "error", err)
+	} else if stats != nil && (stats.SkippedSegments > 0 || stats.FailedRecords > 0) {
+		slog.Warn("WAL replay skipped segments or records",
+			"skipped_segments", stats.SkippedSegments,
+			"failed_records", stats.FailedRecords)
 	}
 
 	// Replay 完成后排序

@@ -194,7 +194,9 @@ func ListFiles(dataDir string) ([]string, error) {
 	}
 
 	sort.Slice(files, func(i, j int) bool {
-		return parseSeq(files[i]) < parseSeq(files[j])
+		si, _ := parseSeq(files[i])
+		sj, _ := parseSeq(files[j])
+		return si < sj
 	})
 	return files, nil
 }
@@ -212,7 +214,10 @@ func ParseFilePath(dataDir, path string) (db, meas string, seq uint64, ok bool) 
 	}
 	db = parts[0]
 	meas = parts[1]
-	seq = parseSeq(parts[2])
+	seq, err = parseSeq(parts[2])
+	if err != nil {
+		return "", "", 0, false
+	}
 	return db, meas, seq, true
 }
 
@@ -224,7 +229,10 @@ func RecoverSeq(dataDir string) error {
 	}
 	var maxSeq uint64
 	for _, f := range files {
-		seq := parseSeq(f)
+		seq, err := parseSeq(f)
+		if err != nil {
+			continue
+		}
 		if seq > maxSeq {
 			maxSeq = seq
 		}
@@ -233,10 +241,13 @@ func RecoverSeq(dataDir string) error {
 	return nil
 }
 
-func parseSeq(path string) uint64 {
+func parseSeq(path string) (uint64, error) {
 	base := filepath.Base(path)
 	numStr := strings.TrimPrefix(base, "sst_")
 	numStr = strings.TrimSuffix(numStr, ".bin")
-	n, _ := strconv.ParseUint(numStr, 10, 64)
-	return n
+	n, err := strconv.ParseUint(numStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse seq from %q: %w", base, err)
+	}
+	return n, nil
 }

@@ -166,9 +166,9 @@ func (s *Shard) initCompaction(cfg ShardConfig) {
 	}
 }
 
-// writeSSTableWithTimeout 在独立的 goroutine 中执行 SSTable 写入，并带有 5 秒超时。
-// 如果超时，主函数立即返回错误（goroutine 被 abandon，但不会泄漏，因为写入完成后会自然结束）。
-// 这种设计确保了即使在 Windows 上 I/O 阻塞，也不会永久卡死调用方。
+// writeSSTableWithTimeout 在独立 goroutine 中执行 SSTable 写入，带有超时保护。
+// 超时后通过 context 取消通知 goroutine 终止 I/O，避免 goroutine 泄漏。
+// goroutine 结束后自动清理临时文件，防止磁盘泄漏。
 func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (sstPath string, sstSeq uint64, minTime, maxTime int64, err error) {
 	type result struct {
 		sstPath string
@@ -185,13 +185,11 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 	go func() {
 		sstPath := filepath.Join(s.DataDir(), fmt.Sprintf("sst_%d.bin", seq))
 
-		// MkdirAll can block on Windows (antivirus, filesystem issues)
 		if mkdirErr := os.MkdirAll(s.DataDir(), 0700); mkdirErr != nil {
 			resCh <- result{"", 0, 0, 0, fmt.Errorf("create data dir: %w", mkdirErr)}
 			return
 		}
 
-		// 检查上下文是否已取消（避免在 I/O 期间长时间阻塞）
 		select {
 		case <-ctx.Done():
 			resCh <- result{"", 0, 0, 0, fmt.Errorf("write sstable cancelled")}
@@ -212,7 +210,6 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 			return
 		}
 
-		// Close triggers fsync and file operations that can block on Windows
 		if closeErr := w.Close(); closeErr != nil {
 			resCh <- result{"", 0, 0, 0, fmt.Errorf("close sstable writer: %w", closeErr)}
 			return
@@ -233,10 +230,22 @@ func (s *Shard) writeSSTableWithTimeout(points []types.MemPoint, seq uint64) (ss
 
 	select {
 	case <-ctx.Done():
-		// 超时后清理可能已创建的文件，避免磁盘泄漏
-		expPath := filepath.Join(s.DataDir(), fmt.Sprintf("sst_%d.bin", seq))
-		_ = os.Remove(expPath)
-		return "", 0, 0, 0, fmt.Errorf("write sstable timeout after 5s")
+		// 等待 goroutine 结束（context 已取消，goroutine 会尽快退出）
+		// 最多等待额外 2 秒，防止无限阻塞
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case res := <-resCh:
+			if res.err == nil {
+				return res.sstPath, res.sstSeq, res.minTime, res.maxTime, nil
+			}
+			return "", 0, 0, 0, res.err
+		case <-timer.C:
+			// goroutine 未在时间内退出，清理可能已创建的文件
+			expPath := filepath.Join(s.DataDir(), fmt.Sprintf("sst_%d.bin", seq))
+			_ = os.Remove(expPath)
+			return "", 0, 0, 0, fmt.Errorf("write sstable timeout after 5s")
+		}
 	case res := <-resCh:
 		return res.sstPath, res.sstSeq, res.minTime, res.maxTime, res.err
 	}
@@ -299,7 +308,8 @@ func (s *Shard) RegisterSSTable(sstSeq uint64, minTime, maxTime int64, size int6
 }
 
 // TriggerCompaction 在后台触发 compaction，成功后会级联检查是否仍有文件需要合并。
-// 通过 compactSem 限制并发 goroutine 数量，防止无限递归膨胀。
+// 通过 compactSem 限制并发 goroutine 数量。
+// 递归调用前增加 100ms 退避，防止在持续写入压力下频繁创建 goroutine。
 func (s *Shard) TriggerCompaction() {
 	if s.closed.Load() {
 		return
@@ -326,6 +336,7 @@ func (s *Shard) TriggerCompaction() {
 				return
 			}
 			if !s.closed.Load() && s.levelCompaction.ShouldCompact() {
+				time.Sleep(100 * time.Millisecond)
 				s.TriggerCompaction()
 			}
 		})
@@ -352,6 +363,7 @@ func (s *Shard) TriggerCompaction() {
 			s.compaction.ResetTimer()
 
 			if !s.closed.Load() && s.compaction.ShouldCompactWithLock() {
+				time.Sleep(100 * time.Millisecond)
 				s.TriggerCompaction()
 			}
 		})

@@ -182,6 +182,7 @@ func (cm *Manager) Compact(ctx context.Context) (string, []string, error) {
 	mergedFiles, mergeErr := cm.compactWithTwoPhase(ctx, sstFiles, outputPath)
 	if mergeErr != nil {
 		_ = cm.UnmarkWriting(outputPath)
+		_ = os.Remove(outputPath) // 清理可能已部分写入的输出文件
 		metrics.Incr(metrics.CompactionErrors, 1)
 		cm.Mu.Lock()
 		cm.CurrentTask = &Progress{Status: "failed", Err: mergeErr}

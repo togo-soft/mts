@@ -31,13 +31,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sort"
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/engine"
 	"codeberg.org/micro-ts/mts/internal/query"
+	"codeberg.org/micro-ts/mts/internal/storage"
 	"codeberg.org/micro-ts/mts/types"
 )
 
@@ -210,6 +210,10 @@ type DB struct {
 //
 // 注意：必须调用 Close 释放资源。
 func Open(cfg *Config) (*DB, error) {
+	// 注意：Open 会修改 cfg 指向的结构体（设置默认值等），
+	// 调用方需注意不要复用同一 cfg 对象。
+	// Config 包含 protoimpl.MessageState（内含 sync.Mutex），不可浅拷贝。
+
 	// 默认ShardDuration为7天
 	shardDuration := time.Duration(cfg.ShardDurationNanos)
 	if shardDuration == 0 {
@@ -229,7 +233,7 @@ func Open(cfg *Config) (*DB, error) {
 
 	// 确保数据目录存在
 	if cfg.DataDir != "" {
-		if err := os.MkdirAll(cfg.DataDir, 0700); err != nil {
+		if err := storage.SafeMkdirAll(cfg.DataDir, 0700); err != nil {
 			return nil, fmt.Errorf("create data directory: %w", err)
 		}
 	}
@@ -677,7 +681,7 @@ func (db *DB) DataDir() string {
 //   - error: 创建失败时返回错误
 func (db *DB) CreateEmptyMeasurement(database, measurement string) error {
 	measurementPath := filepath.Join(db.engine.DataDir(), database, measurement)
-	if err := os.MkdirAll(measurementPath, 0700); err != nil {
+	if err := storage.SafeMkdirAll(measurementPath, 0700); err != nil {
 		return fmt.Errorf("create measurement directory: %w", err)
 	}
 	return nil

@@ -2,6 +2,7 @@ package wal
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	lz4 "github.com/pierrec/lz4/v4"
 )
@@ -21,7 +22,7 @@ const minCompressSize = 80
 //   - err: 压缩失败
 func CompressPayload(payload []byte) (data []byte, release func(), err error) {
 	if len(payload) == 0 {
-		return nil, nil, nil
+		return nil, nil, fmt.Errorf("compress: empty payload")
 	}
 
 	// 小 payload 直接存储未压缩，避免无效的 LZ4 压缩尝试

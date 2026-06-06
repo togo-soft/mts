@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"sort"
+
 	"codeberg.org/micro-ts/mts/internal/storage"
 )
 
@@ -176,14 +178,12 @@ func ListSegments(dir string) ([]segmentEntry, error) {
 		}
 		segs = append(segs, seg{gen: g, num: n, path: m})
 	}
-	for i := 0; i < len(segs)-1; i++ {
-		for j := i + 1; j < len(segs); j++ {
-			if segs[i].gen > segs[j].gen ||
-				(segs[i].gen == segs[j].gen && segs[i].num > segs[j].num) {
-				segs[i], segs[j] = segs[j], segs[i]
-			}
+	sort.Slice(segs, func(i, j int) bool {
+		if segs[i].gen != segs[j].gen {
+			return segs[i].gen < segs[j].gen
 		}
-	}
+		return segs[i].num < segs[j].num
+	})
 
 	entries := make([]segmentEntry, len(segs))
 	for i, s := range segs {

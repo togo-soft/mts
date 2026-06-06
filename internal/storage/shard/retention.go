@@ -120,7 +120,7 @@ func (s *RetentionService) cleanup() {
 
 		cutoff := now.Add(-retention).UnixNano()
 		if shard.EndTime() < cutoff {
-			key := dbName + "/" + shard.Measurement() + "/" + formatInt64(shard.StartTime())
+			key := s.manager.makeKey(dbName, shard.Measurement(), shard.StartTime())
 			slog.Info("deleting expired shard",
 				"key", key,
 				"database", dbName,

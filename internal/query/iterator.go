@@ -12,6 +12,7 @@ import (
 	"container/heap"
 	"context"
 	"sync/atomic"
+	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/shard"
@@ -73,9 +74,19 @@ func (c *channelIterator) Next() *types.PointRow {
 }
 
 func (c *channelIterator) Close() {
-	// 注意：如果 producer goroutine panic 或死锁，此 drain 会永久阻塞。
-	// 当前依赖 producer 在完成/取消时 close channel 来保证退出。
-	for range c.ch {
+	// 带超时的 drain，防止 producer goroutine 卡死导致永久阻塞
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case _, ok := <-c.ch:
+			if !ok {
+				return
+			}
+		case <-timeout.C:
+			// 超时放弃 drain，producer 可能已卡死
+			return
+		}
 	}
 }
 

@@ -97,11 +97,11 @@ func TestCompressPayload_PoolRelease(t *testing.T) {
 
 func TestCompressPayload_EmptyPayload(t *testing.T) {
 	compressed, release, err := CompressPayload(nil)
-	if err != nil {
-		t.Fatalf("CompressPayload(nil): %v", err)
+	if err == nil {
+		t.Fatal("expected error for empty payload")
 	}
 	if compressed != nil {
-		t.Errorf("expected nil for empty payload, got %d bytes", len(compressed))
+		t.Errorf("expected nil compressed for empty payload, got %d bytes", len(compressed))
 	}
 	if release != nil {
 		t.Errorf("expected nil release for empty payload")

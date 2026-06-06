@@ -58,7 +58,7 @@ func TestWAL_WriteAndReplay(t *testing.T) {
 	defer func() { _ = w2.Close() }()
 
 	var replayed [][]byte
-	err = w2.Replay(func(data []byte) error {
+	_, err = w2.Replay(func(data []byte) error {
 		replayed = append(replayed, append([]byte(nil), data...))
 		return nil
 	})
@@ -110,7 +110,7 @@ func TestWAL_TruncateCurrent(t *testing.T) {
 	}
 
 	var count int
-	_ = w.Replay(func(data []byte) error {
+	_, _ = w.Replay(func(data []byte) error {
 		count++
 		return nil
 	})
@@ -206,7 +206,7 @@ func TestWAL_ReplayIncremental(t *testing.T) {
 	}
 
 	var count int
-	_ = w2.Replay(func(data []byte) error {
+	_, _ = w2.Replay(func(data []byte) error {
 		count++
 		return nil
 	})
@@ -259,7 +259,7 @@ func TestWAL_CRC_Corruption_Skip(t *testing.T) {
 	defer func() { _ = w2.Close() }()
 
 	var count int
-	_ = w2.Replay(func(data []byte) error {
+	_, _ = w2.Replay(func(data []byte) error {
 		count++
 		return nil
 	})
@@ -334,7 +334,7 @@ func TestWAL_TruncateAfterFlush_Basic(t *testing.T) {
 
 	// replay 应只看到 truncate 后的数据
 	var count int
-	_ = w.Replay(func(data []byte) error {
+	_, _ = w.Replay(func(data []byte) error {
 		count++
 		return nil
 	})
@@ -456,7 +456,7 @@ func TestWAL_TruncateAfterFlush_RestartRecovery(t *testing.T) {
 	defer func() { _ = w2.Close() }()
 
 	var replayed [][]byte
-	_ = w2.Replay(func(data []byte) error {
+	_, _ = w2.Replay(func(data []byte) error {
 		replayed = append(replayed, append([]byte(nil), data...))
 		return nil
 	})
@@ -514,7 +514,7 @@ func TestReplay_WithCheckpoint_SkipsPersistedSegments(t *testing.T) {
 	defer func() { _ = w2.Close() }()
 
 	var replayed []string
-	err = w2.Replay(func(data []byte) error {
+	_, err = w2.Replay(func(data []byte) error {
 		replayed = append(replayed, string(data))
 		return nil
 	})
@@ -543,7 +543,7 @@ func TestReplay_NoCheckpoint_ReplaysAll(t *testing.T) {
 	defer func() { _ = w2.Close() }()
 
 	var replayed []string
-	_ = w2.Replay(func(data []byte) error {
+	_, _ = w2.Replay(func(data []byte) error {
 		replayed = append(replayed, string(data))
 		return nil
 	})

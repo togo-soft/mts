@@ -1280,7 +1280,7 @@ func TestShard_FullIteratorFlow(t *testing.T) {
 	_ = s.Close()
 }
 
-func TestShardManager_discoverShardsLocked_WithEntries(t *testing.T) {
+func TestShardManager_discoverShards_WithEntries(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	mgr, err := metadata.NewManager(tmpDir)
@@ -1324,8 +1324,8 @@ func TestShardManager_discoverShardsLocked_WithEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// discoverShardsLocked should only process the valid "start_end" dir
-	sm.discoverShardsLocked("db1", "cpu")
+	// discoverShards should only process the valid "start_end" dir
+	sm.discoverShards("db1", "cpu")
 
 	// Should have discovered 1 shard
 	shards := sm.GetAllShards()

@@ -57,7 +57,10 @@ func (c *Config) normalize() {
 	if c.SyncInterval <= 0 {
 		c.SyncInterval = defaultSyncInterval
 	}
-	// 默认启用压缩
+	// 压缩默认开启。当前强制 Compressed=true 以保证 WAL 格式一致性：
+// DecompressPayload 已支持 flag=0（未压缩），但 Write/WriteBatch 路径
+// 在 Compressed=false 时不走 CompressPayload，直接编码裸 payload，
+// 与 flag=0 格式（5 字节头）不兼容。待统一未压缩编码后再放开此限制。
 	if !c.Compressed {
 		c.Compressed = true
 	}
@@ -66,8 +69,8 @@ func (c *Config) normalize() {
 // WAL 是 Write-Ahead Log 实例。
 type WAL struct {
 	dir            string
-	gen            uint64 // 当前世代
-	segNum         uint64 // 当前 segment 序号
+	gen            uint64       // 当前世代
+	segNum         atomic.Uint64 // 当前 segment 序号（原子操作保证线程安全）
 	seg            *segment
 	mu             sync.Mutex
 	buf            []byte // 聚合写缓冲
@@ -77,6 +80,7 @@ type WAL struct {
 	segClosed      atomic.Bool   // segment 是否已关闭
 	syncDone       chan struct{} // 停止周期性同步
 	syncDoneClosed atomic.Bool   // syncDone 是否已关闭
+	syncWg         sync.WaitGroup // 追踪 sync goroutine
 	replayedSegs   int           // replay 过程中发现的 segment 数量
 	compressed     bool          // 是否启用压缩
 }
@@ -107,13 +111,13 @@ func Open(cfg Config) (*WAL, error) {
 	if len(entries) > 0 {
 		last := entries[len(entries)-1]
 		w.gen = last.Gen
-		w.segNum = last.Num + 1
+		w.segNum.Store(last.Num + 1)
 	} else {
 		w.gen = uint64(time.Now().Unix())
-		w.segNum = 1
+		w.segNum.Store(1)
 	}
 
-	seg, err := openSegment(cfg.Dir, w.gen, w.segNum, w.compressed)
+	seg, err := openSegment(cfg.Dir, w.gen, w.segNum.Load(), w.compressed)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +173,11 @@ func (w *WAL) Write(data []byte) (int, error) {
 		putBuf(recordBuf)
 	}()
 
+	// 二次检查 closed：防止与 Close() 的竞态
+	if w.closed.Load() {
+		return 0, ErrWALClosed
+	}
+
 	if w.seg.size+int64(w.bufPos)+int64(len(record)) > w.cfg.SegmentSize {
 		if err := w.rotateLocked(); err != nil {
 			return 0, err
@@ -212,6 +221,11 @@ func (w *WAL) WriteBatch(data [][]byte) (int, error) {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// 二次检查 closed：防止与 Close() 的竞态
+	if w.closed.Load() {
+		return 0, ErrWALClosed
+	}
 
 	var total int
 	var recordBuf []byte // 跨迭代复用，避免每次分配
@@ -304,13 +318,14 @@ func (w *WAL) TruncateCurrent() error {
 	}
 
 	// 当前 segment 已 sync，数据安全
-	// 删除当前 generation 的所有旧 segment（segNum < w.segNum）
+	// 删除当前 generation 的所有旧 segment（segNum < current segNum）
+	segNum := w.segNum.Load()
 	entries, err := ListSegments(w.dir)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if e.Gen == w.gen && e.Num < w.segNum {
+		if e.Gen == w.gen && e.Num < segNum {
 			if rmErr := os.Remove(e.Path); rmErr != nil {
 				w.cfg.Logger.Warn("failed to remove old WAL segment", "path", e.Path, "error", rmErr)
 			}
@@ -340,12 +355,13 @@ func (w *WAL) TruncateAfterFlush() error {
 	}
 
 	// 删除所有旧 segment（仅保留 rotateLocked 刚创建的新空 segment）
+	segNum := w.segNum.Load()
 	entries, err := ListSegments(w.dir)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if e.Gen == w.gen && e.Num == w.segNum {
+		if e.Gen == w.gen && e.Num == segNum {
 			continue
 		}
 		if rmErr := os.Remove(e.Path); rmErr != nil {
@@ -448,6 +464,9 @@ func (w *WAL) Purge() error {
 		}
 	}
 
+	// 等待 sync goroutine 退出
+	w.syncWg.Wait()
+
 	return nil
 }
 
@@ -466,6 +485,9 @@ func (w *WAL) Close() error {
 			close(w.syncDone)
 		}
 	}
+
+	// 等待 sync goroutine 退出，避免向已关闭的文件执行 fsync
+	w.syncWg.Wait()
 
 	if err := w.flushLocked(); err != nil {
 		return err
@@ -495,13 +517,13 @@ func (w *WAL) Generation() uint64 {
 
 // SegmentNum 返回当前 segment 序号。
 func (w *WAL) SegmentNum() uint64 {
-	return w.segNum
+	return w.segNum.Load()
 }
 
 // SetSegmentNum 设置当前 segment 序号。
 // 用于在 replay 完成后更新，以便 TruncateCurrent 知道哪些 segment 已处理。
 func (w *WAL) SetSegmentNum(segNum uint64) {
-	w.segNum = segNum
+	w.segNum.Store(segNum)
 }
 
 // ReplayedSegments 返回 replay 过程中发现的 segment 数量。
@@ -509,14 +531,23 @@ func (w *WAL) ReplayedSegments() int {
 	return w.replayedSegs
 }
 
+// ReplayStats 记录 WAL replay 的统计信息。
+type ReplayStats struct {
+	TotalSegments int // 总共需要 replay 的 segment 数
+	SkippedSegments int // 跳过的 segment 数（头部读取失败）
+	FailedRecords int // 读取失败的 record 数
+}
+
 // Replay 流式回放 WAL segment。
 //
 // 通过 checkpoint 跳过已持久化到 SSTable 的旧 segment，减少重启恢复时间。
 // 去重由上层（memtable）通过 timestamp + tags 处理。
-func (w *WAL) Replay(fn func(payload []byte) error) error {
+//
+// 返回值包含 replay 统计信息，调用方可据此判断数据丢失程度。
+func (w *WAL) Replay(fn func(payload []byte) error) (*ReplayStats, error) {
 	entries, err := ListSegments(w.dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// 加载 checkpoint，跳过已完成 flush 的旧 segment
@@ -542,11 +573,13 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 	}
 
 	w.replayedSegs = len(toReplay)
+	stats := &ReplayStats{TotalSegments: len(toReplay)}
 
 	for _, e := range toReplay {
 		file, err := os.Open(e.Path)
 		if err != nil {
 			w.cfg.Logger.Warn("failed to open WAL segment for replay", "path", e.Path, "error", err)
+			stats.SkippedSegments++
 			continue
 		}
 
@@ -554,6 +587,7 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 		if err != nil {
 			_ = file.Close()
 			w.cfg.Logger.Warn("failed to read WAL segment header", "path", e.Path, "error", err)
+			stats.SkippedSegments++
 			continue
 		}
 
@@ -561,9 +595,10 @@ func (w *WAL) Replay(fn func(payload []byte) error) error {
 		_ = file.Close()
 		if err != nil {
 			w.cfg.Logger.Warn("WAL replay encountered error", "path", e.Path, "error", err)
+			stats.FailedRecords++
 		}
 	}
-	return nil
+	return stats, nil
 }
 
 // rotateLocked 轮转到新 segment（需持有 w.mu）。
@@ -578,8 +613,8 @@ func (w *WAL) rotateLocked() error {
 		return err
 	}
 
-	w.segNum++
-	seg, err := openSegment(w.dir, w.gen, w.segNum, w.compressed)
+	w.segNum.Add(1)
+	seg, err := openSegment(w.dir, w.gen, w.segNum.Load(), w.compressed)
 	if err != nil {
 		return err
 	}
@@ -615,7 +650,9 @@ func (w *WAL) flushLocked() error {
 
 // startPeriodicSync 启动周期性 fsync goroutine。
 func (w *WAL) startPeriodicSync() {
+	w.syncWg.Add(1)
 	go func() {
+		defer w.syncWg.Done()
 		ticker := time.NewTicker(w.cfg.SyncInterval)
 		defer ticker.Stop()
 		for {

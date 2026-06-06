@@ -88,13 +88,10 @@ func (m *ShardManager) GetShard(db, measurementName string, timestamp int64) (*S
 		Dir:                  shardDir,
 		SeriesStore:          m.seriesStore,
 		SchemaStore:          m.catalog,
-		CompressionAlgorithm: m.compressionAlgo,
-	})
-	m.shards[key] = s
-	s.initCompaction(ShardConfig{
 		CompactionCfg:        m.compactionCfg,
 		CompressionAlgorithm: m.compressionAlgo,
 	})
+	m.shards[key] = s
 
 	if err := m.shardIndex.RegisterShard(db, measurementName, metadata.ShardInfo{
 		ID:        key,
@@ -114,7 +111,7 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 	if !isNameSafe(db) || !isNameSafe(measurementName) {
 		return nil
 	}
-	m.discoverShardsLocked(db, measurementName)
+	m.discoverShards(db, measurementName)
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -133,7 +130,7 @@ func (m *ShardManager) GetShards(db, measurementName string, startTime, endTime 
 	return result
 }
 
-func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
+func (m *ShardManager) discoverShards(db, measurementName string) {
 	if !isNameSafe(db) || !isNameSafe(measurementName) {
 		return
 	}
@@ -181,13 +178,10 @@ func (m *ShardManager) discoverShardsLocked(db, measurementName string) {
 			Dir:                  shardDir,
 			SeriesStore:          m.seriesStore,
 			SchemaStore:          m.catalog,
-			CompressionAlgorithm: m.compressionAlgo,
-		})
-		m.shards[key] = shard
-		shard.initCompaction(ShardConfig{
 			CompactionCfg:        m.compactionCfg,
 			CompressionAlgorithm: m.compressionAlgo,
 		})
+		m.shards[key] = shard
 	}
 }
 
@@ -291,9 +285,8 @@ func (m *ShardManager) GetAllShards() []*Shard {
 }
 
 // DeleteShard 删除指定的 Shard。
-// 先从 map 中移除 shard 并释放锁，再执行 Close 和目录删除，
-// 避免长时间持锁阻塞其他 ShardManager 操作。
-// os.RemoveAll 前双重检查 key 是否被重建，防止 TOCTOU 竞态。
+// 在写锁保护下执行目录删除，避免与 GetShard 的 TOCTOU 竞态：
+// 删除前检查 key 是否被重建，如果被重建则跳过删除。
 func (m *ShardManager) DeleteShard(key string) error {
 	m.mu.Lock()
 	shard, ok := m.shards[key]
@@ -315,15 +308,18 @@ func (m *ShardManager) DeleteShard(key string) error {
 		return nil
 	}
 
-	// 双重检查：Close 期间可能有 GetShard 为相同时间窗口创建了新 Shard
-	m.mu.RLock()
+	// 在写锁保护下检查并删除目录，防止 GetShard 在此期间重建 shard
+	m.mu.Lock()
 	_, recreated := m.shards[key]
-	m.mu.RUnlock()
 	if recreated {
+		m.mu.Unlock()
 		return nil
 	}
+	// 持有写锁删除目录，确保 GetShard 不会在删除过程中创建同名目录
+	err := os.RemoveAll(dir)
+	m.mu.Unlock()
 
-	if err := os.RemoveAll(dir); err != nil {
+	if err != nil {
 		return fmt.Errorf("remove shard dir: %w", err)
 	}
 
