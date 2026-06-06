@@ -1,6 +1,7 @@
 package memtable
 
 import (
+	"errors"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -9,6 +10,9 @@ import (
 	"codeberg.org/micro-ts/mts/internal/metrics"
 	"codeberg.org/micro-ts/mts/types"
 )
+
+// ErrMemTableFull MemTable 已满，写入前需先刷盘。
+var ErrMemTableFull = errors.New("memtable is full")
 
 // MemTableConfig 是 types.MemTableConfig 的别名，用于 memtable 包。
 type MemTableConfig = types.MemTableConfig
@@ -58,9 +62,14 @@ func NewMemTable(cfg *MemTableConfig) *MemTable {
 }
 
 // Write 写入 MemPoint 到 active。直接接管 FieldData 所有权，无需拷贝。
+// 若 active 超过硬限制（5x maxSize/maxCount），返回 ErrMemTableFull。
 func (m *MemTable) Write(mp types.MemPoint) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.activeBytes >= m.maxSize*5 || (m.maxCount > 0 && m.activeCount >= m.maxCount*5) {
+		return ErrMemTableFull
+	}
 
 	m.active = append(m.active, mp)
 	m.activeCount++

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/compaction"
@@ -88,6 +89,9 @@ type Engine struct {
 
 	// unordered → L0 compaction
 	compactionStopCh chan struct{}
+
+	// pendingSeg 保护非容量类写入失败的 WAL entry 不被 truncation
+	pendingSeg atomic.Uint64
 }
 
 // New 创建新的存储引擎实例。

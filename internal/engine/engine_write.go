@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"codeberg.org/micro-ts/mts/internal/storage/memtable"
 	"codeberg.org/micro-ts/mts/internal/storage/wal"
 	"codeberg.org/micro-ts/mts/types"
 )
@@ -69,40 +71,36 @@ func (e *Engine) Write(ctx context.Context, point *types.Point) error {
 	walPayload, release := wal.SerializePoint(point.Database, point.Measurement, mp.Timestamp, mp.Sid, mp.FieldData)
 	defer release()
 
-	// 写 WAL
+	// 写 WAL（先持久化，保证数据不丢）
 	if _, err := e.wal.Write(walPayload); err != nil {
 		return fmt.Errorf("wal write: %w", err)
 	}
 
-	// 背压：满时触发同步刷盘，并发场景下等待其他 goroutine 的刷盘完成
-	if e.memTable.ActiveFull() {
-		if err := e.flushWithRetry(); err != nil {
-			return err
-		}
-	}
-
-	if err := e.memTable.Write(mp); err != nil {
-		return fmt.Errorf("memtable write: %w", err)
-	}
-	return nil
-}
-
-// flushWithRetry 触发刷盘，若其他 goroutine 正在刷盘则等待其完成。
-// 并发写入场景下，多个 goroutine 可能同时发现 MemTable 满，
-// 但只有第一个能启动刷盘（TrySetFlushing），其他的需要等待。
-// 使用条件变量代替 busy-wait，减少 CPU 开销和延迟。
-func (e *Engine) flushWithRetry() error {
+	// 写 MemTable，若满则刷盘重试
 	for range maxFlushRetries {
-		if err := e.coordinator.FlushAll(); err != nil {
-			slog.Warn("flush on memtable full failed", "error", err)
-		}
-		if !e.memTable.ActiveFull() {
+		err := e.memTable.Write(mp)
+		if err == nil {
 			return nil
 		}
-		// 等待 flush 完成通知，而不是 busy-wait
-		e.memTable.WaitNotFullNoCtx()
+		if errors.Is(err, memtable.ErrMemTableFull) {
+			if fErr := e.coordinator.FlushAll(); fErr != nil {
+				return fmt.Errorf("write failed: %w", errors.Join(err, fErr))
+			}
+			continue
+		}
+		// 非容量类失败（极罕见）→ 保护 WAL entry 防止被 truncation
+		e.recordPendingSeg()
+		return fmt.Errorf("memtable write: %w", err)
 	}
-	return fmt.Errorf("memtable still full after %d flush attempts", maxFlushRetries)
+	return fmt.Errorf("memtable write failed after %d retries", maxFlushRetries)
+}
+
+// recordPendingSeg 记录当前 WAL segment 为 pending，防止被 truncation 回收。
+// 当 MemTable 写入因非容量类失败时调用，保证 WAL 中的 entry 重启后可重放。
+func (e *Engine) recordPendingSeg() {
+	seg := e.wal.SegmentNum()
+	e.pendingSeg.Store(seg)
+	e.coordinator.SetPendingSeg(seg)
 }
 
 // WriteBatch 批量写入数据点。
@@ -186,16 +184,20 @@ func (e *Engine) WriteBatch(ctx context.Context, points []*types.Point) error {
 		return fmt.Errorf("wal write batch: %w", err)
 	}
 
-	// 背压：满时触发同步刷盘，并发场景下等待其他 goroutine 的刷盘完成
-	if e.memTable.ActiveFull() {
-		if err := e.flushWithRetry(); err != nil {
-			return err
-		}
-	}
-
-	// 批量写 MemTable
+	// 批量写 MemTable，若满则刷盘重试
 	for _, mp := range memPoints {
-		if err := e.memTable.Write(mp); err != nil {
+		for range maxFlushRetries {
+			err := e.memTable.Write(mp)
+			if err == nil {
+				break
+			}
+			if errors.Is(err, memtable.ErrMemTableFull) {
+				if fErr := e.coordinator.FlushAll(); fErr != nil {
+					return fmt.Errorf("batch write failed: %w", errors.Join(err, fErr))
+				}
+				continue
+			}
+			e.recordPendingSeg()
 			return fmt.Errorf("memtable write: %w", err)
 		}
 	}

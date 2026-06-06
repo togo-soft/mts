@@ -3,6 +3,7 @@ package engine
 import (
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codeberg.org/micro-ts/mts/internal/storage/memtable"
@@ -35,6 +36,7 @@ type FlushCoordinator struct {
 	stopCh      chan struct{}
 	stopOnce    sync.Once
 	wg          sync.WaitGroup
+	pendingSeg  atomic.Uint64
 }
 
 // NewFlushCoordinator 创建新的 FlushCoordinator。
@@ -141,8 +143,12 @@ func (fc *FlushCoordinator) doFlush() error {
 	fc.lastFlush = time.Now()
 	fc.mu.Unlock()
 
-	// 销毁已刷盘的 WAL 段
-	if err := fc.wal.TruncateBefore(fc.wal.SegmentNum() + 1); err != nil {
+	// 销毁已刷盘的 WAL 段，但需保护 pending entry 所在段不被回收
+	truncateBefore := fc.wal.SegmentNum() + 1
+	if pending := fc.pendingSeg.Load(); pending > 0 && pending < truncateBefore {
+		truncateBefore = pending
+	}
+	if err := fc.wal.TruncateBefore(truncateBefore); err != nil {
 		slog.Warn("failed to truncate WAL after flush", "error", err)
 	}
 
@@ -168,4 +174,10 @@ func (fc *FlushCoordinator) Close() {
 // MemTable 返回全局 MemTable。
 func (fc *FlushCoordinator) MemTable() *memtable.MemTable {
 	return fc.memTable
+}
+
+// SetPendingSeg 设置 pending WAL segment，该 segment 内的 entry 不会被 truncation。
+// 用于 MemTable 写入失败但 WAL 已写入的场景，保证重启后 WAL replay 可恢复数据。
+func (fc *FlushCoordinator) SetPendingSeg(seg uint64) {
+	fc.pendingSeg.Store(seg)
 }
