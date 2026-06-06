@@ -77,14 +77,12 @@ type sstableOutput struct {
 func (o *sstableOutput) fail(cause error) error {
 	_ = o.file.Close()
 	_ = os.Remove(o.path)
-	_ = os.RemoveAll(filepath.Dir(o.path))
 	return fmt.Errorf("failed to finalize SSTable: %w", cause)
 }
 
 func (o *sstableOutput) cleanup() {
 	_ = o.file.Close()
 	_ = os.Remove(o.path)
-	_ = os.RemoveAll(filepath.Dir(o.path))
 }
 
 type closeState struct {
